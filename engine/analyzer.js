@@ -1,4 +1,9 @@
 import {
+  generateReasons,
+  calculateConfidence
+} from "./reasoning.js";
+
+import {
   calculateSMA,
   calculateEMA,
   calculateRSI,
@@ -61,6 +66,26 @@ export function analyzeStock(data) {
     stopLoss,
     takeProfit
   );
+const confidence = calculateConfidence({
+  close,
+  sma20,
+  sma50,
+  ema9,
+  ema20,
+  macd,
+  riskReward
+});
+
+const reasons = generateReasons({
+  close,
+  sma20,
+  sma50,
+  ema9,
+  ema20,
+  rsi,
+  macd,
+  riskReward
+});
 
   return {
     kode: data.kode,
@@ -88,6 +113,21 @@ export function analyzeStock(data) {
 
     riskReward,
 
+score,
+signal,
+
+confidence,
+reasons,
+
+support,
+resistance,
+
+stopLoss,
+takeProfit,
+
+riskReward,
+
+timestamp
     timestamp: new Date().toISOString()
   };
 }
