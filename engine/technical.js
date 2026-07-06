@@ -64,3 +64,25 @@ export function calculateMACD(prices) {
     macd
   };
 }
+
+export function calculateBollingerBands(prices, period = 20) {
+
+  if (prices.length < period) return null;
+
+  const slice = prices.slice(-period);
+
+  const sma = calculateSMA(prices, period);
+
+  const variance =
+    slice.reduce((sum, price) => {
+      return sum + Math.pow(price - sma, 2);
+    }, 0) / period;
+
+  const stdDev = Math.sqrt(variance);
+
+  return {
+    upper: Number((sma + 2 * stdDev).toFixed(2)),
+    middle: sma,
+    lower: Number((sma - 2 * stdDev).toFixed(2))
+  };
+}
