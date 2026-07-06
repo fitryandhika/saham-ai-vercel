@@ -1,14 +1,26 @@
+import YahooFinance from "yahoo-finance2";
+
+const yahooFinance = new YahooFinance();
+
 export async function getStockData(kode) {
 
-  // Dummy sementara.
-  // Nanti pada Tahap 8.2 akan diganti dengan API real-time.
+  const symbol = `${kode}.JK`;
+
+  const history = await yahooFinance.historical(symbol, {
+    period1: new Date(Date.now() - 1000 * 60 * 60 * 24 * 120),
+    interval: "1d"
+  });
+
+  if (!history || history.length === 0) {
+    throw new Error(`Data saham ${kode} tidak ditemukan.`);
+  }
+
+  const closePrices = history
+    .map(item => item.close)
+    .filter(price => price !== null);
 
   return {
     kode,
-
-    closePrices: Array.from(
-      { length: 60 },
-      (_, i) => 5000 + i * 8
-    )
+    closePrices
   };
 }
