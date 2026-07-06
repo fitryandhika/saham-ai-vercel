@@ -46,3 +46,21 @@ export function calculateRSI(prices, period = 14) {
 
   return Number((100 - (100 / (1 + rs))).toFixed(2));
 }
+
+export function calculateMACD(prices) {
+
+  const ema12 = calculateEMA(prices, 12);
+  const ema26 = calculateEMA(prices, 26);
+
+  if (ema12 === null || ema26 === null) {
+    return null;
+  }
+
+  const macd = Number((ema12 - ema26).toFixed(2));
+
+  return {
+    ema12,
+    ema26,
+    macd
+  };
+}
