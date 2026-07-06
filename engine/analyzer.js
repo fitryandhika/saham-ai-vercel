@@ -10,6 +10,8 @@ import {
   calculateRSI
 } from "./technical.js";
 
+import { calculateScore, recommendation } from "./scorer.js";
+
 export function analyzeStock(data) {
 
   const trend = calculateTrend(data.close, data.ma20);
@@ -27,17 +29,28 @@ export function analyzeStock(data) {
   );
 
   return {
-    kode: data.kode,
-    close: data.close,
-    ma20: data.ma20,
-    rsi: data.rsi,
-    trend,
-    rekomendasi,
-    confidence: `${confidence}%`,
-    support: data.low,
-    resistance: data.high,
-    timestamp: new Date().toISOString()
-  };
+
+  kode: data.kode,
+
+  close,
+
+  sma20,
+
+  sma50,
+
+  ema9,
+
+  ema20,
+
+  rsi,
+
+  score,
+
+  signal,
+
+  timestamp: new Date().toISOString()
+
+};
 }
 
 export function analyzeStock(data) {
@@ -57,3 +70,15 @@ export function analyzeStock(data) {
     timestamp: new Date().toISOString()
   };
 }
+
+const score = calculateScore({
+  close,
+  sma20,
+  sma50,
+  ema9,
+  ema20,
+  rsi,
+  volumeRatio: 1.2
+});
+
+const signal = recommendation(score);
