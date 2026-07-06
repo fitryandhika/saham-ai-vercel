@@ -28,7 +28,10 @@ export function analyzeStock(data) {
 
   const close = data.closePrices.at(-1);
 
+  // ==========================
   // Technical Indicators
+  // ==========================
+
   const sma20 = calculateSMA(data.closePrices, 20);
   const sma50 = calculateSMA(data.closePrices, 50);
 
@@ -37,88 +40,23 @@ export function analyzeStock(data) {
 
   const rsi = calculateRSI(data.closePrices);
 
-  // MACD & Bollinger Bands
   const macd = calculateMACD(data.closePrices);
+
   const bollinger = calculateBollingerBands(data.closePrices);
 
-  // AI Score
-  
-const score = calculateScore({
-  close,
-  sma20,
-  sma50,
-  ema9,
-  ema20,
-  rsi,
-  macd,
-  riskReward
-});
-  const signal = recommendation(score);
-
+  // ==========================
   // Risk Management
+  // ==========================
+
   const support = calculateSupport(data.closePrices);
+
   const resistance = calculateResistance(data.closePrices);
 
   const stopLoss = calculateStopLoss(support);
+
   const takeProfit = calculateTakeProfit(resistance);
 
   const riskReward = calculateRiskReward(
     close,
     stopLoss,
     takeProfit
-  );
-
-  // Confidence & Reasons
-  const confidence = calculateConfidence({
-    close,
-    sma20,
-    sma50,
-    ema9,
-    ema20,
-    macd,
-    riskReward
-  });
-
-  const reasons = generateReasons({
-    close,
-    sma20,
-    sma50,
-    ema9,
-    ema20,
-    rsi,
-    macd,
-    riskReward
-  });
-
-  return {
-    kode: data.kode,
-    close,
-
-    sma20,
-    sma50,
-
-    ema9,
-    ema20,
-
-    rsi,
-
-    macd,
-    bollinger,
-
-    score,
-    signal,
-
-    confidence,
-    reasons,
-
-    support,
-    resistance,
-
-    stopLoss,
-    takeProfit,
-
-    riskReward,
-
-    timestamp: new Date().toISOString()
-  };
-}
