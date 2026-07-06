@@ -1,19 +1,22 @@
 import { analyzeStock } from "../engine/analyzer.js";
 
 export default function handler(req, res) {
-  const { kode } = req.query;
 
-  if (!kode) {
-    return res.status(400).json({
-      success: false,
-      message: "Parameter 'kode' wajib diisi."
-    });
-  }
+  const kode = (req.query.kode || "BBCA").toUpperCase();
 
-  const hasil = analyzeStock(kode);
+  const sampleData = {
+    kode,
+    close: 5230,
+    high: 5300,
+    low: 5180,
+    ma20: 5200,
+    rsi: 58
+  };
+
+  const hasil = analyzeStock(sampleData);
 
   res.status(200).json({
     success: true,
-    ...hasil
+    data: hasil
   });
 }
