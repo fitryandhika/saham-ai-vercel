@@ -60,3 +60,89 @@ export function analyzeStock(data) {
     close,
     stopLoss,
     takeProfit
+  );
+
+  // ==========================
+  // AI Score
+  // ==========================
+
+  const score = calculateScore({
+    close,
+    sma20,
+    sma50,
+    ema9,
+    ema20,
+    rsi,
+    macd,
+    riskReward
+  });
+
+  const signal = recommendation(score);
+
+  // ==========================
+  // Confidence & Reasons
+  // ==========================
+
+  const confidence = calculateConfidence({
+    close,
+    sma20,
+    sma50,
+    ema9,
+    ema20,
+    macd,
+    riskReward
+  });
+
+  const reasons = generateReasons({
+    close,
+    sma20,
+    sma50,
+    ema9,
+    ema20,
+    rsi,
+    macd,
+    riskReward
+  });
+
+  // ==========================
+  // Final Result
+  // ==========================
+
+  return {
+    kode: data.kode,
+
+    close,
+
+    sma20,
+    sma50,
+
+    ema9,
+    ema20,
+
+    rsi,
+
+    macd,
+
+    bollinger,
+
+    score,
+
+    signal,
+
+    confidence,
+
+    reasons,
+
+    support,
+
+    resistance,
+
+    stopLoss,
+
+    takeProfit,
+
+    riskReward,
+
+    timestamp: new Date().toISOString()
+  };
+}
