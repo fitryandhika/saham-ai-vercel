@@ -27,8 +27,8 @@ import {
 import {
   getMarketTrend,
   getRiskLevel,
-  getEntrySignal,
-  getVerdict
+  getEntryTiming,
+  getFinalVerdict
 } from "./verdict.js";
 
 export function analyzeStock(data) {
@@ -112,11 +112,10 @@ export function analyzeStock(data) {
   });
 
   // ==========================
-  // Trading Verdict
+  // Final Verdict
   // ==========================
 
   const marketTrend = getMarketTrend({
-    close,
     sma20,
     sma50,
     ema9,
@@ -124,23 +123,25 @@ export function analyzeStock(data) {
   });
 
   const riskLevel = getRiskLevel({
+    rsi,
     riskReward
   });
 
-  const entry = getEntrySignal({
+  const entry = getEntryTiming({
     signal,
-    riskReward,
-    rsi
+    rsi,
+    riskReward
   });
 
-  const verdict = getVerdict({
+  const verdict = getFinalVerdict({
     signal,
-    riskReward,
-    rsi
+    confidence,
+    entry,
+    riskLevel
   });
 
   // ==========================
-  // Final Result
+  // Response
   // ==========================
 
   return {
@@ -161,31 +162,25 @@ export function analyzeStock(data) {
     bollinger,
 
     score,
-
     signal,
 
     confidence,
-
     reasons,
 
     marketTrend,
-
     riskLevel,
-
     entry,
-
     verdict,
 
     support,
-
     resistance,
 
     stopLoss,
-
     takeProfit,
 
     riskReward,
 
     timestamp: new Date().toISOString()
   };
+
 }
