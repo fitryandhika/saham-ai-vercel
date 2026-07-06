@@ -1,51 +1,79 @@
-export function generateVerdict(data) {
-
-  const {
-    score,
-    confidence,
-    close,
-    sma20,
-    sma50,
-    ema9,
-    ema20,
-    macd,
-    riskReward
-  } = data;
-
-  // ==========================
-  // Market Trend
-  // ==========================
-
+export function getMarketTrend({
+  sma20,
+  sma50,
+  ema9,
+  ema20
+}) {
   let bullish = 0;
 
-  if (close > sma20) bullish++;
   if (sma20 > sma50) bullish++;
   if (ema9 > ema20) bullish++;
-  if (macd && macd.macd > 0) bullish++;
 
-  let marketTrend = "SIDEWAYS";
+  if (bullish >= 2) return "BULLISH";
+  if (bullish === 1) return "SIDEWAYS";
 
-  if (bullish >= 3) {
-    marketTrend = "BULLISH";
-  } else if (bullish <= 1) {
-    marketTrend = "BEARISH";
+  return "BEARISH";
+}
+
+export function getRiskLevel({
+  rsi,
+  riskReward
+}) {
+  if (rsi >= 70 || rsi <= 30) return "HIGH";
+
+  if (riskReward >= 2) return "LOW";
+
+  if (riskReward >= 1) return "MEDIUM";
+
+  return "HIGH";
+}
+
+export function getEntryTiming({
+  signal,
+  rsi,
+  riskReward
+}) {
+  if (
+    (signal === "BUY" || signal === "STRONG BUY") &&
+    rsi < 70 &&
+    riskReward >= 1.5
+  ) {
+    return "NOW";
   }
 
-  // ==========================
-  // Risk Level
-  // ==========================
-
-  let riskLevel = "HIGH";
-
-  if (riskReward >= 2) {
-    riskLevel = "LOW";
-  } else if (riskReward >= 1) {
-    riskLevel = "MEDIUM";
+  if (signal === "HOLD") {
+    return "WAIT";
   }
 
-  // ==========================
-  // Entry & Verdict
-  // ==========================
+  return "AVOID";
+}
 
-  let entry = "WAIT";
-  let verdict = "Belum ada
+export function getFinalVerdict({
+  signal,
+  confidence,
+  entry,
+  riskLevel
+}) {
+  if (
+    signal === "STRONG BUY" &&
+    confidence >= 80 &&
+    entry === "NOW" &&
+    riskLevel !== "HIGH"
+  ) {
+    return "Layak dibeli sekarang.";
+  }
+
+  if (
+    signal === "BUY" &&
+    confidence >= 70 &&
+    entry !== "AVOID"
+  ) {
+    return "Menarik untuk dipertimbangkan.";
+  }
+
+  if (entry === "WAIT") {
+    return "Tunggu konfirmasi atau koreksi harga.";
+  }
+
+  return "Belum layak untuk dibeli.";
+}
