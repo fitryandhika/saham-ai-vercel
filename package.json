@@ -3,12 +3,13 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "AI Stock Analyzer for Indonesian Stock Market",
   "scripts": {
     "dev": "vercel dev"
   },
   "engines": {
     "node": "22.x"
   },
-  "dependencies": {}
+  "dependencies": {
+    "yahoo-finance2": "^2.13.3"
+  }
 }
