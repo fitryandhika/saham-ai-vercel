@@ -1,27 +1,35 @@
-export function analyzeStock(kode) {
-  kode = kode.toUpperCase();
+import {
+  calculateTrend,
+  calculateRecommendation,
+  calculateConfidence
+} from "./indicators.js";
 
-  let rekomendasi = "HOLD";
-  let trend = "SIDEWAYS";
-  let confidence = 70;
+export function analyzeStock(data) {
 
-  if (kode.startsWith("BB")) {
-    rekomendasi = "BUY";
-    trend = "UPTREND";
-    confidence = 88;
-  } else if (kode.startsWith("TL")) {
-    rekomendasi = "SELL";
-    trend = "DOWNTREND";
-    confidence = 81;
-  }
+  const trend = calculateTrend(data.close, data.ma20);
+
+  const rekomendasi = calculateRecommendation(
+    data.close,
+    data.ma20,
+    data.rsi
+  );
+
+  const confidence = calculateConfidence(
+    data.close,
+    data.ma20,
+    data.rsi
+  );
 
   return {
-    kode,
-    rekomendasi,
+    kode: data.kode,
+    close: data.close,
+    ma20: data.ma20,
+    rsi: data.rsi,
     trend,
+    rekomendasi,
     confidence: `${confidence}%`,
-    support: 1000,
-    resistance: 1100,
+    support: data.low,
+    resistance: data.high,
     timestamp: new Date().toISOString()
   };
 }
