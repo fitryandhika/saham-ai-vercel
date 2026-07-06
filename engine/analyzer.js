@@ -1,7 +1,9 @@
 import {
   calculateSMA,
   calculateEMA,
-  calculateRSI
+  calculateRSI,
+  calculateMACD,
+  calculateBollingerBands
 } from "./technical.js";
 
 import {
@@ -17,14 +19,6 @@ import {
   calculateRiskReward
 } from "./risk.js";
 
-import {
-  calculateSMA,
-  calculateEMA,
-  calculateRSI,
-  calculateMACD,
-  calculateBollingerBands
-} from "./technical.js";
-
 export function analyzeStock(data) {
 
   const close = data.closePrices.at(-1);
@@ -38,39 +32,9 @@ export function analyzeStock(data) {
 
   const rsi = calculateRSI(data.closePrices);
 
-const macd = calculateMACD(data.closePrices);
-
-const bollinger = calculateBollingerBands(data.closePrices);
-
-return {
-  kode: data.kode,
-  close,
-
-  sma20,
-  sma50,
-
-  ema9,
-  ema20,
-
-  rsi,
-
-  macd,
-
-  bollinger,
-
-  score,
-  signal,
-
-  support,
-  resistance,
-
-  stopLoss,
-  takeProfit,
-
-  riskReward,
-
-  timestamp: new Date().toISOString()
-};
+  // MACD & Bollinger Bands
+  const macd = calculateMACD(data.closePrices);
+  const bollinger = calculateBollingerBands(data.closePrices);
 
   // AI Score
   const score = calculateScore({
@@ -87,11 +51,9 @@ return {
 
   // Risk Management
   const support = calculateSupport(data.closePrices);
-
   const resistance = calculateResistance(data.closePrices);
 
   const stopLoss = calculateStopLoss(support);
-
   const takeProfit = calculateTakeProfit(resistance);
 
   const riskReward = calculateRiskReward(
@@ -111,6 +73,9 @@ return {
     ema20,
 
     rsi,
+
+    macd,
+    bollinger,
 
     score,
     signal,
