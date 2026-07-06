@@ -17,6 +17,14 @@ import {
   calculateRiskReward
 } from "./risk.js";
 
+import {
+  calculateSMA,
+  calculateEMA,
+  calculateRSI,
+  calculateMACD,
+  calculateBollingerBands
+} from "./technical.js";
+
 export function analyzeStock(data) {
 
   const close = data.closePrices.at(-1);
