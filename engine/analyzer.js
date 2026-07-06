@@ -38,6 +38,40 @@ export function analyzeStock(data) {
 
   const rsi = calculateRSI(data.closePrices);
 
+const macd = calculateMACD(data.closePrices);
+
+const bollinger = calculateBollingerBands(data.closePrices);
+
+return {
+  kode: data.kode,
+  close,
+
+  sma20,
+  sma50,
+
+  ema9,
+  ema20,
+
+  rsi,
+
+  macd,
+
+  bollinger,
+
+  score,
+  signal,
+
+  support,
+  resistance,
+
+  stopLoss,
+  takeProfit,
+
+  riskReward,
+
+  timestamp: new Date().toISOString()
+};
+
   // AI Score
   const score = calculateScore({
     close,
