@@ -11,15 +11,18 @@ export default async function handler(req, res) {
 
     const hasil = analyzeStock(stockData);
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       data: hasil
     });
 
   } catch (error) {
 
-    res.status(500).json({
+    console.error(error);
+
+    return res.status(500).json({
       success: false,
+      message: "Analisis saham gagal.",
       error: error.message
     });
 
