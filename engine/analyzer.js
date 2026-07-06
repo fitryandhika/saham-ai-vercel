@@ -111,17 +111,28 @@ export function analyzeStock(data) {
     riskReward
   });
 
-  // ==========================
-  // Final Verdict
-  // ==========================
+ // ==========================
+// Final Verdict
+// ==========================
 
- const marketTrend = getMarketTrend({
+const marketTrend = getMarketTrend({
   close,
   sma20,
   sma50,
   ema9,
   ema20,
   macd
+});
+
+const riskLevel = getRiskLevel({
+  rsi,
+  riskReward
+});
+
+const entry = getEntryTiming({
+  signal,
+  rsi,
+  riskReward
 });
 
 const verdict = getFinalVerdict({
@@ -131,13 +142,6 @@ const verdict = getFinalVerdict({
   entry,
   riskLevel
 });
-
-  const verdict = getFinalVerdict({
-    signal,
-    confidence,
-    entry,
-    riskLevel
-  });
 
   // ==========================
   // Response
