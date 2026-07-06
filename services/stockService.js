@@ -4,18 +4,18 @@ export async function getStockData(kode) {
 
   const symbol = `${kode}.JK`;
 
-  const history = await yahooFinance.historical(symbol, {
+  const result = await yahooFinance.chart(symbol, {
     period1: new Date(Date.now() - 120 * 24 * 60 * 60 * 1000),
     interval: "1d"
   });
 
-  if (!history || history.length === 0) {
+  if (!result?.quotes?.length) {
     throw new Error(`Data saham ${kode} tidak ditemukan.`);
   }
 
-  const closePrices = history
-    .map(item => item.close)
-    .filter(price => price != null);
+  const closePrices = result.quotes
+    .map(q => q.close)
+    .filter(v => typeof v === "number");
 
   return {
     kode,
