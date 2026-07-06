@@ -24,6 +24,13 @@ import {
   calculateRiskReward
 } from "./risk.js";
 
+import {
+  getMarketTrend,
+  getRiskLevel,
+  getEntrySignal,
+  getVerdict
+} from "./verdict.js";
+
 export function analyzeStock(data) {
 
   const close = data.closePrices.at(-1);
@@ -105,6 +112,34 @@ export function analyzeStock(data) {
   });
 
   // ==========================
+  // Trading Verdict
+  // ==========================
+
+  const marketTrend = getMarketTrend({
+    close,
+    sma20,
+    sma50,
+    ema9,
+    ema20
+  });
+
+  const riskLevel = getRiskLevel({
+    riskReward
+  });
+
+  const entry = getEntrySignal({
+    signal,
+    riskReward,
+    rsi
+  });
+
+  const verdict = getVerdict({
+    signal,
+    riskReward,
+    rsi
+  });
+
+  // ==========================
   // Final Result
   // ==========================
 
@@ -132,6 +167,14 @@ export function analyzeStock(data) {
     confidence,
 
     reasons,
+
+    marketTrend,
+
+    riskLevel,
+
+    entry,
+
+    verdict,
 
     support,
 
