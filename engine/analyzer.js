@@ -66,26 +66,28 @@ export function analyzeStock(data) {
     stopLoss,
     takeProfit
   );
-const confidence = calculateConfidence({
-  close,
-  sma20,
-  sma50,
-  ema9,
-  ema20,
-  macd,
-  riskReward
-});
 
-const reasons = generateReasons({
-  close,
-  sma20,
-  sma50,
-  ema9,
-  ema20,
-  rsi,
-  macd,
-  riskReward
-});
+  // Confidence & Reasons
+  const confidence = calculateConfidence({
+    close,
+    sma20,
+    sma50,
+    ema9,
+    ema20,
+    macd,
+    riskReward
+  });
+
+  const reasons = generateReasons({
+    close,
+    sma20,
+    sma50,
+    ema9,
+    ema20,
+    rsi,
+    macd,
+    riskReward
+  });
 
   return {
     kode: data.kode,
@@ -105,6 +107,9 @@ const reasons = generateReasons({
     score,
     signal,
 
+    confidence,
+    reasons,
+
     support,
     resistance,
 
@@ -113,34 +118,6 @@ const reasons = generateReasons({
 
     riskReward,
 
-return {
-  kode: data.kode,
-  close,
-
-  sma20,
-  sma50,
-
-  ema9,
-  ema20,
-
-  rsi,
-
-  macd,
-  bollinger,
-
-  score,
-  signal,
-
-  confidence,
-  reasons,
-
-  support,
-  resistance,
-
-  stopLoss,
-  takeProfit,
-
-  riskReward,
-
-  timestamp: new Date().toISOString()
-};
+    timestamp: new Date().toISOString()
+  };
+}
