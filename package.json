@@ -1,0 +1,21 @@
+{
+  "name": "sahamai",
+  "version": "1.0.0",
+  "description": "AI Stock Analyzer for Indonesian Stock Market",
+  "main": "api/analyze.js",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "vercel dev",
+    "start": "node api/analyze.js"
+  },
+  "keywords": [
+    "stocks",
+    "ai",
+    "analysis",
+    "vercel",
+    "indonesia"
+  ],
+  "author": "Fitry Andhika",
+  "license": "MIT",
+  "dependencies": {}
+}
