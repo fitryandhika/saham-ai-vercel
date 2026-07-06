@@ -12,15 +12,22 @@ export function calculateScore(data) {
   // RSI
   if (data.rsi >= 45 && data.rsi <= 65) {
     score += 10;
-  } else if (data.rsi > 75) {
-    score -= 5;
-  } else if (data.rsi < 25) {
-    score += 5;
+  } else if (data.rsi > 70) {
+    score -= 10;
+  } else if (data.rsi < 30) {
+    score += 8;
   }
 
-  // Volume
-  if (data.volumeRatio > 1) {
+  // MACD
+  if (data.macd && data.macd.macd > 0) {
     score += 10;
+  }
+
+  // Risk Reward
+  if (data.riskReward >= 2) {
+    score += 10;
+  } else if (data.riskReward < 1) {
+    score -= 15;
   }
 
   return Math.max(0, Math.min(score, 100));
