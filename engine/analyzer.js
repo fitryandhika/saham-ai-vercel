@@ -113,21 +113,34 @@ const reasons = generateReasons({
 
     riskReward,
 
-score,
-signal,
+return {
+  kode: data.kode,
+  close,
 
-confidence,
-reasons,
+  sma20,
+  sma50,
 
-support,
-resistance,
+  ema9,
+  ema20,
 
-stopLoss,
-takeProfit,
+  rsi,
 
-riskReward,
+  macd,
+  bollinger,
 
-timestamp
-    timestamp: new Date().toISOString()
-  };
-}
+  score,
+  signal,
+
+  confidence,
+  reasons,
+
+  support,
+  resistance,
+
+  stopLoss,
+  takeProfit,
+
+  riskReward,
+
+  timestamp: new Date().toISOString()
+};
