@@ -39,3 +39,21 @@ export function analyzeStock(data) {
     timestamp: new Date().toISOString()
   };
 }
+
+export function analyzeStock(data) {
+
+  const sma20 = calculateSMA(data.closePrices, 20);
+
+  const ema20 = calculateEMA(data.closePrices, 20);
+
+  const rsi = calculateRSI(data.closePrices);
+
+  return {
+    kode: data.kode,
+    close: data.closePrices.at(-1),
+    sma20,
+    ema20,
+    rsi,
+    timestamp: new Date().toISOString()
+  };
+}
