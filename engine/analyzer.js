@@ -42,16 +42,17 @@ export function analyzeStock(data) {
   const bollinger = calculateBollingerBands(data.closePrices);
 
   // AI Score
-  const score = calculateScore({
-    close,
-    sma20,
-    sma50,
-    ema9,
-    ema20,
-    rsi,
-    volumeRatio: 1.2
-  });
-
+  
+const score = calculateScore({
+  close,
+  sma20,
+  sma50,
+  ema9,
+  ema20,
+  rsi,
+  macd,
+  riskReward
+});
   const signal = recommendation(score);
 
   // Risk Management
