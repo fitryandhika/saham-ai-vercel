@@ -4,6 +4,12 @@ import {
   calculateConfidence
 } from "./indicators.js";
 
+import {
+  calculateSMA,
+  calculateEMA,
+  calculateRSI
+} from "./technical.js";
+
 export function analyzeStock(data) {
 
   const trend = calculateTrend(data.close, data.ma20);
