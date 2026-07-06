@@ -115,23 +115,22 @@ export function analyzeStock(data) {
   // Final Verdict
   // ==========================
 
-  const marketTrend = getMarketTrend({
-    sma20,
-    sma50,
-    ema9,
-    ema20
-  });
+ const marketTrend = getMarketTrend({
+  close,
+  sma20,
+  sma50,
+  ema9,
+  ema20,
+  macd
+});
 
-  const riskLevel = getRiskLevel({
-    rsi,
-    riskReward
-  });
-
-  const entry = getEntryTiming({
-    signal,
-    rsi,
-    riskReward
-  });
+const verdict = getFinalVerdict({
+  score,
+  signal,
+  confidence,
+  entry,
+  riskLevel
+});
 
   const verdict = getFinalVerdict({
     signal,
