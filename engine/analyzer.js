@@ -1,3 +1,5 @@
+import { getMomentum } from "./momentum.js";
+
 import {
   getRank,
   getCategory
@@ -171,6 +173,16 @@ const probability = getProbability({
   confidence
 });
 
+const momentum = getMomentum({
+  close,
+  sma20,
+  ema9,
+  ema20,
+  rsi,
+  macd,
+  volume
+});
+
 const rank = getRank(
   score,
   confidence,
@@ -242,7 +254,7 @@ const forecast = getForecast({
   riskReward,
   warnings,
 
-  
+  momentum,
 
   timestamp: new Date().toISOString()
 };
