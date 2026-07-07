@@ -1,3 +1,5 @@
+import { getForecast } from "./forecast.js";
+
 import {
   getRating,
   getProbability
@@ -155,6 +157,13 @@ const probability = getProbability({
   confidence
 });
 
+const forecast = getForecast({
+  score,
+  confidence,
+  marketTrend,
+  rsi
+});
+
   // ==========================
   // Response
   // ==========================
@@ -197,6 +206,7 @@ const probability = getProbability({
   takeProfit,
 
   riskReward,
+  forecast,
 
   timestamp: new Date().toISOString()
 };
