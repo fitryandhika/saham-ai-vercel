@@ -1,3 +1,5 @@
+import { getGapProbability } from "./gap.js";
+
 import { getMomentum } from "./momentum.js";
 
 import {
@@ -183,6 +185,15 @@ const momentum = getMomentum({
   volume
 });
 
+const gap = getGapProbability({
+  score,
+  confidence,
+  momentum,
+  volume,
+  rsi,
+  marketTrend
+});
+
 const rank = getRank(
   score,
   confidence,
@@ -255,6 +266,7 @@ const forecast = getForecast({
   warnings,
 
   momentum,
+  gap,
 
   timestamp: new Date().toISOString()
 };
