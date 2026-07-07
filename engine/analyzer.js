@@ -60,6 +60,10 @@ export function analyzeStock(data) {
 
   const bollinger = calculateBollingerBands(data.closePrices);
 
+const volume = analyzeVolume(
+  data.volumes
+);
+
   // ==========================
   // Risk Management
   // ==========================
@@ -187,6 +191,8 @@ const forecast = getForecast({
   macd,
 
   bollinger,
+
+  volume,
 
   score,
   signal,
