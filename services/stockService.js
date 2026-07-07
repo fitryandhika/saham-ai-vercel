@@ -24,7 +24,8 @@ export async function getStockData(kode) {
       .filter(price => price !== null);
 
   return {
-    kode,
-    closePrices
-  };
-}
+  kode,
+  closePrices,
+  volumes: result.indicators.quote[0].volume
+    .filter(volume => volume !== null)
+};
