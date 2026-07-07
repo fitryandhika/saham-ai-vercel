@@ -1,26 +1,26 @@
-async function analisa(){
+async function analisa() {
 
-const kode=document
-.getElementById("kode")
-.value
-.toUpperCase();
+  const kode = document
+    .getElementById("kode")
+    .value
+    .toUpperCase();
 
-const hasil=document
-.getElementById("hasil");
+  const hasil = document
+    .getElementById("hasil");
 
-hasil.innerHTML="Loading...";
+  hasil.innerHTML = "Loading...";
 
-try{
+  try {
 
-const res=await fetch(
-"https://saham-ai-vercel-six.vercel.app/api/analyze?kode="+kode
-);
+    const res = await fetch(
+      "/api/analyze?kode=" + kode
+    );
 
-const json=await res.json();
+    const json = await res.json();
 
-const d=json.data;
+    const d = json.data;
 
-hasil.innerHTML=`
+    hasil.innerHTML = `
 
 <div class="card">
 
@@ -29,13 +29,7 @@ hasil.innerHTML=`
 <p><b>Harga :</b> ${d.close}</p>
 
 <p><b>Signal :</b>
-
-<span class="good">
-
-${d.signal}
-
-</span>
-
+<span class="good">${d.signal}</span>
 </p>
 
 <p><b>Score :</b> ${d.score}</p>
@@ -50,20 +44,18 @@ ${d.signal}
 
 <p><b>Gap :</b> ${d.gap.probability}</p>
 
-<p><b>Verdict :</b>
-
-${d.verdict}
-
-</p>
+<p><b>Verdict :</b> ${d.verdict}</p>
 
 </div>
 
 `;
 
-}catch(e){
+  } catch (e) {
 
-hasil.innerHTML="Gagal mengambil data.";
+    hasil.innerHTML = "Gagal mengambil data.";
 
-}
+    console.error(e);
+
+  }
 
 }
