@@ -200,3 +200,4 @@ const probability = getProbability({
 
   timestamp: new Date().toISOString()
 };
+}
