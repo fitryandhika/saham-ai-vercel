@@ -41,8 +41,9 @@ import {
   calculateResistance,
   getATR,
   calculateStopLoss,
-  calculateTakeProfit,
-  calculateRiskReward
+  calculateTakeProfitLevels,
+  calculateRiskReward,
+  calculateRiskRewardLevels
 } from "./risk.js";
 
 import {
@@ -86,14 +87,24 @@ export function analyzeStock(data) {
 
   const resistance = calculateResistance(data.candles, 20);
 
-  const stopLoss = calculateStopLoss(close, atr, 1.5);
+  const stopLoss = calculateStopLoss(close, atr, 1.0);
 
-  const takeProfit = calculateTakeProfit(close, atr, 3);
+  const takeProfitLevels = calculateTakeProfitLevels(close, atr);
+
+  // TP2 dipakai sebagai target utama untuk skor/verdict internal,
+  // sementara TP1 & TP3 tersedia untuk take-profit bertahap.
+  const takeProfit = takeProfitLevels.tp2;
 
   const riskReward = calculateRiskReward(
     close,
     stopLoss,
     takeProfit
+  );
+
+  const riskRewardLevels = calculateRiskRewardLevels(
+    close,
+    stopLoss,
+    takeProfitLevels
   );
 
   // ==========================
@@ -266,8 +277,10 @@ export function analyzeStock(data) {
 
     stopLoss,
     takeProfit,
+    takeProfitLevels,
 
     riskReward,
+    riskRewardLevels,
     warnings,
 
     momentum,
