@@ -19,14 +19,49 @@ export async function getStockData(kode) {
     throw new Error(`Data ${kode} tidak ditemukan.`);
   }
 
-  const closePrices =
-    result.indicators.quote[0].close
-      .filter(price => price !== null);
+  const timestamps = result.timestamp || [];
+  const quote = result.indicators.quote[0];
+
+  // Bangun candle per-index supaya open/high/low/close/volume tetap sejajar.
+  // (Versi lama memfilter closePrices dan volumes terpisah, yang bisa
+  // membuat index-nya geser kalau null muncul di posisi berbeda.)
+  const candles = [];
+
+  for (let i = 0; i < timestamps.length; i++) {
+    const close = quote.close[i];
+    const high = quote.high[i];
+    const low = quote.low[i];
+    const open = quote.open[i];
+    const volume = quote.volume[i];
+
+    if (
+      close === null ||
+      high === null ||
+      low === null ||
+      open === null ||
+      volume === null
+    ) {
+      continue;
+    }
+
+    candles.push({
+      date: new Date(timestamps[i] * 1000).toISOString(),
+      open,
+      high,
+      low,
+      close,
+      volume
+    });
+  }
+
+  if (candles.length === 0) {
+    throw new Error(`Data ${kode} tidak lengkap dari Yahoo Finance.`);
+  }
 
   return {
-  kode,
-  closePrices,
-  volumes: result.indicators.quote[0].volume
-    .filter(volume => volume !== null)
-};
+    kode,
+    candles,
+    closePrices: candles.map(c => c.close),
+    volumes: candles.map(c => c.volume)
+  };
 }
