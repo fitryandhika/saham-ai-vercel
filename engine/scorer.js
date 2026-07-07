@@ -22,6 +22,19 @@ export function calculateScore(data) {
   if (data.macd && data.macd.macd > 0) {
     score += 10;
   }
+  
+  // Volume
+  if (data.volume) {
+
+  if (data.volume.signal === "EXPLOSIVE") {
+    score += 10;
+  } else if (data.volume.signal === "HIGH") {
+    score += 5;
+  } else if (data.volume.signal === "LOW") {
+    score -= 5;
+  }
+
+}
 
   // Risk Reward
   if (data.riskReward >= 2) {
