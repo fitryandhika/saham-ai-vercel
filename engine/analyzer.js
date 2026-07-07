@@ -148,6 +148,12 @@ const verdict = getFinalVerdict({
   riskLevel
 });
 
+const rating = getRating(score);
+
+const probability = getProbability({
+  score,
+  confidence
+});
 
   // ==========================
   // Response
