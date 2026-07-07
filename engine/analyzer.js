@@ -1,3 +1,5 @@
+import { generateWarnings } from "./warnings.js";
+
 import { analyzeVolume } from "./volume.js";
 
 import { getForecast } from "./forecast.js";
@@ -164,6 +166,12 @@ const probability = getProbability({
   confidence
 });
 
+const warnings = generateWarnings({
+  rsi,
+  riskReward,
+  volume
+});
+
 const forecast = getForecast({
   close,
   score,
@@ -217,6 +225,7 @@ const forecast = getForecast({
 
   riskReward,
   forecast,
+  warnings,
 
   timestamp: new Date().toISOString()
 };
