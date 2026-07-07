@@ -187,12 +187,26 @@ function renderCard(d) {
           ${d.stopLoss.toLocaleString("id-ID")}
         </div>
         <div class="risk-item">
-          <span class="risk-label">Take Profit</span>
-          ${d.takeProfit.toLocaleString("id-ID")}
+          <span class="risk-label">ATR (Volatilitas)</span>
+          ${d.atr.toLocaleString("id-ID")}
         </div>
-        <div class="risk-item">
-          <span class="risk-label">Risk:Reward</span>
-          1:${d.riskReward}
+      </div>
+
+      <div class="tp-grid">
+        <div class="tp-item">
+          <span class="tp-label">TP1</span>
+          <span class="tp-value">${d.takeProfitLevels.tp1.toLocaleString("id-ID")}</span>
+          <span class="tp-rr">RR 1:${d.riskRewardLevels.tp1}</span>
+        </div>
+        <div class="tp-item">
+          <span class="tp-label">TP2</span>
+          <span class="tp-value">${d.takeProfitLevels.tp2.toLocaleString("id-ID")}</span>
+          <span class="tp-rr">RR 1:${d.riskRewardLevels.tp2}</span>
+        </div>
+        <div class="tp-item">
+          <span class="tp-label">TP3</span>
+          <span class="tp-value">${d.takeProfitLevels.tp3.toLocaleString("id-ID")}</span>
+          <span class="tp-rr">RR 1:${d.riskRewardLevels.tp3}</span>
         </div>
       </div>
 
