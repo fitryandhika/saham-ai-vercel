@@ -1,3 +1,8 @@
+import {
+  getRank,
+  getCategory
+} from "./ranking.js";
+
 import { generateWarnings } from "./warnings.js";
 
 import { analyzeVolume } from "./volume.js";
@@ -166,6 +171,14 @@ const probability = getProbability({
   confidence
 });
 
+const rank = getRank(
+  score,
+  confidence,
+  riskReward
+);
+
+const category = getCategory(rank);
+
 const warnings = generateWarnings({
   rsi,
   riskReward,
@@ -216,7 +229,10 @@ const forecast = getForecast({
 
   rating,
   probability,
-
+  
+  rank,
+  category,
+  forecast,
   support,
   resistance,
 
@@ -224,8 +240,9 @@ const forecast = getForecast({
   takeProfit,
 
   riskReward,
-  forecast,
   warnings,
+
+  
 
   timestamp: new Date().toISOString()
 };
