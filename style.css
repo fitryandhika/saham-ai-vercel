@@ -1,54 +1,337 @@
-<!DOCTYPE html>
-<html lang="id">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SahamAI — Beli Sore, Jual Pagi</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css">
-</head>
-<body>
+:root{
+  --bg:#0B0F14;
+  --surface:#131A22;
+  --surface-2:#1B2430;
+  --border:#243040;
+  --text:#E7EDF3;
+  --muted:#8494A3;
+  --green:#33C482;
+  --red:#E5615A;
+  --amber:#E3A23D;
+  --font-display:'Space Grotesk',sans-serif;
+  --font-body:'Inter',sans-serif;
+  --font-mono:'JetBrains Mono',monospace;
+}
 
-<header class="topbar">
-  <div class="brand">
-    <span class="brand-mark">◆</span>
-    <span class="brand-name">SahamAI</span>
-  </div>
-  <div class="clock" id="clock">--:--</div>
-</header>
+*{box-sizing:border-box;}
 
-<div id="windowBar" class="window-bar">
-  <span id="windowLabel">Memuat status market…</span>
-</div>
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--text);
+  font-family:var(--font-body);
+  -webkit-font-smoothing:antialiased;
+}
 
-<main class="container">
+.topbar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:16px 20px;
+  border-bottom:1px solid var(--border);
+}
 
-  <section class="panel">
-    <label class="panel-label" for="kode">Analisa kode saham</label>
-    <div class="input-row">
-      <input id="kode" type="text" placeholder="Contoh: BBCA" value="BBCA" autocomplete="off">
-      <button class="btn-primary" id="btnAnalisa">Analisa</button>
-    </div>
+.brand{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-family:var(--font-display);
+  font-weight:700;
+  font-size:20px;
+  letter-spacing:-0.02em;
+}
 
-    <div class="watchlist-row">
-      <div class="chips" id="chips"></div>
-      <button class="btn-ghost" id="btnAddWatch">+ Watchlist</button>
-    </div>
+.brand-mark{color:var(--amber);}
 
-    <button class="btn-secondary" id="btnAnalisaSemua">Analisa Semua Watchlist</button>
-  </section>
+.clock{
+  font-family:var(--font-mono);
+  color:var(--muted);
+  font-size:14px;
+}
 
-  <section id="hasil" class="results"></section>
+.window-bar{
+  padding:10px 20px;
+  font-family:var(--font-mono);
+  font-size:13px;
+  text-align:center;
+  border-bottom:1px solid var(--border);
+  transition:background .3s ease, color .3s ease;
+  background:var(--surface);
+  color:var(--muted);
+}
 
-  <p class="disclaimer">
-    Data harga dari Yahoo Finance, delay ±15–20 menit untuk saham IDX.
-    Bukan rekomendasi finansial — selalu cek ulang sebelum entry.
-  </p>
+.window-bar.buy-window{
+  background:linear-gradient(90deg, rgba(227,162,61,.18), rgba(227,162,61,.06));
+  color:var(--amber);
+  font-weight:600;
+}
 
-</main>
+.window-bar.overnight{
+  background:rgba(51,196,130,.08);
+  color:var(--green);
+}
 
-<script src="script.js"></script>
-</body>
-</html>
+.window-bar.market-open{
+  color:var(--muted);
+}
+
+.container{
+  max-width:520px;
+  margin:0 auto;
+  padding:20px;
+}
+
+.panel{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:14px;
+  padding:18px;
+  margin-bottom:20px;
+}
+
+.panel-label{
+  display:block;
+  font-size:13px;
+  color:var(--muted);
+  margin-bottom:8px;
+}
+
+.input-row{
+  display:flex;
+  gap:8px;
+}
+
+input[type="text"]{
+  flex:1;
+  padding:12px 14px;
+  font-size:16px;
+  font-family:var(--font-mono);
+  text-transform:uppercase;
+  background:var(--surface-2);
+  border:1px solid var(--border);
+  border-radius:10px;
+  color:var(--text);
+}
+
+input[type="text"]:focus{
+  outline:2px solid var(--amber);
+  outline-offset:1px;
+}
+
+button{
+  font-family:var(--font-body);
+  font-weight:600;
+  font-size:15px;
+  border:none;
+  border-radius:10px;
+  cursor:pointer;
+}
+
+.btn-primary{
+  padding:12px 18px;
+  background:var(--amber);
+  color:#1A1300;
+}
+
+.btn-primary:hover{background:#f0b153;}
+
+.btn-secondary{
+  width:100%;
+  margin-top:12px;
+  padding:12px;
+  background:var(--surface-2);
+  color:var(--text);
+  border:1px solid var(--border);
+}
+
+.btn-secondary:hover{border-color:var(--amber);}
+
+.btn-ghost{
+  background:transparent;
+  color:var(--muted);
+  font-size:13px;
+  padding:6px 10px;
+  border:1px dashed var(--border);
+  border-radius:8px;
+}
+
+.watchlist-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  margin-top:14px;
+  flex-wrap:wrap;
+}
+
+.chips{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+}
+
+.chip{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  background:var(--surface-2);
+  border:1px solid var(--border);
+  border-radius:999px;
+  padding:5px 10px;
+  font-family:var(--font-mono);
+  font-size:12px;
+  color:var(--text);
+  cursor:pointer;
+}
+
+.chip:hover{border-color:var(--amber);}
+
+.chip .remove{
+  color:var(--muted);
+  font-size:13px;
+}
+
+.results{
+  display:flex;
+  flex-direction:column;
+  gap:14px;
+}
+
+.card{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:14px;
+  padding:18px;
+}
+
+.card-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:baseline;
+  margin-bottom:4px;
+}
+
+.card-kode{
+  font-family:var(--font-display);
+  font-weight:700;
+  font-size:22px;
+}
+
+.card-close{
+  font-family:var(--font-mono);
+  font-size:16px;
+  color:var(--muted);
+}
+
+.badge-row{
+  display:flex;
+  gap:6px;
+  flex-wrap:wrap;
+  margin:10px 0 14px;
+}
+
+.badge{
+  font-size:11px;
+  font-weight:600;
+  padding:4px 9px;
+  border-radius:999px;
+  text-transform:uppercase;
+  letter-spacing:.03em;
+}
+
+.badge.bullish{background:rgba(51,196,130,.15);color:var(--green);}
+.badge.bearish{background:rgba(229,97,90,.15);color:var(--red);}
+.badge.sideways{background:rgba(132,148,163,.15);color:var(--muted);}
+
+.verdict-box{
+  background:var(--surface-2);
+  border-left:3px solid var(--amber);
+  border-radius:8px;
+  padding:12px 14px;
+  margin-bottom:14px;
+}
+
+.verdict-label{
+  font-size:11px;
+  color:var(--muted);
+  text-transform:uppercase;
+  letter-spacing:.05em;
+  margin-bottom:4px;
+}
+
+.verdict-text{
+  font-family:var(--font-display);
+  font-weight:700;
+  font-size:16px;
+}
+
+.verdict-box.buy{border-left-color:var(--green);}
+.verdict-box.avoid{border-left-color:var(--red);}
+
+.stat-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+  margin-bottom:14px;
+}
+
+.stat{
+  background:var(--surface-2);
+  border-radius:8px;
+  padding:10px 12px;
+}
+
+.stat-label{
+  font-size:11px;
+  color:var(--muted);
+  margin-bottom:3px;
+}
+
+.stat-value{
+  font-family:var(--font-mono);
+  font-size:15px;
+  font-weight:500;
+}
+
+.risk-row{
+  display:flex;
+  justify-content:space-between;
+  font-family:var(--font-mono);
+  font-size:13px;
+  border-top:1px solid var(--border);
+  padding-top:12px;
+  margin-top:2px;
+}
+
+.risk-item .risk-label{color:var(--muted);font-size:11px;display:block;margin-bottom:2px;}
+
+.warnings{
+  margin-top:12px;
+  padding-top:12px;
+  border-top:1px solid var(--border);
+}
+
+.warnings ul{margin:6px 0 0;padding-left:18px;}
+.warnings li{font-size:13px;color:var(--amber);margin-bottom:3px;}
+
+.loading, .error{
+  text-align:center;
+  color:var(--muted);
+  font-family:var(--font-mono);
+  font-size:14px;
+  padding:20px;
+}
+
+.error{color:var(--red);}
+
+.disclaimer{
+  text-align:center;
+  font-size:12px;
+  color:var(--muted);
+  margin-top:24px;
+  line-height:1.5;
+}
+
+@media (prefers-reduced-motion:reduce){
+  *{transition:none !important;}
+}
