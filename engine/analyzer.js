@@ -158,6 +158,7 @@ const probability = getProbability({
 });
 
 const forecast = getForecast({
+  close,
   score,
   confidence,
   marketTrend,
