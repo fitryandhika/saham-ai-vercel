@@ -3,33 +3,52 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-<title>Saham AI</title>
-
+<title>SahamAI — Beli Sore, Jual Pagi</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
-
 <body>
 
-<div class="container">
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">◆</span>
+    <span class="brand-name">SahamAI</span>
+  </div>
+  <div class="clock" id="clock">--:--</div>
+</header>
 
-<h1>Saham AI</h1>
-
-<input
-id="kode"
-type="text"
-placeholder="Contoh: BBCA"
-value="BBCA">
-
-<button onclick="analisa()">
-Analisa
-</button>
-
-<div id="hasil"></div>
-
+<div id="windowBar" class="window-bar">
+  <span id="windowLabel">Memuat status market…</span>
 </div>
 
-<script src="script.js"></script>
+<main class="container">
 
+  <section class="panel">
+    <label class="panel-label" for="kode">Analisa kode saham</label>
+    <div class="input-row">
+      <input id="kode" type="text" placeholder="Contoh: BBCA" value="BBCA" autocomplete="off">
+      <button class="btn-primary" id="btnAnalisa">Analisa</button>
+    </div>
+
+    <div class="watchlist-row">
+      <div class="chips" id="chips"></div>
+      <button class="btn-ghost" id="btnAddWatch">+ Watchlist</button>
+    </div>
+
+    <button class="btn-secondary" id="btnAnalisaSemua">Analisa Semua Watchlist</button>
+  </section>
+
+  <section id="hasil" class="results"></section>
+
+  <p class="disclaimer">
+    Data harga dari Yahoo Finance, delay ±15–20 menit untuk saham IDX.
+    Bukan rekomendasi finansial — selalu cek ulang sebelum entry.
+  </p>
+
+</main>
+
+<script src="script.js"></script>
 </body>
 </html>
