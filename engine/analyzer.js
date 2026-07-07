@@ -1,4 +1,9 @@
 import {
+  getRating,
+  getProbability
+} from "./rating.js";
+
+import {
   generateReasons,
   calculateConfidence
 } from "./reasoning.js";
