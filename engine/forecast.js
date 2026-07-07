@@ -1,4 +1,5 @@
 export function getForecast({
+  close,
   score,
   confidence,
   marketTrend,
@@ -28,7 +29,7 @@ export function getForecast({
     quarter -= 10;
   }
 
-  // AI Score
+  // Score
   week += (score - 50) * 0.05;
   month += (score - 50) * 0.10;
   quarter += (score - 50) * 0.15;
@@ -49,9 +50,32 @@ export function getForecast({
     month += 4;
   }
 
+  const targetWeek =
+    Number((close * (1 + week / 100)).toFixed(2));
+
+  const targetMonth =
+    Number((close * (1 + month / 100)).toFixed(2));
+
+  const targetQuarter =
+    Number((close * (1 + quarter / 100)).toFixed(2));
+
   return {
-    week: `${week.toFixed(1)}%`,
-    month: `${month.toFixed(1)}%`,
-    quarter: `${quarter.toFixed(1)}%`
+
+    week: {
+      change: `${week.toFixed(1)}%`,
+      target: targetWeek
+    },
+
+    month: {
+      change: `${month.toFixed(1)}%`,
+      target: targetMonth
+    },
+
+    quarter: {
+      change: `${quarter.toFixed(1)}%`,
+      target: targetQuarter
+    }
+
   };
+
 }
