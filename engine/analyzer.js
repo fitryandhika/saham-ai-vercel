@@ -94,6 +94,7 @@ const volume = analyzeVolume(
     ema20,
     rsi,
     macd,
+    volume,
     riskReward
   });
 
