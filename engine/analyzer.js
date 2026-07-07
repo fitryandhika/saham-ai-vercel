@@ -160,42 +160,43 @@ const probability = getProbability({
   // ==========================
 
   return {
-    kode: data.kode,
+  kode: data.kode,
 
-    close,
+  close,
 
-    sma20,
-    sma50,
+  sma20,
+  sma50,
 
-    ema9,
-    ema20,
+  ema9,
+  ema20,
 
-    rsi,
+  rsi,
 
-    macd,
+  macd,
 
-    bollinger,
+  bollinger,
 
-    score,
-    signal,
+  score,
+  signal,
 
-    confidence,
-    reasons,
+  confidence,
+  reasons,
 
-    marketTrend,
-    riskLevel,
-    entry,
-    verdict,
+  marketTrend,
+  riskLevel,
+  entry,
+  verdict,
 
-    support,
-    resistance,
+  rating,
+  probability,
 
-    stopLoss,
-    takeProfit,
+  support,
+  resistance,
 
-    riskReward,
+  stopLoss,
+  takeProfit,
 
-    timestamp: new Date().toISOString()
-  };
+  riskReward,
 
-}
+  timestamp: new Date().toISOString()
+};
