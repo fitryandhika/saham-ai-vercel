@@ -39,6 +39,7 @@ import {
 import {
   calculateSupport,
   calculateResistance,
+  getATR,
   calculateStopLoss,
   calculateTakeProfit,
   calculateRiskReward
@@ -71,21 +72,23 @@ export function analyzeStock(data) {
 
   const bollinger = calculateBollingerBands(data.closePrices);
 
-const volume = analyzeVolume(
-  data.volumes
-);
+  const volume = analyzeVolume(
+    data.volumes
+  );
 
   // ==========================
-  // Risk Management
+  // Risk Management (ATR-based)
   // ==========================
 
-  const support = calculateSupport(data.closePrices);
+  const atr = getATR(data.candles, 14);
 
-  const resistance = calculateResistance(data.closePrices);
+  const support = calculateSupport(data.candles, 20);
 
-  const stopLoss = calculateStopLoss(support);
+  const resistance = calculateResistance(data.candles, 20);
 
-  const takeProfit = calculateTakeProfit(resistance);
+  const stopLoss = calculateStopLoss(close, atr, 1.5);
+
+  const takeProfit = calculateTakeProfit(close, atr, 3);
 
   const riskReward = calculateRiskReward(
     close,
@@ -136,138 +139,141 @@ const volume = analyzeVolume(
     riskReward
   });
 
- // ==========================
-// Final Verdict
-// ==========================
+  // ==========================
+  // Final Verdict
+  // ==========================
 
-const marketTrend = getMarketTrend({
-  close,
-  sma20,
-  sma50,
-  ema9,
-  ema20,
-  macd
-});
+  const marketTrend = getMarketTrend({
+    close,
+    sma20,
+    sma50,
+    ema9,
+    ema20,
+    macd
+  });
 
-const riskLevel = getRiskLevel({
-  rsi,
-  riskReward
-});
+  const riskLevel = getRiskLevel({
+    rsi,
+    riskReward
+  });
 
-const entry = getEntryTiming({
-  signal,
-  rsi,
-  riskReward
-});
+  const entry = getEntryTiming({
+    signal,
+    rsi,
+    riskReward
+  });
 
-const verdict = getFinalVerdict({
-  score,
-  signal,
-  confidence,
-  entry,
-  riskLevel
-});
+  const verdict = getFinalVerdict({
+    score,
+    signal,
+    confidence,
+    entry,
+    riskLevel
+  });
 
-const rating = getRating(score);
+  const rating = getRating(score);
 
-const probability = getProbability({
-  score,
-  confidence
-});
+  const probability = getProbability({
+    score,
+    confidence
+  });
 
-const momentum = getMomentum({
-  close,
-  sma20,
-  ema9,
-  ema20,
-  rsi,
-  macd,
-  volume
-});
+  const momentum = getMomentum({
+    close,
+    sma20,
+    ema9,
+    ema20,
+    rsi,
+    macd,
+    volume
+  });
 
-const gap = getGapProbability({
-  score,
-  confidence,
-  momentum,
-  volume,
-  rsi,
-  marketTrend
-});
+  const gap = getGapProbability({
+    score,
+    confidence,
+    momentum,
+    volume,
+    rsi,
+    marketTrend
+  });
 
-const rank = getRank(
-  score,
-  confidence,
-  riskReward
-);
+  const rank = getRank(
+    score,
+    confidence,
+    riskReward
+  );
 
-const category = getCategory(rank);
+  const category = getCategory(rank);
 
-const warnings = generateWarnings({
-  rsi,
-  riskReward,
-  volume
-});
+  const warnings = generateWarnings({
+    rsi,
+    riskReward,
+    volume
+  });
 
-const forecast = getForecast({
-  close,
-  score,
-  confidence,
-  marketTrend,
-  rsi
-});
+  const forecast = getForecast({
+    close,
+    score,
+    confidence,
+    marketTrend,
+    rsi
+  });
 
   // ==========================
   // Response
   // ==========================
 
   return {
-  kode: data.kode,
+    kode: data.kode,
 
-  close,
+    close,
 
-  sma20,
-  sma50,
+    sma20,
+    sma50,
 
-  ema9,
-  ema20,
+    ema9,
+    ema20,
 
-  rsi,
+    rsi,
 
-  macd,
+    macd,
 
-  bollinger,
+    bollinger,
 
-  volume,
+    volume,
 
-  score,
-  signal,
+    score,
+    signal,
 
-  confidence,
-  reasons,
+    confidence,
+    reasons,
 
-  marketTrend,
-  riskLevel,
-  entry,
-  verdict,
+    marketTrend,
+    riskLevel,
+    entry,
+    verdict,
 
-  rating,
-  probability,
-  
-  rank,
-  category,
-  forecast,
-  support,
-  resistance,
+    rating,
+    probability,
 
-  stopLoss,
-  takeProfit,
+    rank,
+    category,
+    forecast,
 
-  riskReward,
-  warnings,
+    atr,
+    support,
+    resistance,
 
-  momentum,
-  gap,
+    stopLoss,
+    takeProfit,
 
-  timestamp: new Date().toISOString()
-};
+    riskReward,
+    warnings,
+
+    momentum,
+    gap,
+
+    timestamp: new Date().toISOString()
+  };
+
 }
