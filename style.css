@@ -98,11 +98,12 @@ body{
 
 .input-row{
   display:flex;
-  gap:8px;
+  flex-direction:column;
+  gap:10px;
 }
 
 input[type="text"]{
-  flex:1;
+  width:100%;
   padding:12px 14px;
   font-size:16px;
   font-family:var(--font-mono);
@@ -128,7 +129,8 @@ button{
 }
 
 .btn-primary{
-  padding:12px 18px;
+  width:100%;
+  padding:12px;
   background:var(--amber);
   color:#1A1300;
 }
