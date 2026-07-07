@@ -42,9 +42,33 @@
 
   <section id="hasil" class="results"></section>
 
+  <section class="panel">
+    <label class="panel-label">Tambah Posisi Portofolio</label>
+    <div class="portfolio-form">
+      <input id="pfKode" type="text" placeholder="Kode saham (BBCA)" autocomplete="off">
+      <input id="pfHarga" type="number" placeholder="Harga beli" inputmode="decimal">
+      <input id="pfLot" type="number" placeholder="Jumlah lot" value="1" inputmode="numeric">
+      <button class="btn-primary" id="btnTambahPosisi">Tambah ke Portofolio</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-label-row">
+      <span class="panel-label">Portofolio Aktif</span>
+      <button class="btn-ghost" id="btnRefreshPortfolio">Refresh Harga</button>
+    </div>
+    <div id="portfolioList"></div>
+  </section>
+
+  <section class="panel">
+    <label class="panel-label">Rekap Performa</label>
+    <div id="recapStats"></div>
+  </section>
+
   <p class="disclaimer">
     Data harga dari Yahoo Finance, delay ±15–20 menit untuk saham IDX.
     Bukan rekomendasi finansial — selalu cek ulang sebelum entry.
+    Portofolio tersimpan hanya di HP ini (tidak sinkron ke perangkat lain).
   </p>
 
 </main>
