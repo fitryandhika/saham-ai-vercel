@@ -135,13 +135,7 @@ const entry = getEntryTiming({
   riskReward
 });
 
-const verdict = getFinalVerdict({
-  score,
-  signal,
-  confidence,
-  entry,
-  riskLevel
-});
+
 
   // ==========================
   // Response
