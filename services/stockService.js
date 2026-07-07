@@ -29,3 +29,4 @@ export async function getStockData(kode) {
   volumes: result.indicators.quote[0].volume
     .filter(volume => volume !== null)
 };
+}
