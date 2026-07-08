@@ -11,50 +11,54 @@ export function getGapProbability({
 
   // Trend
   if (marketTrend === "BULLISH")
-    probability += 15;
+    probability += 10;
 
   if (marketTrend === "BEARISH")
-    probability -= 15;
+    probability -= 10;
 
-  // AI Score
-  probability += (score - 50) * 0.20;
+  // AI Score — bobot diturunkan, faktor ini berkorelasi dengan
+  // confidence & momentum di bawah (sama-sama turunan RSI/MACD/EMA/volume)
+  probability += (score - 50) * 0.12;
 
   // Confidence
-  probability += (confidence - 50) * 0.15;
+  probability += (confidence - 50) * 0.08;
 
   // Momentum
-  probability += (momentum.score - 50) * 0.15;
+  probability += (momentum.score - 50) * 0.08;
 
   // Volume
   if (volume.signal === "HIGH")
-    probability += 8;
+    probability += 5;
 
   if (volume.signal === "LOW")
-    probability -= 8;
+    probability -= 5;
 
   // RSI
   if (rsi > 70)
-    probability -= 8;
+    probability -= 5;
 
   if (rsi < 30)
-    probability += 5;
+    probability += 3;
 
+  // Plafon diturunkan dari 95/5 ke 80/20 — model ini berbasis data
+  // harian, jadi kepastian setinggi 90%+ tidak realistis untuk
+  // memprediksi gap overnight.
   probability = Math.round(
-    Math.max(5, Math.min(probability, 95))
+    Math.max(20, Math.min(probability, 80))
   );
 
   let outlook = "NEUTRAL";
 
-  if (probability >= 75)
+  if (probability >= 70)
     outlook = "HIGH GAP UP";
 
-  else if (probability >= 60)
+  else if (probability >= 58)
     outlook = "POSSIBLE GAP UP";
 
-  else if (probability <= 35)
+  else if (probability <= 30)
     outlook = "HIGH GAP DOWN";
 
-  else if (probability <= 45)
+  else if (probability <= 42)
     outlook = "POSSIBLE GAP DOWN";
 
   return {
