@@ -212,6 +212,41 @@ function renderCard(d) {
 
       ${warningsHtml}
 
+      ${renderFundamentalSection(d.fundamental)}
+
+    </div>
+  `;
+}
+
+function renderFundamentalSection(f) {
+  if (!f || f.label === "DATA TIDAK TERSEDIA") {
+    return "";
+  }
+
+  const fClass = f.label === "FUNDAMENTAL KUAT" ? "buy"
+    : f.label === "FUNDAMENTAL LEMAH" ? "avoid" : "";
+
+  const m = f.metrics || {};
+
+  const row = (label, value, suffix = "") =>
+    value != null
+      ? `<div class="stat">
+           <div class="stat-label">${label}</div>
+           <div class="stat-value">${value.toLocaleString("id-ID", { maximumFractionDigits: 2 })}${suffix}</div>
+         </div>`
+      : "";
+
+  return `
+    <div class="verdict-box ${fClass}" style="margin-top:12px;">
+      <div class="verdict-label">Fundamental</div>
+      <div class="verdict-text">${f.label} · Skor ${f.score}</div>
+    </div>
+    <div class="stat-grid">
+      ${row("PE Ratio", m.trailingPE, "x")}
+      ${row("PBV", m.priceToBook, "x")}
+      ${row("ROE", m.returnOnEquity, "%")}
+      ${row("Debt/Equity", m.debtToEquity, "%")}
+      ${row("Dividend Yield", m.dividendYield, "%")}
     </div>
   `;
 }
