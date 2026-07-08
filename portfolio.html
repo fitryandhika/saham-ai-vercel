@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Portofolio — SahamAI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">◆</span>
+    <span class="brand-name">SahamAI</span>
+  </div>
+  <div class="clock" id="clock">--:--</div>
+</header>
+
+<div id="windowBar" class="window-bar">
+  <span id="windowLabel">Memuat status market…</span>
+</div>
+
+<nav class="nav-tabs">
+  <a href="index.html" class="nav-tab">Analisa</a>
+  <a href="portfolio.html" class="nav-tab active">Portofolio</a>
+</nav>
+
+<main class="container">
+
+  <section class="panel">
+    <label class="panel-label">Tambah Posisi Portofolio</label>
+    <div class="portfolio-form">
+      <input id="pfKode" type="text" placeholder="Kode saham (BBCA)" autocomplete="off">
+      <input id="pfHarga" type="number" placeholder="Harga beli" inputmode="decimal">
+      <input id="pfLot" type="number" placeholder="Jumlah lot" value="1" inputmode="numeric">
+      <button class="btn-primary" id="btnTambahPosisi">Tambah ke Portofolio</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-label-row">
+      <span class="panel-label">Portofolio Aktif</span>
+      <button class="btn-ghost" id="btnRefreshPortfolio">Refresh Harga</button>
+    </div>
+    <div id="portfolioList"></div>
+  </section>
+
+  <section class="panel">
+    <label class="panel-label">Rekap Performa</label>
+    <div id="recapStats"></div>
+  </section>
+
+  <p class="disclaimer">
+    Portofolio tersimpan hanya di HP ini (tidak sinkron ke perangkat lain).
+    Harga refresh memakai data Yahoo Finance, delay ±15–20 menit.
+  </p>
+
+</main>
+
+<script src="portfolio.js"></script>
+</body>
+</html>
