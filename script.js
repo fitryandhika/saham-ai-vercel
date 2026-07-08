@@ -334,31 +334,110 @@ document.getElementById("btnAnalisaSemua").addEventListener("click", analisaSemu
 // Silakan tambah/kurangi kode sesuai riset & kenyamanan kamu sendiri.
 
 const UNIVERSE_MURAH = [
-  // Konstruksi & properti BUMN/swasta
-  "WIKA", "WSKT", "ADHI", "PTPP", "WEGE", "TOTL", "NRCA", "ACST", "WTON",
-  "BSDE", "PWON", "SMRA", "APLN", "KIJA", "BEST", "DMAS", "MTLA", "GPRA",
-  "ASRI", "BKSL", "DILD", "MDLN", "PPRO",
 
-  // Tambang & energi kapitalisasi kecil-menengah
-  "DOID", "BSSR", "MBAP", "TOBA", "GEMS", "INDY", "ELSA", "ENRG", "RUIS",
-  "ESSA", "MEDC",
+  // ==========================
+  // Konstruksi & Properti
+  // ==========================
+  "WIKA","WSKT","ADHI","PTPP","WEGE","TOTL","NRCA","ACST","WTON",
+  "BSDE","PWON","SMRA","APLN","KIJA","BEST","DMAS","MTLA","GPRA",
+  "ASRI","BKSL","DILD","MDLN","PPRO","CITY","CSIS","NIRO","OMRE",
+  "LPKR","LAND","PURI","ARMY","LCGP","MTSM","SMDM","RDTX",
 
-  // Perbankan kecil-menengah
-  "BJTM", "BJBR", "BBTN", "BEKS", "BABP", "BBHI", "BNBA", "BMAS", "AGRO",
-  "BVIC", "INPC", "MAYA", "NOBU", "PNBN", "BSIM",
+  // ==========================
+  // Tambang & Energi
+  // ==========================
+  "DOID","BSSR","MBAP","TOBA","GEMS","INDY","ELSA","ENRG","RUIS",
+  "ESSA","MEDC","BUMI","DEWA","BIPI","APEX","MYOH","GTBO","PKPK",
+  "ATPK","BOSS","ABMM","RMKE","RAJA","PGAS","AKRA","PTRO",
+  "KKGI","ITMG","HRUM","SMMT","SQMI",
 
-  // Retail, konsumer, media
-  "RALS", "ACES", "ERAA", "MPPA", "HERO", "RANC", "MNCN", "SCMA", "MSKY",
-  "VIVA", "FILM",
+  // ==========================
+  // Perbankan & Keuangan
+  // ==========================
+  "BJTM","BJBR","BBTN","BEKS","BABP","BBHI","BNBA","BMAS","AGRO",
+  "BVIC","INPC","MAYA","NOBU","PNBN","BSIM","BANK","BACA",
+  "BBYB","DNAR","MCOR","SDRA",
+  "BFIN","ADMF","WOMF","MFIN","IBFN","VRNA","TRUS","YULE",
 
-  // Pelayaran & logistik
-  "TMAS", "SMDR", "WINS", "HITS", "BULL", "TPMA",
+  // ==========================
+  // Retail, Konsumer & Media
+  // ==========================
+  "RALS","ACES","ERAA","MPPA","HERO","RANC","MNCN","SCMA","MSKY",
+  "VIVA","FILM","FORU","TMPO","KIOS","SOHO","TELE","PGLI",
+  "BOGA","CSAP","ECII","KONI","LMSH","LUCK","MAPI","MIDI",
+  "PMJS","SONA","TRIO",
 
+  // ==========================
+  // Consumer Goods
+  // ==========================
+  "CLEO","GOOD","HOKI","PCAR","ROTI","SKLT","STTP",
+  "ULTJ","CEKA","FOOD","CAMP","PSDN","BTEK",
+
+  // ==========================
+  // Pelayaran & Logistik
+  // ==========================
+  "TMAS","SMDR","WINS","HITS","BULL","TPMA",
+  "NELY","SAFE","SAPX","IPCC","CASS","KARW",
+  "MIRA","LRNA","SOCI","WEHA","HELI","BPTR",
+
+  // ==========================
   // Perkebunan
-  "LSIP", "SGRO", "SIMP", "DSNG", "TBLA",
+  // ==========================
+  "LSIP","SGRO","SIMP","DSNG","TBLA",
+  "ANJT","PALM","GZCO","JAWA","BWPT",
+  "AALI","SSMS","TLDN",
 
-  // Farmasi & kesehatan
-  "KAEF", "INAF"
+  // ==========================
+  // Farmasi & Kesehatan
+  // ==========================
+  "KAEF","INAF","PEHA","PRDA",
+  "HEAL","MIKA","SILO","SRAJ","CARE",
+
+  // ==========================
+  // Teknologi
+  // ==========================
+  "DIVA","MCAS","CYBR","EDGE",
+  "GOTO","BUKA","RUNS","GLVA","ZYRX","TFAS",
+
+  // ==========================
+  // Industri & Manufaktur
+  // ==========================
+  "MARK","TRST","IKAI","KICI","SSTM",
+  "ARGO","ESTI","STAR","LPIN","IMAS",
+  "ALDO","BTON","ARNA","AMFG","CTBN",
+  "IKBI","JECC","EKAD","SBMA","FPNI",
+
+  // ==========================
+  // Logam & Baja
+  // ==========================
+  "KRAS","NIKL","INAI","BAJA","ALKA","ISSP",
+
+  // ==========================
+  // Tekstil
+  // ==========================
+  "PBRX","RICY","SRIL","INDR","POLY",
+
+  // ==========================
+  // Telekomunikasi
+  // ==========================
+  "LINK","ISAT","EXCL","FREN","MTDL",
+
+  // ==========================
+  // Perikanan
+  // ==========================
+  "CPRO","DSFI","IIKP",
+
+  // ==========================
+  // Pariwisata, Hotel & Hiburan
+  // ==========================
+  "FAST","ICON","JIHD","PUDP","SHID",
+  "PANR","PDES","PZZA","JGLE","BAYU",
+
+  // ==========================
+  // Lainnya
+  // ==========================
+  "ABBA","BELL","KREN","MAMI","POOL",
+  "TRUE","UFOE","WOOD"
 ];
 
 async function screenerSahamMurah() {
