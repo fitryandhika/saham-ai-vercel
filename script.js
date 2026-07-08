@@ -285,4 +285,124 @@ document.getElementById("btnAnalisa").addEventListener("click", () => {
   if (kode) analisaSatu(kode);
 });
 
-document.getElementById("btnAnalisaSemua").addEventListener("click", analisaSemua);
+async function scanWatchlist() {
+  const list = getWatchlist();
+  const hasilEl = document.getElementById("hasil");
+
+  if (!list.length) {
+    hasilEl.innerHTML = `<div class="loading">Watchlist masih kosong. Tambahkan kode saham dulu.</div>`;
+    return;
+  }
+
+  hasilEl.innerHTML = `<div class="loading">Scanning ${list.length} saham untuk sinyal Strong Buy…</div>`;
+
+  const lolos = [];
+  const gagal = [];
+
+  for (const kode of list) {
+    try {
+      const data = await fetchAnalisa(kode);
+      if (data.signal === "STRONG BUY") {
+        lolos.push(data);
+      }
+    } catch (e) {
+      gagal.push({ kode, error: e.message });
+    }
+  }
+
+  // Urutkan yang lolos: probabilitas gap up tertinggi di atas
+  lolos.sort((a, b) => parseFloat(b.gap.probability) - parseFloat(a.gap.probability));
+
+  const ringkasan = `<div class="loading">${lolos.length} dari ${list.length} saham lolos filter Strong Buy.</div>`;
+
+  const errorHtml = gagal.length
+    ? gagal.map(g => `<div class="error">Gagal menganalisa ${g.kode}: ${g.error}</div>`).join("")
+    : "";
+
+  if (!lolos.length) {
+    hasilEl.innerHTML = `<div class="loading">Tidak ada saham di watchlist yang memenuhi sinyal Strong Buy saat ini.</div>` + errorHtml;
+    return;
+  }
+
+  hasilEl.innerHTML = ringkasan + lolos.map(renderCard).join("") + errorHtml;
+}
+
+// ==========================
+// Screener Saham Murah (<500)
+// ==========================
+//
+// PENTING: daftar ini adalah kandidat kode saham dari sektor yang
+// secara historis punya rentang harga rendah-menengah — BUKAN
+// klaim bahwa harganya di bawah 500 saat ini. Harga & likuiditas
+// berubah tiap hari, jadi filter close<500 tetap dicek LIVE lewat
+// /api/analyze saat scan berjalan, bukan dari daftar ini.
+// Silakan tambah/kurangi kode sesuai riset & kenyamanan kamu sendiri.
+
+const UNIVERSE_MURAH = [
+  // Konstruksi & properti BUMN/swasta
+  "WIKA", "WSKT", "ADHI", "PTPP", "WEGE", "TOTL", "NRCA", "ACST", "WTON",
+  "BSDE", "PWON", "SMRA", "APLN", "KIJA", "BEST", "DMAS", "MTLA", "GPRA",
+  "ASRI", "BKSL", "DILD", "MDLN", "PPRO",
+
+  // Tambang & energi kapitalisasi kecil-menengah
+  "DOID", "BSSR", "MBAP", "TOBA", "GEMS", "INDY", "ELSA", "ENRG", "RUIS",
+  "ESSA", "MEDC",
+
+  // Perbankan kecil-menengah
+  "BJTM", "BJBR", "BBTN", "BEKS", "BABP", "BBHI", "BNBA", "BMAS", "AGRO",
+  "BVIC", "INPC", "MAYA", "NOBU", "PNBN", "BSIM",
+
+  // Retail, konsumer, media
+  "RALS", "ACES", "ERAA", "MPPA", "HERO", "RANC", "MNCN", "SCMA", "MSKY",
+  "VIVA", "FILM",
+
+  // Pelayaran & logistik
+  "TMAS", "SMDR", "WINS", "HITS", "BULL", "TPMA",
+
+  // Perkebunan
+  "LSIP", "SGRO", "SIMP", "DSNG", "TBLA",
+
+  // Farmasi & kesehatan
+  "KAEF", "INAF"
+];
+
+async function screenerSahamMurah() {
+  const hasilEl = document.getElementById("hasil");
+  const btn = document.getElementById("btnScreenerMurah");
+
+  btn.disabled = true;
+  hasilEl.innerHTML = `<div class="loading">Screening ${UNIVERSE_MURAH.length} saham (harga &lt;500 & sinyal Strong Buy)… ini bisa makan waktu 1-2 menit.</div>`;
+
+  const lolos = [];
+  const gagal = [];
+  let selesai = 0;
+
+  for (const kode of UNIVERSE_MURAH) {
+    try {
+      const data = await fetchAnalisa(kode);
+      if (data.close < 500 && data.signal === "STRONG BUY") {
+        lolos.push(data);
+      }
+    } catch (e) {
+      gagal.push(kode);
+    }
+
+    selesai++;
+    hasilEl.innerHTML = `<div class="loading">Screening… ${selesai}/${UNIVERSE_MURAH.length} saham dicek, ${lolos.length} lolos sejauh ini.</div>`;
+  }
+
+  lolos.sort((a, b) => parseFloat(b.gap.probability) - parseFloat(a.gap.probability));
+
+  btn.disabled = false;
+
+  const ringkasan = `<div class="loading">${lolos.length} dari ${UNIVERSE_MURAH.length} saham lolos (harga &lt;500, sinyal Strong Buy).${gagal.length ? ` (${gagal.length} kode gagal diambil datanya)` : ""}</div>`;
+
+  if (!lolos.length) {
+    hasilEl.innerHTML = `<div class="loading">Tidak ada saham murah yang memenuhi sinyal Strong Buy saat ini. Coba lagi nanti atau perluas daftar kandidat.</div>`;
+    return;
+  }
+
+  hasilEl.innerHTML = ringkasan + lolos.map(renderCard).join("");
+}
+
+document.getElementById("btnScreenerMurah").addEventListener("click", screenerSahamMurah);
