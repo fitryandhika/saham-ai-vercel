@@ -69,7 +69,7 @@ export function getFinalVerdict({
   riskLevel
 }) {
 
-  // STRONG BUY
+  // STRONG BUY — syarat penuh
   if (
     signal === "STRONG BUY" &&
     score >= 85 &&
@@ -80,9 +80,13 @@ export function getFinalVerdict({
     return "Layak dibeli sekarang.";
   }
 
-  // BUY
+  // BUY — juga jadi fallback untuk STRONG BUY yang gagal
+  // di gate confidence/entry/riskLevel di atas, supaya signal
+  // dan verdict tidak saling bertentangan (mis. signal STRONG BUY
+  // tapi verdict "belum layak" hanya gara-gara confidence kurang
+  // beberapa poin dari ambang STRONG BUY).
   if (
-    signal === "BUY" &&
+    (signal === "BUY" || signal === "STRONG BUY") &&
     score >= 70 &&
     confidence >= 60 &&
     entry !== "AVOID"
