@@ -1,98 +1,71 @@
 // ==========================
-// Fundamental Analysis (lightweight, rule-based)
+// Fundamental Data Service
 // ==========================
 //
-// Menghasilkan skor 0-100 & label, konsisten dengan pola scorer.js/gap.js.
-// Kalau data tidak tersedia, skor dinetralkan ke 50 (tidak menghukum
-// ataupun menguntungkan saham yang datanya kosong).
+// Sumber: Yahoo Finance v7/finance/quote endpoint (format KODE.JK).
+// Endpoint ini dipilih (bukan v10/quoteSummary) karena tidak butuh
+// crumb/cookie autentikasi, sehingga lebih reliable dipanggil dari
+// server/serverless seperti Vercel. Trade-off: ROE & Debt/Equity
+// tidak tersedia di endpoint ini (butuh modul financialData yang
+// auth-gated) — PE, PBV, EPS, dan Dividend Yield tetap didapat.
+//
+// PENTING: fungsi ini SELALU resolve (tidak pernah throw) — kalau
+// data tidak tersedia/gagal, field dikembalikan null supaya analisa
+// utama tetap jalan.
 
-export function analyzeFundamental({
-  trailingPE,
-  priceToBook,
-  returnOnEquity,
-  debtToEquity,
-  dividendYield
-} = {}) {
+export async function getFundamentalData(kode) {
+  const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${kode}.JK`;
 
-  const warnings = [];
+  try {
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json"
+      }
+    });
 
-  const hasAnyData =
-    trailingPE != null ||
-    priceToBook != null ||
-    returnOnEquity != null ||
-    debtToEquity != null;
+    if (!res.ok) {
+      const body = await res.text();
+      console.error(`getFundamentalData: HTTP ${res.status} untuk ${kode} — ${body.slice(0, 200)}`);
+      return emptyFundamental();
+    }
 
-  if (!hasAnyData) {
+    const json = await res.json();
+    const result = json?.quoteResponse?.result?.[0];
+
+    if (!result) {
+      console.error(`getFundamentalData: tidak ada result untuk ${kode}`, JSON.stringify(json).slice(0, 300));
+      return emptyFundamental();
+    }
+
     return {
-      score: 50,
-      label: "DATA TIDAK TERSEDIA",
-      warnings: ["Data fundamental tidak tersedia untuk saham ini."],
-      metrics: { trailingPE, priceToBook, returnOnEquity, debtToEquity, dividendYield }
+      trailingPE: result.trailingPE ?? null,
+      forwardPE: result.forwardPE ?? null,
+      priceToBook: result.priceToBook ?? null,
+      returnOnEquity: null, // tidak tersedia di v7/quote (butuh modul auth-gated)
+      debtToEquity: null,   // tidak tersedia di v7/quote (butuh modul auth-gated)
+      dividendYield: result.trailingAnnualDividendYield != null
+        ? result.trailingAnnualDividendYield * 100
+        : null,
+      epsTrailing: result.epsTrailingTwelveMonths ?? null,
+      profitMargin: null
     };
+
+  } catch (e) {
+    console.error("getFundamentalData error:", e.message);
+    return emptyFundamental();
   }
+}
 
-  let score = 50;
-
-  // Price to Book — makin rendah makin "murah" relatif aset
-  if (priceToBook != null) {
-    if (priceToBook > 0 && priceToBook < 0.5) {
-      score += 15;
-    } else if (priceToBook < 1) {
-      score += 8;
-    } else if (priceToBook > 3) {
-      score -= 10;
-      warnings.push("PBV di atas 3x — valuasi relatif mahal terhadap aset bersih.");
-    }
-  }
-
-  // Price to Earnings — rugi atau kemahalan sama-sama ditandai
-  if (trailingPE != null) {
-    if (trailingPE <= 0) {
-      score -= 15;
-      warnings.push("Perusahaan mencatat rugi (PE negatif) — hati-hati soal kualitas laba.");
-    } else if (trailingPE < 15) {
-      score += 10;
-    } else if (trailingPE > 30) {
-      score -= 10;
-      warnings.push("PE di atas 30x — valuasi laba tergolong mahal.");
-    }
-  }
-
-  // Return on Equity — efisiensi pengelolaan modal
-  if (returnOnEquity != null) {
-    if (returnOnEquity > 15) {
-      score += 10;
-    } else if (returnOnEquity < 5) {
-      score -= 8;
-      warnings.push("ROE di bawah 5% — profitabilitas terhadap modal masih lemah.");
-    }
-  }
-
-  // Debt to Equity — leverage
-  if (debtToEquity != null) {
-    if (debtToEquity > 100) {
-      score -= 10;
-      warnings.push("Debt/Equity di atas 100% — beban utang relatif tinggi.");
-    } else if (debtToEquity < 30) {
-      score += 5;
-    }
-  }
-
-  // Dividend Yield — bonus kecil, bukan penalti kalau tidak ada
-  if (dividendYield != null && dividendYield > 3) {
-    score += 5;
-  }
-
-  score = Math.round(Math.max(0, Math.min(score, 100)));
-
-  let label = "FUNDAMENTAL NETRAL";
-  if (score >= 65) label = "FUNDAMENTAL KUAT";
-  else if (score < 45) label = "FUNDAMENTAL LEMAH";
-
+function emptyFundamental() {
   return {
-    score,
-    label,
-    warnings,
-    metrics: { trailingPE, priceToBook, returnOnEquity, debtToEquity, dividendYield }
+    trailingPE: null,
+    forwardPE: null,
+    priceToBook: null,
+    returnOnEquity: null,
+    debtToEquity: null,
+    dividendYield: null,
+    epsTrailing: null,
+    profitMargin: null
   };
 }
