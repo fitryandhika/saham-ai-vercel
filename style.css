@@ -75,6 +75,30 @@ body{
   color:var(--muted);
 }
 
+.nav-tabs{
+  display:flex;
+  max-width:520px;
+  margin:0 auto;
+  padding:0 20px;
+  border-bottom:1px solid var(--border);
+}
+
+.nav-tab{
+  flex:1;
+  text-align:center;
+  padding:12px 0;
+  font-size:14px;
+  font-weight:600;
+  color:var(--muted);
+  text-decoration:none;
+  border-bottom:2px solid transparent;
+}
+
+.nav-tab.active{
+  color:var(--amber);
+  border-bottom-color:var(--amber);
+}
+
 .container{
   max-width:520px;
   margin:0 auto;
@@ -445,6 +469,13 @@ button{
 .pf-actions{
   display:flex;
   justify-content:flex-end;
+  gap:8px;
+  flex-wrap:wrap;
+}
+
+.btn-danger{
+  color:var(--red);
+  border-color:rgba(229,97,90,.4);
 }
 
 .positive{color:var(--green);}
@@ -465,11 +496,23 @@ button{
 .history-row{
   display:flex;
   justify-content:space-between;
+  align-items:center;
   font-family:var(--font-mono);
   font-size:12px;
   padding:8px 0;
   border-top:1px solid var(--border);
   gap:8px;
+  flex-wrap:wrap;
+}
+
+.history-actions{
+  display:flex;
+  gap:6px;
+}
+
+.history-actions .btn-ghost{
+  padding:4px 8px;
+  font-size:11px;
 }
 
 @media (prefers-reduced-motion:reduce){
