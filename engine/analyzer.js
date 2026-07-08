@@ -219,7 +219,9 @@ export function analyzeStock(data) {
   const warnings = generateWarnings({
     rsi,
     riskReward,
-    volume
+    volume,
+    atr,
+    close
   });
 
   const forecast = getForecast({
