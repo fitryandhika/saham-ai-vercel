@@ -53,6 +53,8 @@ import {
   getFinalVerdict
 } from "./verdict.js";
 
+import { analyzeFundamental } from "./fundamental.js";
+
 export function analyzeStock(data) {
 
   const close = data.closePrices.at(-1);
@@ -108,10 +110,19 @@ export function analyzeStock(data) {
   );
 
   // ==========================
+  // Fundamental Analysis
+  // ==========================
+  // data.fundamental diisi oleh api/analyze.js sebelum memanggil
+  // analyzeStock() — kalau kosong/tidak ada, analyzeFundamental()
+  // menetralkan skornya ke 50 (tidak menghukum).
+
+  const fundamental = analyzeFundamental(data.fundamental || {});
+
+  // ==========================
   // AI Score
   // ==========================
 
-  const score = calculateScore({
+  let score = calculateScore({
     close,
     sma20,
     sma50,
@@ -122,6 +133,13 @@ export function analyzeStock(data) {
     volume,
     riskReward
   });
+
+  // Blend skor teknikal (80%) dengan skor fundamental (20%).
+  // Bobot fundamental sengaja kecil — strategi beli-sore-jual-pagi
+  // tetap didominasi price action jangka pendek, fundamental cuma
+  // jadi filter kualitas tambahan, bukan penentu utama.
+  score = Math.round(score * 0.8 + fundamental.score * 0.2);
+  score = Math.max(0, Math.min(score, 100));
 
   const signal = recommendation(score);
 
@@ -216,13 +234,23 @@ export function analyzeStock(data) {
 
   const category = getCategory(rank);
 
-  const warnings = generateWarnings({
+  const technicalWarnings = generateWarnings({
     rsi,
     riskReward,
     volume,
     atr,
     close
   });
+
+  // Kalau fundamental punya warning nyata, buang placeholder
+  // "Tidak ada peringatan penting." dari sisi teknikal supaya
+  // tidak muncul kontradiktif berdampingan dengan warning asli.
+  const warnings = fundamental.warnings.length
+    ? [
+        ...technicalWarnings.filter(w => w !== "Tidak ada peringatan penting."),
+        ...fundamental.warnings
+      ]
+    : technicalWarnings;
 
   const forecast = getForecast({
     close,
@@ -287,6 +315,8 @@ export function analyzeStock(data) {
 
     momentum,
     gap,
+
+    fundamental,
 
     timestamp: new Date().toISOString()
   };
