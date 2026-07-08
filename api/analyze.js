@@ -1,6 +1,7 @@
 import { analyzeStock } from "../engine/analyzer.js";
 import { getStockData } from "../services/stockService.js";
 import { checkNewsWarnings } from "../engine/newsCheck.js";
+import { getFundamentalData } from "../services/fundamentalService.js";
 
 export default async function handler(req, res) {
 
@@ -9,6 +10,10 @@ export default async function handler(req, res) {
     const kode = (req.query.kode || "BBCA").toUpperCase();
 
     const stockData = await getStockData(kode);
+
+    // Fundamental diambil terpisah & digabung sebelum analyzeStock(),
+    // supaya kalau gagal, tidak menggagalkan analisa teknikal utama.
+    stockData.fundamental = await getFundamentalData(kode);
 
     const hasil = analyzeStock(stockData);
 
