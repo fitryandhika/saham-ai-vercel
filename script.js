@@ -285,47 +285,7 @@ document.getElementById("btnAnalisa").addEventListener("click", () => {
   if (kode) analisaSatu(kode);
 });
 
-async function scanWatchlist() {
-  const list = getWatchlist();
-  const hasilEl = document.getElementById("hasil");
-
-  if (!list.length) {
-    hasilEl.innerHTML = `<div class="loading">Watchlist masih kosong. Tambahkan kode saham dulu.</div>`;
-    return;
-  }
-
-  hasilEl.innerHTML = `<div class="loading">Scanning ${list.length} saham untuk sinyal Strong Buy…</div>`;
-
-  const lolos = [];
-  const gagal = [];
-
-  for (const kode of list) {
-    try {
-      const data = await fetchAnalisa(kode);
-      if (data.signal === "STRONG BUY") {
-        lolos.push(data);
-      }
-    } catch (e) {
-      gagal.push({ kode, error: e.message });
-    }
-  }
-
-  // Urutkan yang lolos: probabilitas gap up tertinggi di atas
-  lolos.sort((a, b) => parseFloat(b.gap.probability) - parseFloat(a.gap.probability));
-
-  const ringkasan = `<div class="loading">${lolos.length} dari ${list.length} saham lolos filter Strong Buy.</div>`;
-
-  const errorHtml = gagal.length
-    ? gagal.map(g => `<div class="error">Gagal menganalisa ${g.kode}: ${g.error}</div>`).join("")
-    : "";
-
-  if (!lolos.length) {
-    hasilEl.innerHTML = `<div class="loading">Tidak ada saham di watchlist yang memenuhi sinyal Strong Buy saat ini.</div>` + errorHtml;
-    return;
-  }
-
-  hasilEl.innerHTML = ringkasan + lolos.map(renderCard).join("") + errorHtml;
-}
+document.getElementById("btnAnalisaSemua").addEventListener("click", analisaSemua);
 
 // ==========================
 // Screener Saham Murah (<500)
