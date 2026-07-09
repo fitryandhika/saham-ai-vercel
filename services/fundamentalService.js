@@ -2,21 +2,74 @@
 // Fundamental Data Service
 // ==========================
 //
-// Sumber utama: Yahoo Finance quoteSummary (query1 -> fallback query2).
-// Sumber cadangan: Yahoo v7/finance/quote (kadang terisi walau
-// quoteSummary kosong) untuk PE, forward PE, PBV, EPS, dividend yield.
-// ROE & Debt/Equity HANYA ada di quoteSummary, tidak ada fallback-nya.
+// Sejak pertengahan 2023, endpoint quoteSummary & v7/finance/quote milik
+// Yahoo Finance WAJIB pakai cookie + crumb (token anti-scraping). Tanpa
+// itu, Yahoo balikin 401/"Invalid Crumb" — ini penyebab utama kenapa
+// data fundamental sering kosong bahkan untuk saham blue-chip.
+// Endpoint harga (v8/finance/chart) tidak kena aturan ini, makanya
+// candle/harga tetap normal.
 //
-// PENTING: data fundamental IDX di Yahoo Finance kadang kosong/telat
-// update. Fungsi ini SELALU resolve (tidak pernah throw) — kalau data
-// tidak tersedia sama sekali, field terkait dikembalikan null supaya
-// analisa utama tetap jalan.
+// Alur: ambil cookie session -> tukar jadi crumb -> pakai keduanya
+// di request quoteSummary & quote fallback.
+//
+// PENTING: fungsi ini SELALU resolve (tidak pernah throw) — kalau semua
+// upaya gagal, field dikembalikan null supaya analisa utama tetap jalan.
 
-async function fetchJson(url) {
+let cachedAuth = null; // { cookie, crumb, expiresAt } — bertahan selama warm start Vercel
+
+async function getYahooAuth() {
+  const now = Date.now();
+  if (cachedAuth && cachedAuth.expiresAt > now) {
+    return cachedAuth;
+  }
+
   try {
-    const res = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0" }
+    // 1) Ambil cookie session dari Yahoo
+    const cookieRes = await fetch("https://fc.yahoo.com", {
+      headers: { "User-Agent": "Mozilla/5.0" },
+      redirect: "manual"
     });
+
+    const setCookie = cookieRes.headers.get("set-cookie");
+    if (!setCookie) return null;
+
+    const cookie = setCookie.split(";")[0];
+
+    // 2) Tukar cookie jadi crumb
+    const crumbRes = await fetch(
+      "https://query1.finance.yahoo.com/v1/test/getcrumb",
+      {
+        headers: {
+          "User-Agent": "Mozilla/5.0",
+          "Cookie": cookie
+        }
+      }
+    );
+
+    if (!crumbRes.ok) return null;
+    const crumb = (await crumbRes.text()).trim();
+
+    if (!crumb || crumb.includes("<html")) return null;
+
+    cachedAuth = {
+      cookie,
+      crumb,
+      expiresAt: now + 5 * 60 * 1000 // cache 5 menit, cukup untuk beberapa request warm start
+    };
+
+    return cachedAuth;
+  } catch (e) {
+    console.error("getYahooAuth error:", e.message);
+    return null;
+  }
+}
+
+async function fetchJsonAuthed(url, auth) {
+  try {
+    const headers = { "User-Agent": "Mozilla/5.0" };
+    if (auth?.cookie) headers["Cookie"] = auth.cookie;
+
+    const res = await fetch(url, { headers });
     if (!res.ok) return null;
     return await res.json();
   } catch (e) {
@@ -24,15 +77,16 @@ async function fetchJson(url) {
   }
 }
 
-async function fetchQuoteSummary(kode) {
+async function fetchQuoteSummary(kode, auth) {
   const hosts = ["query1", "query2"];
+  const crumbParam = auth?.crumb ? `&crumb=${encodeURIComponent(auth.crumb)}` : "";
 
   for (const host of hosts) {
     const url =
       `https://${host}.finance.yahoo.com/v10/finance/quoteSummary/${kode}.JK` +
-      `?modules=defaultKeyStatistics,financialData,summaryDetail`;
+      `?modules=defaultKeyStatistics,financialData,summaryDetail${crumbParam}`;
 
-    const json = await fetchJson(url);
+    const json = await fetchJsonAuthed(url, auth);
     const result = json?.quoteSummary?.result?.[0];
     if (result) return result;
   }
@@ -40,14 +94,15 @@ async function fetchQuoteSummary(kode) {
   return null;
 }
 
-async function fetchQuoteFallback(kode) {
+async function fetchQuoteFallback(kode, auth) {
   const hosts = ["query1", "query2"];
+  const crumbParam = auth?.crumb ? `&crumb=${encodeURIComponent(auth.crumb)}` : "";
 
   for (const host of hosts) {
     const url =
-      `https://${host}.finance.yahoo.com/v7/finance/quote?symbols=${kode}.JK`;
+      `https://${host}.finance.yahoo.com/v7/finance/quote?symbols=${kode}.JK${crumbParam}`;
 
-    const json = await fetchJson(url);
+    const json = await fetchJsonAuthed(url, auth);
     const result = json?.quoteResponse?.result?.[0];
     if (result) return result;
   }
@@ -58,8 +113,10 @@ async function fetchQuoteFallback(kode) {
 export async function getFundamentalData(kode) {
   const data = emptyFundamental();
 
+  const auth = await getYahooAuth();
+
   // 1) Coba quoteSummary (sumber paling lengkap: ada ROE & DER)
-  const summary = await fetchQuoteSummary(kode);
+  const summary = await fetchQuoteSummary(kode, auth);
 
   if (summary) {
     const keyStats = summary.defaultKeyStatistics || {};
@@ -94,7 +151,7 @@ export async function getFundamentalData(kode) {
     data.epsTrailing == null;
 
   if (needsFallback) {
-    const q = await fetchQuoteFallback(kode);
+    const q = await fetchQuoteFallback(kode, auth);
 
     if (q) {
       if (data.trailingPE == null) data.trailingPE = q.trailingPE ?? null;
