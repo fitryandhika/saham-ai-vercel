@@ -515,6 +515,38 @@ button{
   font-size:11px;
 }
 
+/* ===== News ===== */
+
+.news-card{
+  display:block;
+  text-decoration:none;
+  color:var(--text);
+  transition:border-color .15s ease;
+}
+
+.news-card:hover{border-color:var(--amber);}
+
+.news-source-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  margin-bottom:8px;
+}
+
+.news-time{
+  font-family:var(--font-mono);
+  font-size:11px;
+  color:var(--muted);
+  white-space:nowrap;
+}
+
+.news-title{
+  font-size:14px;
+  line-height:1.45;
+  color:var(--text);
+}
+
 @media (prefers-reduced-motion:reduce){
   *{transition:none !important;}
 }
