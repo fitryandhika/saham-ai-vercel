@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>News — SahamAI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">◆</span>
+    <span class="brand-name">SahamAI</span>
+  </div>
+  <div class="clock" id="clock">--:--</div>
+</header>
+
+<div id="windowBar" class="window-bar">
+  <span id="windowLabel">Memuat status market…</span>
+</div>
+
+<nav class="nav-tabs">
+  <a href="index.html" class="nav-tab">Analisa</a>
+  <a href="portfolio.html" class="nav-tab">Portofolio</a>
+  <a href="news.html" class="nav-tab active">News</a>
+</nav>
+
+<main class="container">
+
+  <section class="panel">
+    <label class="panel-label" for="newsKode">Cari berita kode saham</label>
+    <div class="input-row">
+      <input id="newsKode" type="text" placeholder="Contoh: BBCA" autocomplete="off">
+      <button class="btn-primary" id="btnCariNews">Cari Berita</button>
+    </div>
+  </section>
+
+  <section id="newsSummary"></section>
+
+  <section id="newsResult" class="results"></section>
+
+  <p class="disclaimer">
+    Berita diambil dari Google News RSS, mengumpulkan dari berbagai media.
+    Bukan rekomendasi finansial — selalu cek ulang isi berita sebelum entry.
+  </p>
+
+</main>
+
+<script src="news.js"></script>
+</body>
+</html>
