@@ -441,7 +441,40 @@ const UNIVERSE_MURAH = [
   // Lainnya
   // ==========================
   "ABBA","BELL","KREN","MAMI","POOL",
-  "TRUE","UFOE","WOOD"
+  "TRUE","UFOE","WOOD",
+
+  // ==========================
+  // TAMBAHAN — diperluas dari 243 (Juli 2026)
+  // CATATAN: ini BUKAN daftar resmi lengkap ~951 emiten IDX.
+  // IDX & GitHub dataset publik memblokir akses otomatis dari sistem
+  // ini, jadi daftar ini dikompilasi dari pengetahuan umum kode saham
+  // IDX yang sudah dikenal luas. Aman dipakai karena filter harga
+  // tetap live-check via /api/analyze — kode dengan harga di atas
+  // HARGA_MURAH_MAX otomatis tersaring keluar, bukan dari daftar ini.
+  // Disarankan cek berkala ke idx.co.id/id/data-pasar/data-saham/daftar-saham
+  // untuk menambah kode terbaru (IPO baru) atau membuang yang delisting.
+  // ==========================
+
+  // Perbankan Besar & Menengah
+  "BBCA","BBRI","BMRI","BBNI","BDMN","BNGA","BNLI","BTPN","BTPS","MEGA","NISP","ARTO","AMAR","BNII",
+
+  // Blue Chip / Large Cap Lintas Sektor
+  "TLKM","ASII","UNVR","ICBP","INDF","GGRM","HMSP","UNTR","ADRO","PTBA","ANTM","INCO","TINS","SMGR","INTP","CPIN","JPFA","KLBF","MYOR","SIDO","TOWR","TBIG","MTEL","JSMR","TPIA","BRPT",
+
+  // Properti Tambahan
+  "CTRA","PANI","DUTI","JRPT","KOTA",
+
+  // Farmasi & Konsumer Tambahan
+  "DVLA","MERK","TSPC","TCID","SCPI","AMRT","LPPF","MAPA","MAPB","CMRY","MAIN","TAPG",
+
+  // Industri Kertas & Kimia Tambahan
+  "INKP","TKIM","FASW","SPMA","AGII","BUDI","UNIC",
+
+  // Teknologi Tambahan
+  "EMTK","DCII",
+
+  // Asuransi
+  "ASBI","ASDM","ASJT","ASMI","LPGI","MREI","PNIN","PNLF","VINS","AHAP","TUGU","JMAS"
 ];
 
 async function screenerSahamMurah() {
