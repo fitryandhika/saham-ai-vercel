@@ -323,15 +323,19 @@ document.getElementById("btnAnalisa").addEventListener("click", () => {
 document.getElementById("btnAnalisaSemua").addEventListener("click", analisaSemua);
 
 // ==========================
-// Screener Saham Murah (<500)
+// Screener Saham Murah (<300)
 // ==========================
 //
 // PENTING: daftar ini adalah kandidat kode saham dari sektor yang
 // secara historis punya rentang harga rendah-menengah — BUKAN
-// klaim bahwa harganya di bawah 500 saat ini. Harga & likuiditas
-// berubah tiap hari, jadi filter close<500 tetap dicek LIVE lewat
-// /api/analyze saat scan berjalan, bukan dari daftar ini.
+// klaim bahwa harganya di bawah batas saat ini. Harga & likuiditas
+// berubah tiap hari, jadi filter harga tetap dicek LIVE lewat
+// /api/analyze (data.close) saat scan berjalan, bukan dari daftar ini.
+// Ubah HARGA_MURAH_MAX di bawah untuk mengganti ambang batas harga —
+// tidak perlu edit data saham satu-satu di backend.
 // Silakan tambah/kurangi kode sesuai riset & kenyamanan kamu sendiri.
+
+const HARGA_MURAH_MAX = 300;
 
 const UNIVERSE_MURAH = [
 
@@ -445,7 +449,7 @@ async function screenerSahamMurah() {
   const btn = document.getElementById("btnScreenerMurah");
 
   btn.disabled = true;
-  hasilEl.innerHTML = `<div class="loading">Screening ${UNIVERSE_MURAH.length} saham (harga &lt;500 & sinyal Strong Buy)… ini bisa makan waktu 1-2 menit.</div>`;
+  hasilEl.innerHTML = `<div class="loading">Screening ${UNIVERSE_MURAH.length} saham (harga &lt;${HARGA_MURAH_MAX} & sinyal Strong Buy)… ini bisa makan waktu 1-2 menit.</div>`;
 
   const lolos = [];
   const gagal = [];
@@ -454,7 +458,7 @@ async function screenerSahamMurah() {
   for (const kode of UNIVERSE_MURAH) {
     try {
       const data = await fetchAnalisa(kode);
-      if (data.close < 500 && data.signal === "STRONG BUY") {
+      if (data.close < HARGA_MURAH_MAX && data.signal === "STRONG BUY") {
         lolos.push(data);
       }
     } catch (e) {
@@ -469,7 +473,7 @@ async function screenerSahamMurah() {
 
   btn.disabled = false;
 
-  const ringkasan = `<div class="loading">${lolos.length} dari ${UNIVERSE_MURAH.length} saham lolos (harga &lt;500, sinyal Strong Buy).${gagal.length ? ` (${gagal.length} kode gagal diambil datanya)` : ""}</div>`;
+  const ringkasan = `<div class="loading">${lolos.length} dari ${UNIVERSE_MURAH.length} saham lolos (harga &lt;${HARGA_MURAH_MAX}, sinyal Strong Buy).${gagal.length ? ` (${gagal.length} kode gagal diambil datanya)` : ""}</div>`;
 
   if (!lolos.length) {
     hasilEl.innerHTML = `<div class="loading">Tidak ada saham murah yang memenuhi sinyal Strong Buy saat ini. Coba lagi nanti atau perluas daftar kandidat.</div>`;
