@@ -55,6 +55,14 @@ import {
 
 import { analyzeFundamental } from "./fundamental.js";
 
+import { detectBreakout } from "./indicators/breakout.js";
+
+import { calculateClosingStrength, classifyClosingStrength } from "./indicators/closingStrength.js";
+
+import { calculateVolumeAcceleration } from "./indicators/volumeAcceleration.js";
+
+import { calculateRelativeStrength, nDayReturn } from "./relativeStrength.js";
+
 export function analyzeStock(data) {
 
   const close = data.closePrices.at(-1);
@@ -78,6 +86,37 @@ export function analyzeStock(data) {
   const volume = analyzeVolume(
     data.volumes
   );
+
+  // ==========================
+  // Breakout, Closing Strength, Volume Acceleration
+  // ==========================
+
+  const breakout = detectBreakout(data.candles, {
+    lookback: 20,
+    volumeRatio: volume.ratio
+  });
+
+  const closingStrengthValue = calculateClosingStrength(data.candles.at(-1));
+  const closingStrength = closingStrengthValue;
+  const closingStrengthLabel = classifyClosingStrength(closingStrengthValue);
+
+  const volumeAcceleration = calculateVolumeAcceleration(data.volumes);
+
+  // ==========================
+  // Relative Strength vs IHSG & Sektor
+  // ==========================
+  // data.ihsgCloses & data.sectorReturn diisi oleh caller (api/analyze.js
+  // atau api/scan.js) kalau tersedia — kalau tidak, RS dilewati (null),
+  // bukan dianggap 0 (netral tapi bukan "tidak diukur").
+
+  const stockReturn = nDayReturn(data.closePrices, 20);
+  const ihsgReturn = data.ihsgCloses ? nDayReturn(data.ihsgCloses, 20) : null;
+
+  const relativeStrength = calculateRelativeStrength({
+    stockReturn,
+    ihsgReturn,
+    sectorReturn: data.sectorReturn ?? null
+  });
 
   // ==========================
   // Risk Management (ATR-based)
@@ -131,7 +170,11 @@ export function analyzeStock(data) {
     rsi,
     macd,
     volume,
-    riskReward
+    riskReward,
+    breakout,
+    closingStrength,
+    volumeAcceleration,
+    relativeStrength
   });
 
   // Blend skor teknikal (80%) dengan skor fundamental (20%).
@@ -165,7 +208,11 @@ export function analyzeStock(data) {
     ema20,
     rsi,
     macd,
-    riskReward
+    riskReward,
+    breakout,
+    closingStrength,
+    volumeAcceleration,
+    relativeStrength
   });
 
   // ==========================
@@ -239,7 +286,9 @@ export function analyzeStock(data) {
     riskReward,
     volume,
     atr,
-    close
+    close,
+    closingStrength,
+    relativeStrength
   });
 
   // Kalau fundamental punya warning nyata, buang placeholder
@@ -315,6 +364,12 @@ export function analyzeStock(data) {
 
     momentum,
     gap,
+
+    breakout,
+    closingStrength,
+    closingStrengthLabel,
+    volumeAcceleration,
+    relativeStrength,
 
     fundamental,
 
