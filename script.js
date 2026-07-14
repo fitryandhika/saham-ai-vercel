@@ -345,7 +345,8 @@ async function fetchScan(params = {}) {
   const json = await res.json();
 
   if (!json.success) {
-    throw new Error(json.message || "Batch scan gagal.");
+    console.error("Scan error detail:", json.error, json.stack);
+    throw new Error(json.error || json.message || "Batch scan gagal.");
   }
 
   return json;
@@ -388,7 +389,7 @@ async function batchScanSemua() {
 
   } catch (e) {
     btn.disabled = false;
-    hasilEl.innerHTML = `<div class="loading">Batch scan gagal: ${e.message}</div>`;
+    hasilEl.innerHTML = `<div class="loading">Batch scan gagal: ${e.message} (detail lengkap ada di console browser)</div>`;
   }
 }
 
