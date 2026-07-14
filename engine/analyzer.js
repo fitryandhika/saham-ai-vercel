@@ -236,7 +236,8 @@ export function analyzeStock(data) {
   const entry = getEntryTiming({
     signal,
     rsi,
-    riskReward
+    riskReward,
+    breakout
   });
 
   const verdict = getFinalVerdict({
