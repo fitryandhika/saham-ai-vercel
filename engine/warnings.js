@@ -3,7 +3,9 @@ export function generateWarnings({
   riskReward,
   volume,
   atr,
-  close
+  close,
+  closingStrength,
+  relativeStrength
 }) {
 
   const warnings = [];
@@ -38,6 +40,18 @@ export function generateWarnings({
         `Volatilitas di atas normal (ATR ${atrPercent.toFixed(1)}% dari harga) — gunakan ukuran posisi lebih kecil.`
       );
     }
+  }
+
+  if (typeof closingStrength === "number" && closingStrength < 0.2) {
+    warnings.push(
+      "Close dekat low hari ini — seller dominan menjelang penutupan, waspada gap-down."
+    );
+  }
+
+  if (relativeStrength && relativeStrength.label === "JAUH UNDERPERFORM") {
+    warnings.push(
+      "Saham jauh underperform IHSG/sektor — kenaikan (kalau ada) lebih lemah dari pasar."
+    );
   }
 
   if (warnings.length === 0) {
