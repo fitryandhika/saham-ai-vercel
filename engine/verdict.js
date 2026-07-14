@@ -43,13 +43,22 @@ export function getRiskLevel({
 export function getEntryTiming({
   signal,
   rsi,
-  riskReward
+  riskReward,
+  breakout
 }) {
 
+  const isConfirmedBreakout = breakout && breakout.isBreakout &&
+    (breakout.level === "STRONG_BREAKOUT" || breakout.level === "BREAKOUT");
+
+  // Breakout kuat wajar mendorong RSI ke area overbought — itu bukan
+  // alasan untuk memblokir entry seperti kondisi overbought biasa
+  // (harga naik pelan tanpa katalis). Longgarkan plafon RSI untuk
+  // breakout terkonfirmasi (masih ada batas 80 sebagai sanity check
+  // supaya tidak mengejar harga yang sudah terlalu jauh dari resistance).
   if (
     (signal === "BUY" || signal === "STRONG BUY") &&
-    rsi < 70 &&
-    riskReward >= 1.5
+    riskReward >= 1.5 &&
+    (isConfirmedBreakout ? rsi < 80 : rsi < 70)
   ) {
     return "NOW";
   }
