@@ -60,7 +60,8 @@ export default async function handler(req, res) {
       minScore,
       maxPrice,
       sector,
-      onlyBreakout
+      onlyBreakout,
+      highConviction
     } = req.query;
 
     let kodeList = UNIVERSE;
@@ -150,6 +151,28 @@ export default async function handler(req, res) {
     if (maxPrice) {
       const n = parseFloat(maxPrice);
       if (Number.isFinite(n)) hasilFilter = hasilFilter.filter((d) => d.close < n);
+    }
+
+    // ==========================
+    // High Conviction — beberapa sinyal harus SALING MENDUKUNG sekaligus,
+    // bukan cuma satu angka skor tinggi. Ini yang paling relevan untuk
+    // "potensi naik esok hari" (strategi beli sore/jual pagi):
+    //   - Signal BUY/STRONG BUY (skor sudah lolos ambang ≥75)
+    //   - Entry NOW (sudah lolos gerbang risiko RSI di getEntryTiming)
+    //   - Gap Outlook mengarah naik (indikator gap-up literal, bukan proxy)
+    //   - Closing Strength ≥0.5 (buyer masih pegang kendali sampai closing,
+    //     bukan cuma naik siang lalu dijual lagi menjelang sore)
+    //   - Volume tidak LOW (kenaikan didukung partisipasi nyata)
+    if (highConviction === "true") {
+      hasilFilter = hasilFilter.filter((d) => {
+        const signalOk = d.signal === "BUY" || d.signal === "STRONG BUY";
+        const entryOk = d.entry === "NOW";
+        const gapOk = d.gap.outlook === "POSSIBLE GAP UP" || d.gap.outlook === "HIGH GAP UP";
+        const closingOk = typeof d.closingStrength === "number" && d.closingStrength >= 0.5;
+        const volumeOk = d.volume && d.volume.signal !== "LOW";
+
+        return signalOk && entryOk && gapOk && closingOk && volumeOk;
+      });
     }
 
     if (onlyBreakout === "true") {
