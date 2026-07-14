@@ -116,15 +116,26 @@ export default async function handler(req, res) {
     // ==========================
     // Tahap 3 — analyzeStock() penuh per kode, dengan RS vs IHSG & sektor
     // ==========================
-    const analyzed = ok.map((item) => {
-      item.stockData.ihsgCloses = ihsgCloses;
-      item.stockData.sectorReturn = sectorReturns[item.sector] ?? null;
-      item.stockData.sector = item.sector;
+    // Dibungkus try/catch PER KODE — satu kode dengan data ganjil (histori
+    // terlalu pendek, harga NaN, dll) tidak boleh menjatuhkan seluruh batch.
+    const analyzeErrors = [];
 
-      const hasil = analyzeStock(item.stockData);
-      hasil.sector = item.sector;
-      return hasil;
-    });
+    const analyzed = ok
+      .map((item) => {
+        try {
+          item.stockData.ihsgCloses = ihsgCloses;
+          item.stockData.sectorReturn = sectorReturns[item.sector] ?? null;
+          item.stockData.sector = item.sector;
+
+          const hasil = analyzeStock(item.stockData);
+          hasil.sector = item.sector;
+          return hasil;
+        } catch (e) {
+          analyzeErrors.push({ kode: item.kode, error: e.message });
+          return null;
+        }
+      })
+      .filter(Boolean);
 
     // ==========================
     // Filter opsional
@@ -157,9 +168,10 @@ export default async function handler(req, res) {
     return res.status(200).json({
       success: true,
       scanned: kodeList.length,
-      succeeded: ok.length,
-      failed: failed.length,
-      failedCodes: failed,
+      succeeded: analyzed.length,
+      failed: failed.length + analyzeErrors.length,
+      failedCodes: [...failed, ...analyzeErrors.map((e) => e.kode)],
+      analyzeErrors,
       breakoutCount: analyzed.filter((d) => d.breakout && d.breakout.isBreakout).length,
       data: hasilFilter
     });
@@ -170,7 +182,8 @@ export default async function handler(req, res) {
     return res.status(500).json({
       success: false,
       message: "Batch scan gagal.",
-      error: error.message
+      error: error.message,
+      stack: error.stack
     });
   }
 }
