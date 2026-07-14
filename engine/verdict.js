@@ -12,7 +12,7 @@ export function getMarketTrend({
   if (close > sma20) bullish++;
   if (sma20 > sma50) bullish++;
   if (ema9 > ema20) bullish++;
-  if (macd.macd > 0) bullish++;
+  if (macd && macd.macd > 0) bullish++;
 
   if (bullish >= 3) return "BULLISH";
   if (bullish >= 2) return "SIDEWAYS";
