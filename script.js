@@ -155,6 +155,10 @@ function renderCard(d) {
         <span class="badge ${tClass}">${d.marketTrend}</span>
         <span class="badge sideways">Risiko ${d.riskLevel}</span>
         <span class="badge sideways">Entry ${d.entry}</span>
+        ${d.breakout && d.breakout.isBreakout ? `<span class="badge bullish">🚀 ${d.breakout.level === "STRONG_BREAKOUT" ? "Strong Breakout" : "Breakout"}</span>` : ""}
+        ${d.relativeStrength && (d.relativeStrength.label === "OUTPERFORM" || d.relativeStrength.label === "JAUH OUTPERFORM") ? `<span class="badge bullish">RS ${d.relativeStrength.label}</span>` : ""}
+        ${d.relativeStrength && (d.relativeStrength.label === "UNDERPERFORM" || d.relativeStrength.label === "JAUH UNDERPERFORM") ? `<span class="badge bearish">RS ${d.relativeStrength.label}</span>` : ""}
+        ${d.sector ? `<span class="badge sideways">${d.sector}</span>` : ""}
       </div>
 
       <div class="verdict-box ${vClass}">
@@ -323,197 +327,69 @@ document.getElementById("btnAnalisa").addEventListener("click", () => {
 document.getElementById("btnAnalisaSemua").addEventListener("click", analisaSemua);
 
 // ==========================
-// Screener Saham Murah (<300)
+// Batch Scanner — Semua Emiten (server-side)
 // ==========================
 //
-// PENTING: daftar ini adalah kandidat kode saham dari sektor yang
-// secara historis punya rentang harga rendah-menengah — BUKAN
-// klaim bahwa harganya di bawah batas saat ini. Harga & likuiditas
-// berubah tiap hari, jadi filter harga tetap dicek LIVE lewat
-// /api/analyze (data.close) saat scan berjalan, bukan dari daftar ini.
-// Ubah HARGA_MURAH_MAX di bawah untuk mengganti ambang batas harga —
-// tidak perlu edit data saham satu-satu di backend.
-// Silakan tambah/kurangi kode sesuai riset & kenyamanan kamu sendiri.
+// Dulu: loop di browser, fetch /api/analyze satu-satu per kode
+// (ratusan request sekuensial, lambat & tidak bisa hitung Relative
+// Strength vs sektor). Sekarang: satu request ke /api/scan yang
+// memindai seluruh universe di server secara paralel, dengan
+// breakout detector, closing strength, volume acceleration, dan
+// relative strength vs IHSG/sektor sudah terhitung di tiap hasil.
 
 const HARGA_MURAH_MAX = 300;
 
-const UNIVERSE_MURAH = [
+async function fetchScan(params = {}) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch("/api/scan" + (qs ? `?${qs}` : ""));
+  const json = await res.json();
 
-  // ==========================
-  // Konstruksi & Properti
-  // ==========================
-  "WIKA","WSKT","ADHI","PTPP","WEGE","TOTL","NRCA","ACST","WTON",
-  "BSDE","PWON","SMRA","APLN","KIJA","BEST","DMAS","MTLA","GPRA",
-  "ASRI","BKSL","DILD","MDLN","PPRO","CITY","CSIS","NIRO","OMRE",
-  "LPKR","LAND","PURI","ARMY","LCGP","MTSM","SMDM","RDTX",
+  if (!json.success) {
+    throw new Error(json.message || "Batch scan gagal.");
+  }
 
-  // ==========================
-  // Tambang & Energi
-  // ==========================
-  "DOID","BSSR","MBAP","TOBA","GEMS","INDY","ELSA","ENRG","RUIS",
-  "ESSA","MEDC","BUMI","DEWA","BIPI","APEX","MYOH","GTBO","PKPK",
-  "ATPK","BOSS","ABMM","RMKE","RAJA","PGAS","AKRA","PTRO",
-  "KKGI","ITMG","HRUM","SMMT","SQMI",
+  return json;
+}
 
-  // ==========================
-  // Perbankan & Keuangan
-  // ==========================
-  "BJTM","BJBR","BBTN","BEKS","BABP","BBHI","BNBA","BMAS","AGRO",
-  "BVIC","INPC","MAYA","NOBU","PNBN","BSIM","BANK","BACA",
-  "BBYB","DNAR","MCOR","SDRA",
-  "BFIN","ADMF","WOMF","MFIN","IBFN","VRNA","TRUS","YULE",
+function renderScanSummary(json, label) {
+  const gagal = json.failed
+    ? ` (${json.failed} kode gagal diambil datanya)`
+    : "";
 
-  // ==========================
-  // Retail, Konsumer & Media
-  // ==========================
-  "RALS","ACES","ERAA","MPPA","HERO","RANC","MNCN","SCMA","MSKY",
-  "VIVA","FILM","FORU","TMPO","KIOS","SOHO","TELE","PGLI",
-  "BOGA","CSAP","ECII","KONI","LMSH","LUCK","MAPI","MIDI",
-  "PMJS","SONA","TRIO",
+  return `<div class="loading">
+    ${label}: ${json.data.length} dari ${json.scanned} saham lolos filter.
+    ${json.breakoutCount} kode breakout terdeteksi.${gagal}
+  </div>`;
+}
 
-  // ==========================
-  // Consumer Goods
-  // ==========================
-  "CLEO","GOOD","HOKI","PCAR","ROTI","SKLT","STTP",
-  "ULTJ","CEKA","FOOD","CAMP","PSDN","BTEK",
-
-  // ==========================
-  // Pelayaran & Logistik
-  // ==========================
-  "TMAS","SMDR","WINS","HITS","BULL","TPMA",
-  "NELY","SAFE","SAPX","IPCC","CASS","KARW",
-  "MIRA","LRNA","SOCI","WEHA","HELI","BPTR",
-
-  // ==========================
-  // Perkebunan
-  // ==========================
-  "LSIP","SGRO","SIMP","DSNG","TBLA",
-  "ANJT","PALM","GZCO","JAWA","BWPT",
-  "AALI","SSMS","TLDN",
-
-  // ==========================
-  // Farmasi & Kesehatan
-  // ==========================
-  "KAEF","INAF","PEHA","PRDA",
-  "HEAL","MIKA","SILO","SRAJ","CARE",
-
-  // ==========================
-  // Teknologi
-  // ==========================
-  "DIVA","MCAS","CYBR","EDGE",
-  "GOTO","BUKA","RUNS","GLVA","ZYRX","TFAS",
-
-  // ==========================
-  // Industri & Manufaktur
-  // ==========================
-  "MARK","TRST","IKAI","KICI","SSTM",
-  "ARGO","ESTI","STAR","LPIN","IMAS",
-  "ALDO","BTON","ARNA","AMFG","CTBN",
-  "IKBI","JECC","EKAD","SBMA","FPNI",
-
-  // ==========================
-  // Logam & Baja
-  // ==========================
-  "KRAS","NIKL","INAI","BAJA","ALKA","ISSP",
-
-  // ==========================
-  // Tekstil
-  // ==========================
-  "PBRX","RICY","SRIL","INDR","POLY",
-
-  // ==========================
-  // Telekomunikasi
-  // ==========================
-  "LINK","ISAT","EXCL","FREN","MTDL",
-
-  // ==========================
-  // Perikanan
-  // ==========================
-  "CPRO","DSFI","IIKP",
-
-  // ==========================
-  // Pariwisata, Hotel & Hiburan
-  // ==========================
-  "FAST","ICON","JIHD","PUDP","SHID",
-  "PANR","PDES","PZZA","JGLE","BAYU",
-
-  // ==========================
-  // Lainnya
-  // ==========================
-  "ABBA","BELL","KREN","MAMI","POOL",
-  "TRUE","UFOE","WOOD",
-
-  // ==========================
-  // TAMBAHAN — diperluas dari 243 (Juli 2026)
-  // CATATAN: ini BUKAN daftar resmi lengkap ~951 emiten IDX.
-  // IDX & GitHub dataset publik memblokir akses otomatis dari sistem
-  // ini, jadi daftar ini dikompilasi dari pengetahuan umum kode saham
-  // IDX yang sudah dikenal luas. Aman dipakai karena filter harga
-  // tetap live-check via /api/analyze — kode dengan harga di atas
-  // HARGA_MURAH_MAX otomatis tersaring keluar, bukan dari daftar ini.
-  // Disarankan cek berkala ke idx.co.id/id/data-pasar/data-saham/daftar-saham
-  // untuk menambah kode terbaru (IPO baru) atau membuang yang delisting.
-  // ==========================
-
-  // Perbankan Besar & Menengah
-  "BBCA","BBRI","BMRI","BBNI","BDMN","BNGA","BNLI","BTPN","BTPS","MEGA","NISP","ARTO","AMAR","BNII",
-
-  // Blue Chip / Large Cap Lintas Sektor
-  "TLKM","ASII","UNVR","ICBP","INDF","GGRM","HMSP","UNTR","ADRO","PTBA","ANTM","INCO","TINS","SMGR","INTP","CPIN","JPFA","KLBF","MYOR","SIDO","TOWR","TBIG","MTEL","JSMR","TPIA","BRPT",
-
-  // Properti Tambahan
-  "CTRA","PANI","DUTI","JRPT","KOTA",
-
-  // Farmasi & Konsumer Tambahan
-  "DVLA","MERK","TSPC","TCID","SCPI","AMRT","LPPF","MAPA","MAPB","CMRY","MAIN","TAPG",
-
-  // Industri Kertas & Kimia Tambahan
-  "INKP","TKIM","FASW","SPMA","AGII","BUDI","UNIC",
-
-  // Teknologi Tambahan
-  "EMTK","DCII",
-
-  // Asuransi
-  "ASBI","ASDM","ASJT","ASMI","LPGI","MREI","PNIN","PNLF","VINS","AHAP","TUGU","JMAS"
-];
-
-async function screenerSahamMurah() {
+async function batchScanSemua() {
   const hasilEl = document.getElementById("hasil");
   const btn = document.getElementById("btnScreenerMurah");
 
   btn.disabled = true;
-  hasilEl.innerHTML = `<div class="loading">Screening ${UNIVERSE_MURAH.length} saham (harga &lt;${HARGA_MURAH_MAX} & sinyal Strong Buy)… ini bisa makan waktu 1-2 menit.</div>`;
+  hasilEl.innerHTML = `<div class="loading">Memindai seluruh emiten di server… ini bisa makan waktu beberapa puluh detik.</div>`;
 
-  const lolos = [];
-  const gagal = [];
-  let selesai = 0;
+  try {
+    const json = await fetchScan({
+      maxPrice: HARGA_MURAH_MAX,
+      minScore: 65
+    });
 
-  for (const kode of UNIVERSE_MURAH) {
-    try {
-      const data = await fetchAnalisa(kode);
-      if (data.close < HARGA_MURAH_MAX && data.signal === "STRONG BUY") {
-        lolos.push(data);
-      }
-    } catch (e) {
-      gagal.push(kode);
+    btn.disabled = false;
+
+    if (!json.data.length) {
+      hasilEl.innerHTML = `<div class="loading">Tidak ada saham murah (&lt;${HARGA_MURAH_MAX}) dengan skor ≥65 saat ini. Coba lagi nanti.</div>`;
+      return;
     }
 
-    selesai++;
-    hasilEl.innerHTML = `<div class="loading">Screening… ${selesai}/${UNIVERSE_MURAH.length} saham dicek, ${lolos.length} lolos sejauh ini.</div>`;
+    hasilEl.innerHTML =
+      renderScanSummary(json, `Screener Saham Murah (<${HARGA_MURAH_MAX})`) +
+      json.data.map(renderCard).join("");
+
+  } catch (e) {
+    btn.disabled = false;
+    hasilEl.innerHTML = `<div class="loading">Batch scan gagal: ${e.message}</div>`;
   }
-
-  lolos.sort((a, b) => parseFloat(b.gap.probability) - parseFloat(a.gap.probability));
-
-  btn.disabled = false;
-
-  const ringkasan = `<div class="loading">${lolos.length} dari ${UNIVERSE_MURAH.length} saham lolos (harga &lt;${HARGA_MURAH_MAX}, sinyal Strong Buy).${gagal.length ? ` (${gagal.length} kode gagal diambil datanya)` : ""}</div>`;
-
-  if (!lolos.length) {
-    hasilEl.innerHTML = `<div class="loading">Tidak ada saham murah yang memenuhi sinyal Strong Buy saat ini. Coba lagi nanti atau perluas daftar kandidat.</div>`;
-    return;
-  }
-
-  hasilEl.innerHTML = ringkasan + lolos.map(renderCard).join("");
 }
 
-document.getElementById("btnScreenerMurah").addEventListener("click", screenerSahamMurah);
+document.getElementById("btnScreenerMurah").addEventListener("click", batchScanSemua);
