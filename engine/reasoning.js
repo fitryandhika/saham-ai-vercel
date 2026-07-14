@@ -49,5 +49,31 @@ export function generateReasons(data) {
   else
     reasons.push("Risk/Reward kurang menarik.");
 
+  if (data.breakout && data.breakout.isBreakout) {
+    const kekuatan = data.breakout.level === "STRONG_BREAKOUT"
+      ? "kuat (volume eksplosif)"
+      : "dengan volume mendukung";
+    reasons.push(
+      `Breakout resistance ${data.breakout.lookback} hari ${kekuatan} (+${data.breakout.distancePercent}% dari level).`
+    );
+  }
+
+  if (typeof data.closingStrength === "number") {
+    if (data.closingStrength >= 0.8)
+      reasons.push("Closing strength sangat kuat — close dekat high hari ini.");
+    else if (data.closingStrength < 0.2)
+      reasons.push("Closing strength lemah — close dekat low, seller dominan.");
+  }
+
+  if (data.volumeAcceleration && data.volumeAcceleration.accelerating)
+    reasons.push("Volume berakselerasi 3 hari terakhir.");
+
+  if (data.relativeStrength) {
+    if (data.relativeStrength.label === "JAUH OUTPERFORM" || data.relativeStrength.label === "OUTPERFORM")
+      reasons.push("Outperform IHSG/sektor.");
+    else if (data.relativeStrength.label === "JAUH UNDERPERFORM" || data.relativeStrength.label === "UNDERPERFORM")
+      reasons.push("Underperform IHSG/sektor.");
+  }
+
   return reasons;
 }
