@@ -43,6 +43,39 @@ export function calculateScore(data) {
     score -= 15;
   }
 
+  // Breakout — sinyal kuat, dikasih bobot besar dan TIDAK dihukum
+  // kalau tidak breakout (breakout absen = netral, bukan minus).
+  if (data.breakout) {
+    if (data.breakout.level === "STRONG_BREAKOUT") score += 20;
+    else if (data.breakout.level === "BREAKOUT") score += 15;
+    else if (data.breakout.level === "WEAK_BREAKOUT") score += 5;
+  }
+
+  // Closing Strength — close dekat high = buyer dominan menjelang close.
+  if (typeof data.closingStrength === "number") {
+    if (data.closingStrength >= 0.8) score += 8;
+    else if (data.closingStrength >= 0.6) score += 4;
+    else if (data.closingStrength < 0.2) score -= 6;
+    else if (data.closingStrength < 0.4) score -= 3;
+  }
+
+  // Volume Acceleration (slope 3 hari) — partisipasi volume yang
+  // membangun lebih meyakinkan daripada lonjakan satu hari.
+  if (data.volumeAcceleration) {
+    if (data.volumeAcceleration.accelerating) score += 8;
+    else if (data.volumeAcceleration.slopePercent <= -20) score -= 4;
+  }
+
+  // Relative Strength vs IHSG / sektor — saham yang outperform pasar
+  // & sektornya sendiri lebih meyakinkan daripada yang cuma ikut naik.
+  if (data.relativeStrength) {
+    const label = data.relativeStrength.label;
+    if (label === "JAUH OUTPERFORM") score += 8;
+    else if (label === "OUTPERFORM") score += 4;
+    else if (label === "UNDERPERFORM") score -= 3;
+    else if (label === "JAUH UNDERPERFORM") score -= 6;
+  }
+
   return Math.max(0, Math.min(score, 100));
 }
 
