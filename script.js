@@ -371,20 +371,23 @@ async function batchScanSemua() {
   hasilEl.innerHTML = `<div class="loading">Memindai seluruh emiten di server… ini bisa makan waktu beberapa puluh detik.</div>`;
 
   try {
+    // highConviction: signal BUY/STRONG BUY + entry NOW + gap outlook naik +
+    // closing strength sehat + volume tidak LOW harus SEPAKAT bareng —
+    // jauh lebih ketat daripada cuma cek skor mentah.
     const json = await fetchScan({
       maxPrice: HARGA_MURAH_MAX,
-      minScore: 65
+      highConviction: "true"
     });
 
     btn.disabled = false;
 
     if (!json.data.length) {
-      hasilEl.innerHTML = `<div class="loading">Tidak ada saham murah (&lt;${HARGA_MURAH_MAX}) dengan skor ≥65 saat ini. Coba lagi nanti.</div>`;
+      hasilEl.innerHTML = `<div class="loading">Tidak ada saham murah (&lt;${HARGA_MURAH_MAX}) dengan sinyal kuat & konsisten saat ini. Coba lagi nanti — filter ini memang ketat.</div>`;
       return;
     }
 
     hasilEl.innerHTML =
-      renderScanSummary(json, `Screener Saham Murah (<${HARGA_MURAH_MAX})`) +
+      renderScanSummary(json, `High Conviction Scan (<${HARGA_MURAH_MAX})`) +
       json.data.map(renderCard).join("");
 
   } catch (e) {
