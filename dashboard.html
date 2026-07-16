@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SahamAI — Riwayat & Evaluasi</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">◆</span>
+    <span class="brand-name">SahamAI</span>
+  </div>
+  <div class="clock" id="clock">--:--</div>
+</header>
+
+<div id="windowBar" class="window-bar">
+  <span id="windowLabel">Memuat status market…</span>
+</div>
+
+<nav class="nav-tabs">
+  <a href="index.html" class="nav-tab">Analisa</a>
+  <a href="portfolio.html" class="nav-tab">Portofolio</a>
+  <a href="news.html" class="nav-tab">News</a>
+  <a href="dashboard.html" class="nav-tab active">Riwayat</a>
+</nav>
+
+<main class="container">
+
+  <section class="panel">
+    <label class="panel-label">Ringkasan akurasi prediksi vs hasil aktual</label>
+    <div class="input-row">
+      <input id="sinceDate" type="date" autocomplete="off">
+      <button class="btn-primary" id="btnRefresh">Refresh</button>
+    </div>
+    <p class="hint-text">Kosongkan tanggal untuk melihat semua data yang sudah dilabel.</p>
+  </section>
+
+  <section id="summaryOverall" class="results"></section>
+
+  <section class="panel">
+    <label class="panel-label">Win rate per sinyal</label>
+    <div id="bySignal" class="mini-table"></div>
+  </section>
+
+  <section class="panel">
+    <label class="panel-label">Win rate per bucket skor AI</label>
+    <div id="byScoreBucket" class="mini-table"></div>
+  </section>
+
+  <section class="panel">
+    <label class="panel-label">Win rate per level breakout</label>
+    <div id="byBreakout" class="mini-table"></div>
+  </section>
+
+  <section class="panel">
+    <label class="panel-label">High Conviction vs Baseline (BUY/STRONG BUY biasa)</label>
+    <div id="hcVsBaseline" class="mini-table"></div>
+  </section>
+
+  <section class="panel">
+    <label class="panel-label">Tren win rate harian</label>
+    <div id="byDate" class="trend-list"></div>
+  </section>
+
+  <section class="panel">
+    <div class="input-row">
+      <input id="kodeFilter" type="text" placeholder="Filter kode, contoh: BBCA" autocomplete="off">
+      <button class="btn-secondary" id="btnLoadTable">Lihat Tabel Riwayat</button>
+    </div>
+  </section>
+
+  <section id="historyTableWrap" class="results"></section>
+
+  <p class="disclaimer">
+    Data ditarik dari tabel <code>scan_history</code> di Supabase (diisi otomatis oleh
+    /api/scan tiap sore dan dilabel oleh /api/label-outcomes tiap pagi).
+    Angka win rate di sini adalah proxy "gap_up_realized" (lihat db/TRAINING.MD),
+    bukan simulasi profit riil — pakai sebagai indikasi awal, bukan keputusan final.
+  </p>
+
+</main>
+
+<script src="dashboard.js"></script>
+</body>
+</html>
