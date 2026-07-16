@@ -115,4 +115,82 @@ export async function updateLabel(id, patch) {
   return true;
 }
 
+// ==========================
+// Query untuk Dashboard Riwayat (api/history.js)
+// ==========================
+// Dua fungsi di bawah ini READ-ONLY, dipakai halaman dashboard.html.
+// Tetap lewat backend (bukan Supabase langsung dari browser) supaya
+// SUPABASE_SERVICE_KEY tidak pernah terekspos ke frontend.
+
+// Baris terbaru untuk tabel riwayat di dashboard, dengan filter opsional.
+export async function getScanHistoryRows({
+  scanDate,
+  kode,
+  onlyLabeled = false,
+  limit = 200,
+  offset = 0
+} = {}) {
+  const cfg = getConfig();
+  if (!cfg) return [];
+
+  const params = new URLSearchParams();
+  params.set("select", "*");
+  params.set("order", "scan_date.desc,scanned_at.desc");
+  params.set("limit", String(limit));
+  params.set("offset", String(offset));
+
+  if (scanDate) params.set("scan_date", `eq.${scanDate}`);
+  if (kode) params.set("kode", `eq.${kode.toUpperCase()}`);
+  if (onlyLabeled) params.set("gap_up_realized", "not.is.null");
+
+  const res = await fetch(`${cfg.url}/rest/v1/scan_history?${params.toString()}`, {
+    headers: {
+      apikey: cfg.key,
+      Authorization: `Bearer ${cfg.key}`
+    }
+  });
+
+  if (!res.ok) {
+    throw new Error(`Supabase select gagal (${res.status}): ${await res.text()}`);
+  }
+
+  return res.json();
+}
+
+// Semua baris yang sudah dilabel, kolom diminimalkan (bukan select *)
+// supaya payload tetap ringan walau datasetnya sudah ribuan baris —
+// dipakai untuk menghitung ringkasan statistik di computeSummary().
+export async function getLabeledRowsForStats({ sinceDate, kode } = {}) {
+  const cfg = getConfig();
+  if (!cfg) return [];
+
+  const cols = [
+    "kode", "sector", "scan_date", "score", "signal",
+    "breakout_level", "closing_strength", "volume_signal",
+    "gap_outlook", "next_day_return_pct", "gap_up_realized"
+  ].join(",");
+
+  const params = new URLSearchParams();
+  params.set("select", cols);
+  params.set("gap_up_realized", "not.is.null");
+  params.set("order", "scan_date.asc");
+  params.set("limit", "10000");
+
+  if (sinceDate) params.set("scan_date", `gte.${sinceDate}`);
+  if (kode) params.set("kode", `eq.${kode.toUpperCase()}`);
+
+  const res = await fetch(`${cfg.url}/rest/v1/scan_history?${params.toString()}`, {
+    headers: {
+      apikey: cfg.key,
+      Authorization: `Bearer ${cfg.key}`
+    }
+  });
+
+  if (!res.ok) {
+    throw new Error(`Supabase select gagal (${res.status}): ${await res.text()}`);
+  }
+
+  return res.json();
+}
+
 export default logScanSnapshots;
