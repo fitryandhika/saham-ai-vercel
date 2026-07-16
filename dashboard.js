@@ -311,8 +311,22 @@ async function loadTable() {
   }
 }
 
+function exportCsv() {
+  const kode = document.getElementById("kodeFilter").value.trim();
+  const date = document.getElementById("dateFilter").value;
+
+  const params = new URLSearchParams({ view: "table", format: "csv" });
+  if (kode) params.set("kode", kode);
+  if (date) params.set("date", date);
+
+  // Navigasi langsung (bukan fetch) supaya browser yang urus proses
+  // download & Content-Disposition filename, termasuk di HP.
+  window.location.href = `/api/history?${params.toString()}`;
+}
+
 document.getElementById("btnRefresh").addEventListener("click", loadSummary);
 document.getElementById("btnLoadTable").addEventListener("click", loadTable);
+document.getElementById("btnExportCsv").addEventListener("click", exportCsv);
 
 loadSummary();
 loadTable();
