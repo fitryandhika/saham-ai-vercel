@@ -1,0 +1,153 @@
+/* ==========================
+   Dashboard Riwayat — pakai variabel warna yang sama dari style.css
+   ========================== */
+
+.hint-text{
+  font-size:12px;
+  color:var(--muted);
+  margin:8px 0 0;
+}
+
+.summary-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+}
+
+.summary-stat{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:14px;
+  padding:14px 16px;
+}
+
+.summary-stat .stat-label{
+  font-size:11px;
+  color:var(--muted);
+  text-transform:uppercase;
+  letter-spacing:.04em;
+  margin-bottom:6px;
+}
+
+.summary-stat .stat-value{
+  font-family:var(--font-mono);
+  font-size:22px;
+  font-weight:700;
+}
+
+.summary-stat .stat-value.positive{color:var(--green);}
+.summary-stat .stat-value.negative{color:var(--red);}
+
+.mini-table{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+
+.mini-table-row{
+  display:grid;
+  grid-template-columns:1.4fr .6fr .8fr .8fr;
+  align-items:center;
+  gap:8px;
+  padding:8px 10px;
+  background:var(--surface-2);
+  border-radius:8px;
+  font-family:var(--font-mono);
+  font-size:12px;
+}
+
+.mini-table-row.head{
+  background:transparent;
+  color:var(--muted);
+  font-family:var(--font-body);
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:.03em;
+  padding:0 10px;
+}
+
+.mini-table-row .win-rate.positive{color:var(--green);font-weight:600;}
+.mini-table-row .win-rate.negative{color:var(--red);font-weight:600;}
+
+.trend-list{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  max-height:280px;
+  overflow-y:auto;
+}
+
+.trend-row{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:6px 10px;
+  border-radius:6px;
+  font-family:var(--font-mono);
+  font-size:12px;
+}
+
+.trend-row:nth-child(odd){background:var(--surface-2);}
+
+.trend-bar-wrap{
+  flex:1;
+  margin:0 10px;
+  height:6px;
+  background:var(--border);
+  border-radius:999px;
+  overflow:hidden;
+}
+
+.trend-bar{
+  height:100%;
+  background:var(--green);
+}
+
+.history-table{
+  width:100%;
+  border-collapse:collapse;
+  font-family:var(--font-mono);
+  font-size:12px;
+}
+
+.history-table th,
+.history-table td{
+  padding:8px 6px;
+  text-align:left;
+  border-bottom:1px solid var(--border);
+  white-space:nowrap;
+}
+
+.history-table th{
+  color:var(--muted);
+  font-family:var(--font-body);
+  font-size:10px;
+  text-transform:uppercase;
+  letter-spacing:.03em;
+}
+
+.history-table-scroll{
+  overflow-x:auto;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:14px;
+  padding:6px;
+}
+
+.result-pill{
+  font-size:11px;
+  font-weight:600;
+  padding:2px 8px;
+  border-radius:999px;
+}
+
+.result-pill.win{background:rgba(51,196,130,.15);color:var(--green);}
+.result-pill.loss{background:rgba(229,97,90,.15);color:var(--red);}
+.result-pill.pending{background:rgba(132,148,163,.15);color:var(--muted);}
+
+.empty-state{
+  text-align:center;
+  color:var(--muted);
+  font-size:13px;
+  padding:24px 0;
+}
