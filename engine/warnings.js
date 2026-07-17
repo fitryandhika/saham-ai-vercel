@@ -1,4 +1,6 @@
 export function generateWarnings({
+  score,
+  signal,
   rsi,
   riskReward,
   volume,
@@ -9,6 +11,20 @@ export function generateWarnings({
 }) {
 
   const warnings = [];
+
+  // STRONG BUY (score >= 90) — observasi awal (baru 2 hari data,
+  // sample kecil, BUKAN kesimpulan final) menunjukkan bucket skor
+  // tertinggi ini justru konsisten underperform next-day dua sesi
+  // berturut-turut, lebih buruk dari BUY biasa. Kemungkinan skor
+  // setinggi ini menangkap saham yang sudah euforia/overextended
+  // dan rawan profit-taking besok pagi. Ini FLAG untuk dipantau,
+  // bukan alasan mengubah bobot scorer.js — perlu lebih banyak
+  // data (mingguan) sebelum ditarik kesimpulan struktural.
+  if (signal === "STRONG BUY" || score >= 90) {
+    warnings.push(
+      "Skor sangat tinggi (STRONG BUY) — data historis awal aplikasi ini (masih sedikit, perlu dipantau lebih lanjut) menunjukkan saham dengan skor setinggi ini justru rawan profit-taking di sesi berikutnya. Pertimbangkan entry lebih hati-hati dibanding sinyal BUY biasa."
+    );
+  }
 
   if (rsi >= 70) {
     warnings.push(
