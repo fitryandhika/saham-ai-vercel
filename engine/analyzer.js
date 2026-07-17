@@ -283,6 +283,8 @@ export function analyzeStock(data) {
   const category = getCategory(rank);
 
   const technicalWarnings = generateWarnings({
+    score,
+    signal,
     rsi,
     riskReward,
     volume,
