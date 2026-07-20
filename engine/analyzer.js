@@ -130,7 +130,7 @@ export function analyzeStock(data) {
 
   const stopLoss = calculateStopLoss(close, atr, 1.0);
 
-  const takeProfitLevels = calculateTakeProfitLevels(close, atr);
+  const takeProfitLevels = calculateTakeProfitLevels(close, atr, resistance);
 
   // TP2 dipakai sebagai target utama untuk skor/verdict internal,
   // sementara TP1 & TP3 tersedia untuk take-profit bertahap.
