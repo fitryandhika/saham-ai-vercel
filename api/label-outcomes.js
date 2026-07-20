@@ -13,7 +13,7 @@
 // diubah setelah mulai training, atau dataset jadi tidak sebanding
 // lintas periode.
 
-import { getUnlabeledSnapshots, updateLabel } from "../services/dataLogService.js";
+import { getUnlabeledSnapshots, updateLabel, getOldestUnlabeledDate } from "../services/dataLogService.js";
 import { getStockData } from "../services/stockService.js";
 
 export const config = {
@@ -45,10 +45,15 @@ async function runPool(items, worker, concurrency) {
   return results;
 }
 
-function yesterday() {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() - 1);
-  return d.toISOString().slice(0, 10);
+// Dulu pakai "hari kalender - 1" (lihat git history). Bug: cron cuma
+// jalan Senin-Jumat, jadi cron Senin pagi menghitung "kemarin" =
+// Minggu (tidak ada scan-nya) — bukan Jumat, yang scan-nya justru
+// belum dilabel. Akibatnya snapshot Jumat kelewat permanen, tidak
+// pernah dicoba lagi oleh cron manapun. Diganti: selalu ambil
+// scan_date PALING LAMA yang masih belum dilabel, supaya backlog
+// otomatis terkejar tiap kali cron jalan, apapun urutan hari liburnya.
+function todayUTC() {
+  return new Date().toISOString().slice(0, 10);
 }
 
 export default async function handler(req, res) {
@@ -64,10 +69,35 @@ export default async function handler(req, res) {
       }
     }
 
-    const scanDate = req.query.date || yesterday();
     const thresholdPct = req.query.threshold
       ? parseFloat(req.query.threshold)
       : DEFAULT_THRESHOLD_PCT;
+
+    // ?date= tetap didukung buat re-run manual satu tanggal tertentu.
+    // Default: kejar backlog dari scan_date belum dilabel yang paling lama.
+    const scanDate = req.query.date || (await getOldestUnlabeledDate());
+
+    if (!scanDate) {
+      return res.status(200).json({
+        success: true,
+        scanDate: null,
+        message: "Tidak ada snapshot yang perlu dilabel — semua sudah dilabel.",
+        labeled: 0
+      });
+    }
+
+    // Jangan label snapshot hari ini pakai data hari ini juga — open
+    // besok belum ada. Ini cuma bisa kejadian kalau scan_date tertua
+    // yang belum dilabel kebetulan sama dengan hari ini (mis. run
+    // pertama kali setelah scan pagi ini, belum ada histori lain).
+    if (scanDate === todayUTC()) {
+      return res.status(200).json({
+        success: true,
+        scanDate,
+        message: "Snapshot tertua yang belum dilabel adalah scan hari ini — tunggu sampai besok (perlu harga open besok).",
+        labeled: 0
+      });
+    }
 
     const pending = await getUnlabeledSnapshots(scanDate);
 
