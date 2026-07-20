@@ -69,6 +69,36 @@ export async function logScanSnapshots(rows) {
   }
 }
 
+// Cari scan_date PALING LAMA yang masih punya baris belum dilabel
+// (gap_up_realized masih null). Dipakai sebagai default target label
+// di api/label-outcomes.js, menggantikan asumsi "kemarin = hari
+// kalender - 1" yang salah kalau kena weekend/libur — misal snapshot
+// Jumat baru bisa dilabel pakai open harga Senin, bukan "kemarin"
+// dari sudut pandang cron yang jalan Senin pagi (yang berarti Minggu).
+// Ambil yang PALING LAMA (bukan paling baru) supaya backlog yang
+// sempat kelewat ikut kekejar, bukan cuma snapshot terbaru.
+export async function getOldestUnlabeledDate() {
+  const cfg = getConfig();
+  if (!cfg) return null;
+
+  const res = await fetch(
+    `${cfg.url}/rest/v1/scan_history?gap_up_realized=is.null&select=scan_date&order=scan_date.asc&limit=1`,
+    {
+      headers: {
+        apikey: cfg.key,
+        Authorization: `Bearer ${cfg.key}`
+      }
+    }
+  );
+
+  if (!res.ok) {
+    throw new Error(`Supabase select gagal (${res.status}): ${await res.text()}`);
+  }
+
+  const rows = await res.json();
+  return rows.length > 0 ? rows[0].scan_date : null;
+}
+
 // Ambil baris scan_date tertentu yang belum dilabel (gap_up_realized
 // masih null), untuk diisi oleh api/label-outcomes.js.
 export async function getUnlabeledSnapshots(scanDate) {
