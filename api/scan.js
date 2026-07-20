@@ -32,6 +32,15 @@ export const config = {
 const CONCURRENCY = 12;
 const RETURN_PERIOD = 20; // n-hari untuk relative strength
 
+// Dinonaktifkan sementara (2026-07-20): analisa scan_history nunjukin
+// filter ini justru MEMBUANG 32-38% saham yang beneran capai target
+// gap-up, karena tiap kriterianya (gap_outlook, closing_strength,
+// volume_signal) sendiri-sendiri korelasinya lemah ke hasil aktual —
+// bukan cuma butuh tuning ambang. Nyalakan lagi cuma kalau sudah ada
+// kriteria baru yang terbukti prediktif dari data yang lebih besar
+// (rencana evaluasi ulang akhir Juli 2026).
+const HIGH_CONVICTION_ENABLED = false;
+
 async function runPool(items, worker, concurrency) {
   const results = new Array(items.length);
   let cursor = 0;
@@ -213,7 +222,7 @@ export default async function handler(req, res) {
     //   - Closing Strength ≥0.5 (buyer masih pegang kendali sampai closing,
     //     bukan cuma naik siang lalu dijual lagi menjelang sore)
     //   - Volume tidak LOW (kenaikan didukung partisipasi nyata)
-    if (highConviction === "true") {
+    if (HIGH_CONVICTION_ENABLED && highConviction === "true") {
       hasilFilter = hasilFilter.filter((d) => {
         const signalOk = d.signal === "BUY" || d.signal === "STRONG BUY";
         const entryOk = d.entry === "NOW";
@@ -246,6 +255,8 @@ export default async function handler(req, res) {
       failedCodes: [...failed, ...analyzeErrors.map((e) => e.kode)],
       analyzeErrors,
       breakoutCount: analyzed.filter((d) => d.breakout && d.breakout.isBreakout).length,
+      highConvictionRequested: highConviction === "true",
+      highConvictionApplied: HIGH_CONVICTION_ENABLED && highConviction === "true",
       logging: logResult,
       data: hasilFilter
     });
