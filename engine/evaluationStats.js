@@ -102,11 +102,29 @@ export function computeSummary(rows) {
   // win rate-nya jadi noise/tidak representatif kalau ikut ditampilkan.
   // MIN_DAILY_SCAN_COUNT jadi ambang kasar untuk menyaring hari-hari itu
   // tanpa perlu tabel kalender libur bursa terpisah.
+  //
+  // Dikelompokkan dari SEMUA baris (bukan cuma yang sudah dilabel), supaya
+  // hari yang sudah discan tapi labelnya belum jalan (outcome baru bisa
+  // dihitung besok, atau cron label-outcomes belum/gagal jalan) tetap
+  // muncul di tren dengan status "pending" — bukan hilang tanpa keterangan
+  // seperti sebelumnya, yang bikin susah dibedakan "belum dilabel" vs
+  // "cron scan-nya gagal total".
   const MIN_DAILY_SCAN_COUNT = 100;
-  const byDateMap = groupBy(labeled, (r) => r.scan_date);
+  const byDateMap = groupBy(rows, (r) => r.scan_date);
   const byDate = Array.from(byDateMap.entries())
-    .map(([tanggal, group]) => ({ tanggal, ...summarizeGroup(group) }))
-    .filter((row) => row.jumlah >= MIN_DAILY_SCAN_COUNT)
+    .map(([tanggal, group]) => {
+      const labeledInGroup = group.filter(
+        (r) => r.gap_up_realized !== null && r.gap_up_realized !== undefined
+      );
+      const pending = labeledInGroup.length === 0;
+      return {
+        tanggal,
+        total_scan: group.length,
+        pending,
+        ...summarizeGroup(labeledInGroup)
+      };
+    })
+    .filter((row) => row.total_scan >= MIN_DAILY_SCAN_COUNT)
     .sort((a, b) => (a.tanggal < b.tanggal ? -1 : 1));
 
   // High Conviction (filter di api/scan.js) vs baseline BUY/STRONG BUY biasa
