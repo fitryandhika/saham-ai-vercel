@@ -208,7 +208,12 @@ export async function getLabeledRowsForStats({ sinceDate, kode } = {}) {
 
   const params = new URLSearchParams();
   params.set("select", cols);
-  params.set("order", "scan_date.asc");
+  // Urutkan dari TERBARU dulu (bukan asc/tertua) supaya kalau total riwayat
+  // sudah melebihi limit 10000, yang kepotong adalah data LAMA — bukan data
+  // terbaru seperti hari ini/kemarin. Urutan hasil tidak masalah buat
+  // computeSummary() karena semua agregasi di sana (groupBy per tanggal,
+  // per bucket skor, dst) tidak bergantung pada urutan array input.
+  params.set("order", "scan_date.desc");
   params.set("limit", "10000");
 
   if (sinceDate) params.set("scan_date", `gte.${sinceDate}`);
