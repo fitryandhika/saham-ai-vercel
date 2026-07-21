@@ -21,6 +21,7 @@ import { getIhsgCloses } from "../services/marketService.js";
 import { nDayReturn } from "../engine/relativeStrength.js";
 import { UNIVERSE, getSector } from "../config/universe.js";
 import { logScanSnapshots } from "../services/dataLogService.js";
+import { isTradingDay, nonTradingDayReason, todayWIB } from "../config/tradingCalendar.js";
 
 // Butuh Vercel Pro (atau plan dengan maxDuration lebih besar) untuk scan
 // universe penuh. Di Hobby, function akan terpotong di ~10s — pakai
@@ -71,8 +72,26 @@ export default async function handler(req, res) {
       maxPrice,
       sector,
       onlyBreakout,
-      highConviction
+      highConviction,
+      force
     } = req.query;
+
+    // Tolak scan di hari non-bursa (weekend / libur nasional IDX) secara
+    // default — supaya scan_history nggak lagi kemasukan data hari yang
+    // bukan hari bursa asli (misal test manual di weekend, seperti yang
+    // pernah kejadian 2026-07-18). Override dengan ?force=true kalau
+    // memang sengaja mau test manual di hari libur.
+    const today = todayWIB();
+    if (!isTradingDay(today) && force !== "true") {
+      return res.status(200).json({
+        skipped: true,
+        reason: nonTradingDayReason(today),
+        scan_date: today,
+        message:
+          "Hari ini bukan hari bursa (weekend atau libur nasional IDX), scan dilewati. " +
+          "Tambahkan ?force=true kalau memang sengaja mau scan manual."
+      });
+    }
 
     let kodeList = UNIVERSE;
 
