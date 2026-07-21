@@ -210,6 +210,15 @@ function renderByDate(rows) {
 
   el.innerHTML = recent
     .map((r) => {
+      if (r.pending) {
+        return `
+          <div class="trend-row">
+            <span>${r.tanggal}</span>
+            <div class="trend-bar-wrap"><div class="trend-bar" style="width:0%"></div></div>
+            <span class="trend-pending">Menunggu pelabelan (${r.total_scan} scan)</span>
+          </div>
+        `;
+      }
       const wr = r.win_rate ?? 0;
       return `
         <div class="trend-row">
