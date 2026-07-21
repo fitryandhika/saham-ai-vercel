@@ -96,9 +96,17 @@ export function computeSummary(rows) {
     .sort((a, b) => b.jumlah - a.jumlah);
 
   // Tren harian — untuk grafik win rate dari waktu ke waktu
+  //
+  // Hari non-trading (weekend, libur bursa IDX) menghasilkan jumlah scan
+  // yang jauh di bawah normal (biasanya ~300an vs cuma puluhan), sehingga
+  // win rate-nya jadi noise/tidak representatif kalau ikut ditampilkan.
+  // MIN_DAILY_SCAN_COUNT jadi ambang kasar untuk menyaring hari-hari itu
+  // tanpa perlu tabel kalender libur bursa terpisah.
+  const MIN_DAILY_SCAN_COUNT = 100;
   const byDateMap = groupBy(labeled, (r) => r.scan_date);
   const byDate = Array.from(byDateMap.entries())
     .map(([tanggal, group]) => ({ tanggal, ...summarizeGroup(group) }))
+    .filter((row) => row.jumlah >= MIN_DAILY_SCAN_COUNT)
     .sort((a, b) => (a.tanggal < b.tanggal ? -1 : 1));
 
   // High Conviction (filter di api/scan.js) vs baseline BUY/STRONG BUY biasa
