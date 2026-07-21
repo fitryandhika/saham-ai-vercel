@@ -103,6 +103,11 @@
   background:var(--green);
 }
 
+.trend-pending{
+  color:var(--text-muted, #8a8f98);
+  font-style:italic;
+}
+
 .history-table{
   width:100%;
   border-collapse:collapse;
