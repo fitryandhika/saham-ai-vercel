@@ -187,9 +187,15 @@ export async function getScanHistoryRows({
   return res.json();
 }
 
-// Semua baris yang sudah dilabel, kolom diminimalkan (bukan select *)
+// Baris untuk ringkasan statistik, kolom diminimalkan (bukan select *)
 // supaya payload tetap ringan walau datasetnya sudah ribuan baris —
 // dipakai untuk menghitung ringkasan statistik di computeSummary().
+//
+// CATATAN: sengaja TIDAK difilter gap_up_realized not.is.null di sini lagi.
+// computeSummary() sendiri yang memisahkan baris "sudah dilabel" vs
+// "belum dilabel" (misal scan hari ini yang outcome-nya baru bisa dihitung
+// besok) — supaya hari yang sudah discan tapi belum dilabel tetap kelihatan
+// di tren harian sebagai "menunggu pelabelan", bukan hilang tanpa keterangan.
 export async function getLabeledRowsForStats({ sinceDate, kode } = {}) {
   const cfg = getConfig();
   if (!cfg) return [];
@@ -202,7 +208,6 @@ export async function getLabeledRowsForStats({ sinceDate, kode } = {}) {
 
   const params = new URLSearchParams();
   params.set("select", cols);
-  params.set("gap_up_realized", "not.is.null");
   params.set("order", "scan_date.asc");
   params.set("limit", "10000");
 
