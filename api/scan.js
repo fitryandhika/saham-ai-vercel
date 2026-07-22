@@ -209,7 +209,10 @@ export default async function handler(req, res) {
       gap_outlook: d.gap?.outlook ?? null,
       gap_probability: d.gap?.probability
         ? parseFloat(String(d.gap.probability).replace("%", ""))
-        : null
+        : null,
+
+      session_gain_score: d.sessionGain?.sessionGainScore ?? null,
+      session_gain_label: d.sessionGain?.label ?? null
     }));
 
     // Fire-and-forget-ish: ditunggu tapi kegagalan logging TIDAK boleh
