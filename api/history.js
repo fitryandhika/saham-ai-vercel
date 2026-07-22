@@ -34,6 +34,7 @@ const CSV_COLUMNS = [
   "volume_ratio", "volume_signal", "volume_accel_slope_pct", "volume_accelerating",
   "rs_vs_ihsg", "rs_vs_sector", "rs_label",
   "gap_outlook", "gap_probability",
+  "session_gain_score", "session_gain_label",
   "actual_next_open", "actual_next_close", "actual_next_high", "actual_next_low",
   "max_gain_from_open_pct", "next_day_return_pct",
   "gap_up_realized", "labeled_at"
