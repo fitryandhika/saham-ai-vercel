@@ -34,8 +34,12 @@ const CONCURRENCY = 6; // lebih rendah dari label-outcomes.js (12) karena range=
 // Toleransi selisih harga open saat mencocokkan candle histori dengan
 // actual_next_open yang sudah tersimpan — untuk mendeteksi kalau ternyata
 // candle yang ketemu SALAH tanggal (misal ada libur bursa/kesalahan data),
-// bukan cuma pembulatan desimal biasa.
-const OPEN_MATCH_TOLERANCE = 1;
+// bukan cuma pembulatan desimal biasa. Dibuat berbasis PERSENTASE (bukan
+// rupiah tetap) karena Yahoo Finance kadang merevisi harga historis
+// beberapa rupiah dari waktu ke waktu — toleransi rupiah tetap yang kecil
+// akan salah tandai hampir semua baris sebagai "mismatched" padahal
+// candle-nya sudah benar.
+const OPEN_MATCH_TOLERANCE_PCT = 3; // maksimal 3% selisih dianggap masih cocok
 
 async function runPool(items, worker, concurrency) {
   const results = new Array(items.length);
@@ -132,6 +136,7 @@ export default async function handler(req, res) {
         let labeled = 0;
         let mismatched = 0;
         let notFound = 0;
+        const mismatchExamples = [];
 
         for (const row of kodeRows) {
           const candle = findNextTradingDayCandle(candles, row.scan_date);
@@ -147,9 +152,17 @@ export default async function handler(req, res) {
           // dipaksa update — lebih baik dilewati & dilaporkan).
           if (
             row.actual_next_open != null &&
-            Math.abs(candle.open - row.actual_next_open) > OPEN_MATCH_TOLERANCE
+            Math.abs(candle.open - row.actual_next_open) / row.actual_next_open * 100 > OPEN_MATCH_TOLERANCE_PCT
           ) {
             mismatched++;
+            if (mismatchExamples.length < 3) {
+              mismatchExamples.push({
+                scan_date: row.scan_date,
+                expected_open: row.actual_next_open,
+                found_open: candle.open,
+                found_date: candle.date.slice(0, 10)
+              });
+            }
             continue;
           }
 
@@ -166,7 +179,7 @@ export default async function handler(req, res) {
           labeled++;
         }
 
-        return { kode, totalRows: kodeRows.length, labeled, mismatched, notFound };
+        return { kode, totalRows: kodeRows.length, labeled, mismatched, notFound, mismatchExamples };
       },
       CONCURRENCY
     );
