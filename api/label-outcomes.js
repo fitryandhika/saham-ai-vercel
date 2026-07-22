@@ -121,9 +121,24 @@ export default async function handler(req, res) {
 
         const nextOpen = todayCandle.open;
         const nextClose = todayCandle.close;
+        // high/low candle harian SUDAH tersedia dari stockService.js (Yahoo
+        // Finance ngasih OHLC lengkap per hari), tapi sebelumnya dibuang —
+        // cuma open & close yang dipakai. Sekarang disimpan juga supaya bisa
+        // dianalisa "seberapa tinggi harga bisa naik hari itu" (relevan untuk
+        // strategi beli sore/jual pagi: kalau jual pas di titik tertinggi,
+        // bukan cuma di harga close).
+        const nextHigh = todayCandle.high;
+        const nextLow = todayCandle.low;
 
         const nextDayReturnPct = Number(
           (((nextOpen - row.close) / row.close) * 100).toFixed(2)
+        );
+
+        // Potensi gain maksimal HARI ITU dihitung dari open (bukan dari
+        // harga beli kemarin sore), karena open pagi = harga jual real
+        // paling awal yang bisa dieksekusi sesuai strategi jual pagi.
+        const maxGainFromOpenPct = Number(
+          (((nextHigh - nextOpen) / nextOpen) * 100).toFixed(2)
         );
 
         const gapUpRealized = nextDayReturnPct >= thresholdPct;
@@ -131,12 +146,15 @@ export default async function handler(req, res) {
         await updateLabel(row.id, {
           actual_next_open: nextOpen,
           actual_next_close: nextClose,
+          actual_next_high: nextHigh,
+          actual_next_low: nextLow,
+          max_gain_from_open_pct: maxGainFromOpenPct,
           next_day_return_pct: nextDayReturnPct,
           gap_up_realized: gapUpRealized,
           labeled_at: new Date().toISOString()
         });
 
-        return { kode: row.kode, nextDayReturnPct, gapUpRealized };
+        return { kode: row.kode, nextDayReturnPct, maxGainFromOpenPct, gapUpRealized };
       },
       CONCURRENCY
     );
