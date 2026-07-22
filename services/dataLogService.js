@@ -227,6 +227,37 @@ export async function getAllScanHistoryRows({
   return all;
 }
 
+// Ambil baris yang SUDAH dilabel (gap_up_realized terisi) tapi BELUM
+// punya actual_next_high/low — ini baris lama dari sebelum kolom
+// high/low/max_gain_from_open_pct ditambahkan. Dipakai oleh
+// api/relabel-high-low.js untuk mengisi retroaktif. Diurutkan per kode
+// supaya caller bisa kelompokkan baris per emiten dan cukup 1x fetch
+// candle history per kode (bukan per baris).
+export async function getRowsMissingHighLow({ limit = 5000 } = {}) {
+  const cfg = getConfig();
+  if (!cfg) return [];
+
+  const params = new URLSearchParams();
+  params.set("select", "id,kode,scan_date,actual_next_open,actual_next_close");
+  params.set("gap_up_realized", "not.is.null");
+  params.set("actual_next_high", "is.null");
+  params.set("order", "kode.asc,scan_date.asc");
+  params.set("limit", String(limit));
+
+  const res = await fetch(`${cfg.url}/rest/v1/scan_history?${params.toString()}`, {
+    headers: {
+      apikey: cfg.key,
+      Authorization: `Bearer ${cfg.key}`
+    }
+  });
+
+  if (!res.ok) {
+    throw new Error(`Supabase select gagal (${res.status}): ${await res.text()}`);
+  }
+
+  return res.json();
+}
+
 // Baris untuk ringkasan statistik, kolom diminimalkan (bukan select *)
 // supaya payload tetap ringan walau datasetnya sudah ribuan baris —
 // dipakai untuk menghitung ringkasan statistik di computeSummary().
