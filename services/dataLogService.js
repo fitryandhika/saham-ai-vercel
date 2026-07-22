@@ -187,6 +187,46 @@ export async function getScanHistoryRows({
   return res.json();
 }
 
+// Sama seperti getScanHistoryRows, tapi meng-ambil SEMUA baris yang cocok
+// dengan filter, bukan cuma satu halaman. Supabase/PostgREST punya batas
+// server-side (max-rows, defaultnya 1000) yang tetap berlaku walaupun kita
+// minta `limit` lebih besar dari itu di query string — jadi satu request
+// saja tidak cukup untuk data yang sudah lebih dari 1000 baris (mis. export
+// CSV "semua tanggal"). Fungsi ini loop per 1000 baris pakai offset sampai
+// hasilnya habis (baris yang dibalikin < ukuran halaman), lalu gabungkan.
+export async function getAllScanHistoryRows({
+  scanDate,
+  kode,
+  onlyLabeled = false,
+  maxRows = 50000 // batas pengaman supaya tidak looping tanpa henti / timeout
+} = {}) {
+  const PAGE_SIZE = 1000; // samakan dengan max-rows Supabase supaya tiap halaman penuh
+  let offset = 0;
+  let all = [];
+
+  while (true) {
+    const page = await getScanHistoryRows({
+      scanDate,
+      kode,
+      onlyLabeled,
+      limit: PAGE_SIZE,
+      offset
+    });
+
+    all = all.concat(page);
+
+    // Berhenti kalau halaman ini tidak penuh (berarti sudah baris terakhir),
+    // atau kalau sudah mencapai batas pengaman maxRows.
+    if (page.length < PAGE_SIZE || all.length >= maxRows) {
+      break;
+    }
+
+    offset += PAGE_SIZE;
+  }
+
+  return all;
+}
+
 // Baris untuk ringkasan statistik, kolom diminimalkan (bukan select *)
 // supaya payload tetap ringan walau datasetnya sudah ribuan baris —
 // dipakai untuk menghitung ringkasan statistik di computeSummary().
