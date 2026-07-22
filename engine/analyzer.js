@@ -63,6 +63,8 @@ import { calculateVolumeAcceleration } from "./indicators/volumeAcceleration.js"
 
 import { calculateRelativeStrength, nDayReturn } from "./relativeStrength.js";
 
+import { calculateSessionGainScore } from "./sessionGainScore.js";
+
 export function analyzeStock(data) {
 
   const close = data.closePrices.at(-1);
@@ -280,6 +282,18 @@ export function analyzeStock(data) {
     riskReward
   );
 
+  // ==========================
+  // Session Gain Score (potensi gain intraday, lihat sessionGainScore.js)
+  // ==========================
+
+  const sessionGain = calculateSessionGainScore({
+    signal,
+    score,
+    volumeAccelerating: volumeAcceleration?.accelerating,
+    volumeSignal: volume?.signal,
+    gapOutlook: gap?.outlook
+  });
+
   const category = getCategory(rank);
 
   const technicalWarnings = generateWarnings({
@@ -367,6 +381,8 @@ export function analyzeStock(data) {
 
     momentum,
     gap,
+
+    sessionGain,
 
     breakout,
     closingStrength,
