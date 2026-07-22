@@ -20,7 +20,7 @@
 //                                  supaya bisa export ribuan baris sekaligus untuk
 //                                  dianalisa manual di Excel/Google Sheets)
 
-import { getScanHistoryRows, getLabeledRowsForStats } from "../services/dataLogService.js";
+import { getScanHistoryRows, getAllScanHistoryRows, getLabeledRowsForStats } from "../services/dataLogService.js";
 import { computeSummary } from "../engine/evaluationStats.js";
 import { rowsToCsv } from "../utils/csv.js";
 
@@ -45,16 +45,24 @@ export default async function handler(req, res) {
     if (view === "table") {
       const isCsv = format === "csv";
 
-      const rows = await getScanHistoryRows({
-        scanDate: date,
-        kode,
-        onlyLabeled: onlyLabeled === "true",
-        // Export CSV defaultnya jauh lebih besar dari tampilan tabel di
-        // dashboard (200) karena tujuannya memang menarik banyak data
-        // sekaligus untuk dianalisa manual di luar aplikasi.
-        limit: limit ? parseInt(limit, 10) : (isCsv ? 5000 : 200),
-        offset: offset ? parseInt(offset, 10) : 0
-      });
+      // Export CSV: kalau user TIDAK set limit manual, tarik SEMUA baris yang
+      // cocok filter (loop paginasi per 1000 baris) — bukan cuma 1 halaman.
+      // Ini supaya "Kosongkan tanggal" benar-benar menampilkan semua data
+      // yang sudah dilabel, tidak kepotong di batas max-rows Supabase (1000).
+      // Kalau user set &limit= manual, tetap dihormati (single page, seperti semula).
+      const rows = isCsv && !limit
+        ? await getAllScanHistoryRows({
+            scanDate: date,
+            kode,
+            onlyLabeled: onlyLabeled === "true"
+          })
+        : await getScanHistoryRows({
+            scanDate: date,
+            kode,
+            onlyLabeled: onlyLabeled === "true",
+            limit: limit ? parseInt(limit, 10) : 200,
+            offset: offset ? parseInt(offset, 10) : 0
+          });
 
       if (isCsv) {
         const csv = rowsToCsv(rows, CSV_COLUMNS);
