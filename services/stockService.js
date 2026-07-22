@@ -1,11 +1,11 @@
 import { getOfficialTodayData } from "./idxService.js";
 
-export async function getStockData(kode) {
+export async function getStockData(kode, range = "6mo") {
 
   const symbol = `${kode}.JK`;
 
   const url =
-    `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=6mo&interval=1d`;
+    `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=${range}&interval=1d`;
 
   const response = await fetch(url);
 
@@ -62,35 +62,37 @@ export async function getStockData(kode) {
   // dibanding hanya andalin Yahoo yang delay/estimasi.
   let priceSource = "YAHOO";
 
-  try {
-    const official = await getOfficialTodayData(kode);
+  if (range === "6mo") {
+    try {
+      const official = await getOfficialTodayData(kode);
 
-    if (official) {
-      const lastCandle = candles[candles.length - 1];
-      const lastCandleDate = lastCandle.date.split("T")[0];
+      if (official) {
+        const lastCandle = candles[candles.length - 1];
+        const lastCandleDate = lastCandle.date.split("T")[0];
 
-      if (lastCandleDate === official.date) {
-        lastCandle.open = official.open;
-        lastCandle.high = official.high;
-        lastCandle.low = official.low;
-        lastCandle.close = official.close;
-        lastCandle.volume = official.volume;
-        priceSource = "IDX_OFFICIAL";
-      } else if (official.date > lastCandleDate) {
-        // IDX punya data lebih baru dari Yahoo (Yahoo belum update) -> tambahkan candle baru
-        candles.push({
-          date: `${official.date}T00:00:00.000Z`,
-          open: official.open,
-          high: official.high,
-          low: official.low,
-          close: official.close,
-          volume: official.volume
-        });
-        priceSource = "IDX_OFFICIAL";
+        if (lastCandleDate === official.date) {
+          lastCandle.open = official.open;
+          lastCandle.high = official.high;
+          lastCandle.low = official.low;
+          lastCandle.close = official.close;
+          lastCandle.volume = official.volume;
+          priceSource = "IDX_OFFICIAL";
+        } else if (official.date > lastCandleDate) {
+          // IDX punya data lebih baru dari Yahoo (Yahoo belum update) -> tambahkan candle baru
+          candles.push({
+            date: `${official.date}T00:00:00.000Z`,
+            open: official.open,
+            high: official.high,
+            low: official.low,
+            close: official.close,
+            volume: official.volume
+          });
+          priceSource = "IDX_OFFICIAL";
+        }
       }
+    } catch (e) {
+      console.error("Gagal ambil data resmi IDX, pakai Yahoo saja:", e.message);
     }
-  } catch (e) {
-    console.error("Gagal ambil data resmi IDX, pakai Yahoo saja:", e.message);
   }
 
   return {
