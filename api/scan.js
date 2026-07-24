@@ -212,7 +212,10 @@ export default async function handler(req, res) {
         : null,
 
       session_gain_score: d.sessionGain?.sessionGainScore ?? null,
-      session_gain_label: d.sessionGain?.label ?? null
+      session_gain_label: d.sessionGain?.label ?? null,
+
+      illiquid: d.liquidity?.illiquid ?? false,
+      illiquid_reason: d.liquidity?.reason ?? null
     }));
 
     // Fire-and-forget-ish: ditunggu tapi kegagalan logging TIDAK boleh
@@ -222,7 +225,12 @@ export default async function handler(req, res) {
     // ==========================
     // Filter opsional
     // ==========================
-    let hasilFilter = analyzed;
+    // Saham "beku"/tidak likuid (lihat engine/liquidity.js) TETAP dicatat
+    // ke scan_history di atas (dataset training butuh contoh ini juga),
+    // tapi dibuang dari hasil yang ditampilkan ke user — tidak actionable
+    // untuk beli-sore/jual-pagi karena memang nyaris tidak ada transaksi.
+    const illiquidCount = analyzed.filter((d) => d.liquidity?.illiquid).length;
+    let hasilFilter = analyzed.filter((d) => !d.liquidity?.illiquid);
 
     if (minScore) {
       const n = parseInt(minScore, 10);
@@ -277,6 +285,7 @@ export default async function handler(req, res) {
       failedCodes: [...failed, ...analyzeErrors.map((e) => e.kode)],
       analyzeErrors,
       breakoutCount: analyzed.filter((d) => d.breakout && d.breakout.isBreakout).length,
+      illiquidCount, // dibuang dari `data` tapi tetap dicatat di scan_history untuk training
       highConvictionRequested: highConviction === "true",
       highConvictionApplied: HIGH_CONVICTION_ENABLED && highConviction === "true",
       logging: logResult,
