@@ -23,7 +23,7 @@
 // fetch ke Yahoo Finance yang makan waktu beberapa ratus ms.
 
 import { getRowsMissingHighLow, updateLabel } from "../services/dataLogService.js";
-import { getStockData } from "../services/stockService.js";
+import { getStockData, getIntradayPeakTime } from "../services/stockService.js";
 
 export const config = {
   maxDuration: 60
@@ -170,10 +170,19 @@ export default async function handler(req, res) {
             (((candle.high - candle.open) / candle.open) * 100).toFixed(2)
           );
 
+          // Best-effort — jam puncak (peak_time_wib) cuma bisa dibackfill
+          // kalau tanggalnya masih dalam jangkauan retensi data intraday
+          // Yahoo (biasanya ~60 hari). Baris yang lebih lama dari itu
+          // akan tetap dapat high/low/max_gain seperti biasa, cuma
+          // peak_time_wib/peak_session_phase-nya null.
+          const peak = await getIntradayPeakTime(kode, candle.date.slice(0, 10));
+
           await updateLabel(row.id, {
             actual_next_high: candle.high,
             actual_next_low: candle.low,
-            max_gain_from_open_pct: maxGainFromOpenPct
+            max_gain_from_open_pct: maxGainFromOpenPct,
+            peak_time_wib: peak?.peakTimeWIB ?? null,
+            peak_session_phase: peak?.peakSessionPhase ?? null
           });
 
           labeled++;
