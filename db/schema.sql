@@ -9,9 +9,14 @@
 -- Tabel ini menyimpan snapshot fitur teknikal setiap kali /api/scan
 -- jalan (score, signal, breakout, RS, dll — semua fitur yang sudah
 -- ada di engine/analyzer.js), PLUS kolom "hasil aktual" yang diisi
--- BELAKANGAN oleh /api/label-outcomes.js keesokan paginya. Setelah
--- beberapa minggu/bulan, tabel ini jadi dataset training: fitur hari
--- H -> label hasil hari H+1.
+-- BELAKANGAN lewat 2 tahap: api/label-outcomes.js (pagi, open saja)
+-- lalu api/label-outcomes-close.js (sore setelah market close, sisanya).
+-- Setelah beberapa minggu/bulan, tabel ini jadi dataset training:
+-- fitur hari H -> label hasil hari H+1.
+--
+-- CATATAN: kalau tabel ini SUDAH ada dari sebelumnya (bukan setup
+-- baru), jalankan db/migration_2026-07-24.sql saja — file itu berisi
+-- ALTER TABLE idempotent untuk semua kolom baru di bawah.
 
 create table if not exists scan_history (
   id bigint generated always as identity primary key,
@@ -54,14 +59,33 @@ create table if not exists scan_history (
   gap_outlook text,
   gap_probability numeric,
 
+  session_gain_score numeric,      -- 0-100, lihat engine/sessionGainScore.js
+  session_gain_label text,         -- TINGGI / SEDANG / RENDAH / SANGAT RENDAH
+
+  illiquid boolean default false,  -- lihat engine/liquidity.js — saham beku/floor price
+  illiquid_reason text,            -- FLOOR_PRICE / FROZEN_PRICE / NO_RANGE_TODAY
+
   -- ==========================
-  -- Label (diisi keesokan harinya oleh api/label-outcomes.js)
+  -- Label TAHAP 1 (diisi pagi besok, api/label-outcomes.js) — open saja,
+  -- karena open sudah final begitu sesi dibuka.
   -- ==========================
   actual_next_open numeric,
-  actual_next_close numeric,
   next_day_return_pct numeric,     -- (next_open - close) / close * 100
   gap_up_realized boolean,         -- next_day_return_pct >= ambang (default 2%)
   labeled_at timestamptz,
+
+  -- ==========================
+  -- Label TAHAP 2 (diisi setelah market close, ~16:00 WIB, oleh
+  -- api/label-outcomes-close.js) — close/high/low baru final di sini,
+  -- BUKAN pagi hari seperti tahap 1.
+  -- ==========================
+  actual_next_close numeric,
+  actual_next_high numeric,
+  actual_next_low numeric,
+  max_gain_from_open_pct numeric,  -- (high - open) / open * 100
+  peak_time_wib text,              -- format "HH:MM", jam harga tertinggi tercapai
+  peak_session_phase text,         -- SESI1_AWAL / SESI1_AKHIR / SESI2_AWAL / SESI2_AKHIR / dst
+  close_labeled_at timestamptz,
 
   unique (kode, scan_date)
 );
