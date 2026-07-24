@@ -122,6 +122,56 @@ export async function getUnlabeledSnapshots(scanDate) {
   return res.json();
 }
 
+// ==========================
+// Tahap 2 — Close Labeling (lihat api/label-outcomes-close.js)
+// ==========================
+// Sama pola-nya dengan getOldestUnlabeledDate/getUnlabeledSnapshots di
+// atas (tahap 1), tapi filternya: SUDAH dilabel open (labeled_at not
+// null) TAPI BELUM dilabel close (close_labeled_at is null).
+
+export async function getOldestOpenLabeledDate() {
+  const cfg = getConfig();
+  if (!cfg) return null;
+
+  const res = await fetch(
+    `${cfg.url}/rest/v1/scan_history?labeled_at=not.is.null&close_labeled_at=is.null&select=scan_date&order=scan_date.asc&limit=1`,
+    {
+      headers: {
+        apikey: cfg.key,
+        Authorization: `Bearer ${cfg.key}`
+      }
+    }
+  );
+
+  if (!res.ok) {
+    throw new Error(`Supabase select gagal (${res.status}): ${await res.text()}`);
+  }
+
+  const rows = await res.json();
+  return rows.length > 0 ? rows[0].scan_date : null;
+}
+
+export async function getPendingCloseSnapshots(scanDate) {
+  const cfg = getConfig();
+  if (!cfg) return [];
+
+  const res = await fetch(
+    `${cfg.url}/rest/v1/scan_history?scan_date=eq.${scanDate}&labeled_at=not.is.null&close_labeled_at=is.null&select=id,kode,scan_date,close,actual_next_open`,
+    {
+      headers: {
+        apikey: cfg.key,
+        Authorization: `Bearer ${cfg.key}`
+      }
+    }
+  );
+
+  if (!res.ok) {
+    throw new Error(`Supabase select gagal (${res.status}): ${await res.text()}`);
+  }
+
+  return res.json();
+}
+
 // Update satu baris (by id) dengan hasil aktual keesokan harinya.
 export async function updateLabel(id, patch) {
   const cfg = getConfig();
