@@ -35,9 +35,11 @@ const CSV_COLUMNS = [
   "rs_vs_ihsg", "rs_vs_sector", "rs_label",
   "gap_outlook", "gap_probability",
   "session_gain_score", "session_gain_label",
+  "illiquid", "illiquid_reason",
   "actual_next_open", "actual_next_close", "actual_next_high", "actual_next_low",
   "max_gain_from_open_pct", "next_day_return_pct",
-  "gap_up_realized", "labeled_at"
+  "peak_time_wib", "peak_session_phase",
+  "gap_up_realized", "labeled_at", "close_labeled_at"
 ];
 
 export default async function handler(req, res) {
