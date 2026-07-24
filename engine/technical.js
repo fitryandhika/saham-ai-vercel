@@ -40,7 +40,19 @@ export function calculateRSI(prices, period = 14) {
   const avgGain = gain / period;
   const avgLoss = loss / period;
 
-  if (avgLoss === 0) return 100;
+  // Bug lama: `avgLoss === 0` langsung return 100 tanpa cek avgGain.
+  // Kalau harga TIDAK BERGERAK SAMA SEKALI selama seluruh periode
+  // (saham beku/gocap/suspend), avgGain dan avgLoss dua-duanya 0 —
+  // bukan cuma avgLoss. Kondisi lama salah mengartikan "tidak ada
+  // pergerakan" sebagai "sangat overbought" (RSI 100), yang lewat
+  // scorer.js (rsi > 70 -> skor -10) bikin saham beku selalu didorong
+  // ke skor rendah -> signal SELL/STRONG SELL, padahal sama sekali
+  // tidak ada transaksi untuk disimpulkan arahnya.
+  // Ditemukan dari analisa scan_history 15-23 Juli 2026: 154 baris
+  // (7% dari total) RSI persis 0/100, 95% masuk STRONG SELL, dan
+  // 94,8% di antaranya harga besoknya tidak bergerak sama sekali.
+  if (avgGain === 0 && avgLoss === 0) return 50; // netral, bukan overbought
+  if (avgLoss === 0) return 100; // avgGain > 0 tapi avgLoss = 0 -> tetap valid overbought
 
   const rs = avgGain / avgLoss;
 
