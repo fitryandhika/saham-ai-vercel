@@ -65,9 +65,21 @@ import { calculateRelativeStrength, nDayReturn } from "./relativeStrength.js";
 
 import { calculateSessionGainScore } from "./sessionGainScore.js";
 
+import { checkLiquidity } from "./liquidity.js";
+
 export function analyzeStock(data) {
 
   const close = data.closePrices.at(-1);
+
+  // ==========================
+  // Liquidity Guard (saham beku / floor price / gocap)
+  // ==========================
+  // Dihitung di awal, tapi TIDAK memotong pipeline di bawah — semua
+  // indikator lain tetap dihitung normal (perlu tetap konsisten untuk
+  // dataset training). Baru dipakai untuk override signal/sessionGain
+  // di bagian akhir, supaya fungsi internal (verdict, warnings, gap,
+  // dst yang branch dari `signal`) tidak perlu tahu soal ini.
+  const liquidity = checkLiquidity(data.candles);
 
   // ==========================
   // Technical Indicators
@@ -291,8 +303,26 @@ export function analyzeStock(data) {
     score,
     volumeAccelerating: volumeAcceleration?.accelerating,
     volumeSignal: volume?.signal,
-    gapOutlook: gap?.outlook
+    volumeRatio: volume?.ratio,
+    gapOutlook: gap?.outlook,
+    rsLabel: relativeStrength?.label
   });
+
+  // Saham beku/tidak likuid: signal & session-gain internal (dihitung
+  // dari `signal`/`score` di atas) tidak boleh ditampilkan apa adanya,
+  // karena tidak ada transaksi wajar untuk disimpulkan arahnya — lihat
+  // engine/liquidity.js. Override HANYA di sini (output), supaya semua
+  // fungsi internal di atas (verdict, warnings, gap, entry) tetap
+  // konsisten secara matematis dan tidak perlu logic khusus.
+  const finalSignal = liquidity.illiquid ? "TIDAK LIKUID" : signal;
+  const finalSessionGain = liquidity.illiquid
+    ? {
+        sessionGainScore: 0,
+        label: "TIDAK LIKUID",
+        breakdown: null,
+        note: liquidity.detail
+      }
+    : sessionGain;
 
   const category = getCategory(rank);
 
@@ -311,12 +341,19 @@ export function analyzeStock(data) {
   // Kalau fundamental punya warning nyata, buang placeholder
   // "Tidak ada peringatan penting." dari sisi teknikal supaya
   // tidak muncul kontradiktif berdampingan dengan warning asli.
-  const warnings = fundamental.warnings.length
+  let warnings = fundamental.warnings.length
     ? [
         ...technicalWarnings.filter(w => w !== "Tidak ada peringatan penting."),
         ...fundamental.warnings
       ]
     : technicalWarnings;
+
+  if (liquidity.illiquid) {
+    warnings = [
+      `Saham tidak likuid (${liquidity.reason}): ${liquidity.detail}. Signal & session gain score tidak ditampilkan apa adanya.`,
+      ...warnings.filter(w => w !== "Tidak ada peringatan penting.")
+    ];
+  }
 
   const forecast = getForecast({
     close,
@@ -350,7 +387,7 @@ export function analyzeStock(data) {
     volume,
 
     score,
-    signal,
+    signal: finalSignal,
 
     confidence,
     reasons,
@@ -382,7 +419,9 @@ export function analyzeStock(data) {
     momentum,
     gap,
 
-    sessionGain,
+    sessionGain: finalSessionGain,
+
+    liquidity,
 
     breakout,
     closingStrength,
