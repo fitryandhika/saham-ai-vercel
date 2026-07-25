@@ -466,6 +466,11 @@ button{
   gap:4px;
 }
 
+.pf-fee-note{
+  font-size:11px;
+  opacity:0.75;
+}
+
 .pf-actions{
   display:flex;
   justify-content:flex-end;
