@@ -268,9 +268,22 @@ export default async function handler(req, res) {
       hasilFilter = hasilFilter.filter((d) => d.breakout && d.breakout.isBreakout);
     }
 
-    // Ranking: breakout dulu (sinyal paling actionable untuk beli sore),
-    // baru diurut berdasarkan rank komposit (score + confidence + RR).
+    // Ranking (24 Juli 2026 — ditambah entry timing sebagai kriteria
+    // pertama): sebelumnya urutan cuma pakai breakout+rank, jadi saham
+    // signal BUY/STRONG BUY dengan skor tinggi bisa nangkring di atas
+    // walau entry-nya AVOID (RSI kepentok gerbang di getEntryTiming,
+    // biasanya karena breakout belum terkonfirmasi) — verdict-nya
+    // "Belum layak dibeli" tapi tetap tampil sebagai kandidat teratas,
+    // kontradiktif untuk user yang cuma lihat urutan/badge signal.
+    // entry === "NOW" sekarang jadi tier tertinggi, supaya yang benar-benar
+    // "layak dibeli sekarang" memang muncul duluan. Saham lain (WAIT/AVOID)
+    // TETAP ada di hasil (tidak dibuang, cuma di bawah) supaya masih bisa
+    // dipantau dari dashboard.
     hasilFilter.sort((a, b) => {
+      const aReady = a.entry === "NOW" ? 1 : 0;
+      const bReady = b.entry === "NOW" ? 1 : 0;
+      if (aReady !== bReady) return bReady - aReady;
+
       const aBreak = a.breakout && a.breakout.isBreakout ? 1 : 0;
       const bBreak = b.breakout && b.breakout.isBreakout ? 1 : 0;
       if (aBreak !== bBreak) return bBreak - aBreak;
@@ -285,6 +298,7 @@ export default async function handler(req, res) {
       failedCodes: [...failed, ...analyzeErrors.map((e) => e.kode)],
       analyzeErrors,
       breakoutCount: analyzed.filter((d) => d.breakout && d.breakout.isBreakout).length,
+      readyNowCount: analyzed.filter((d) => d.entry === "NOW").length,
       illiquidCount, // dibuang dari `data` tapi tetap dicatat di scan_history untuk training
       highConvictionRequested: highConviction === "true",
       highConvictionApplied: HIGH_CONVICTION_ENABLED && highConviction === "true",
