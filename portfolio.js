@@ -75,6 +75,48 @@ async function fetchAnalisa(kode) {
 // ==========================
 
 const PORTFOLIO_KEY = "sahamai_portfolio";
+const FEE_KEY = "sahamai_fees";
+
+// Default mengikuti kisaran umum fee aplikasi sekuritas Indonesia
+// (beli ~0.15-0.19%, jual ~0.25-0.29% termasuk PPh final 0.1%).
+// Angka pastinya beda-beda tiap sekuritas — edit di panel Pengaturan Fee.
+const DEFAULT_FEES = { beli: 0.15, jual: 0.25 };
+
+function getFees() {
+  try {
+    const raw = localStorage.getItem(FEE_KEY);
+    if (!raw) return { ...DEFAULT_FEES };
+    const parsed = JSON.parse(raw);
+    return {
+      beli: Number.isFinite(parsed.beli) ? parsed.beli : DEFAULT_FEES.beli,
+      jual: Number.isFinite(parsed.jual) ? parsed.jual : DEFAULT_FEES.jual
+    };
+  } catch (e) {
+    return { ...DEFAULT_FEES };
+  }
+}
+
+function saveFees(fees) {
+  localStorage.setItem(FEE_KEY, JSON.stringify(fees));
+}
+
+function isiFormFee() {
+  const fees = getFees();
+  document.getElementById("feeBeli").value = fees.beli;
+  document.getElementById("feeJual").value = fees.jual;
+}
+
+function simpanFee() {
+  const beli = parseFloat(document.getElementById("feeBeli").value);
+  const jual = parseFloat(document.getElementById("feeJual").value);
+
+  saveFees({
+    beli: Number.isFinite(beli) && beli >= 0 ? beli : DEFAULT_FEES.beli,
+    jual: Number.isFinite(jual) && jual >= 0 ? jual : DEFAULT_FEES.jual
+  });
+
+  renderPortfolio();
+}
 
 function getPortfolio() {
   try {
@@ -89,10 +131,28 @@ function savePortfolio(list) {
   localStorage.setItem(PORTFOLIO_KEY, JSON.stringify(list));
 }
 
+// P/L bersih setelah fee — bukan cuma selisih harga.
+// feeBeli sudah pasti terjadi (dibayar saat entry), feeJual dihitung dari
+// harga jual (exitPrice untuk posisi tertutup, harga sekarang untuk posisi
+// terbuka — jadi estimasi, actual fee jual nanti dihitung ulang begitu
+// posisi ditutup dengan harga jual sebenarnya).
+function hitungPLBersih(entryPrice, hargaJual, lots, fees) {
+  const lembar = lots * 100;
+  const nilaiBeli = entryPrice * lembar;
+  const nilaiJual = hargaJual * lembar;
+
+  const feeBeliRp = nilaiBeli * (fees.beli / 100);
+  const feeJualRp = nilaiJual * (fees.jual / 100);
+
+  const pl = (nilaiJual - feeJualRp) - (nilaiBeli + feeBeliRp);
+  const plPersen = (pl / nilaiBeli) * 100;
+
+  return { pl, plPersen, feeBeliRp, feeJualRp };
+}
+
 function hitungPL(pos, hargaSekarang) {
-  const lembar = pos.lots * 100;
-  const pl = (hargaSekarang - pos.entryPrice) * lembar;
-  const plPersen = ((hargaSekarang - pos.entryPrice) / pos.entryPrice) * 100;
+  const fees = getFees();
+  const { pl, plPersen } = hitungPLBersih(pos.entryPrice, hargaSekarang, pos.lots, fees);
   return { pl, plPersen };
 }
 
@@ -270,9 +330,11 @@ function renderPortfolio() {
   } else {
     listEl.innerHTML = open.map(pos => {
       const hargaSekarang = pos.lastPrice || pos.entryPrice;
-      const { pl, plPersen } = hitungPL(pos, hargaSekarang);
+      const fees = getFees();
+      const { pl, plPersen, feeBeliRp, feeJualRp } = hitungPLBersih(pos.entryPrice, hargaSekarang, pos.lots, fees);
       const cls = pl >= 0 ? "positive" : "negative";
       const tanda = pl >= 0 ? "+" : "";
+      const totalFee = feeBeliRp + feeJualRp;
 
       return `
         <div class="portfolio-card">
@@ -283,6 +345,9 @@ function renderPortfolio() {
           <div class="pf-detail">
             <span>Beli ${pos.entryPrice.toLocaleString("id-ID")} × ${pos.lots} lot</span>
             <span>Now ${hargaSekarang.toLocaleString("id-ID")}</span>
+          </div>
+          <div class="pf-detail pf-fee-note">
+            <span>P/L bersih setelah fee (beli ${fees.beli}% + jual ${fees.jual}% ≈ ${Math.round(totalFee).toLocaleString("id-ID")})</span>
           </div>
           <div class="pf-actions">
             <button class="btn-ghost" data-edit="${pos.id}">Edit</button>
@@ -317,10 +382,10 @@ function renderRecap(closed) {
 
   let totalPL = 0;
   let menang = 0;
+  const fees = getFees();
 
   const rows = closed.slice().reverse().map(pos => {
-    const lembar = pos.lots * 100;
-    const pl = (pos.exitPrice - pos.entryPrice) * lembar;
+    const { pl } = hitungPLBersih(pos.entryPrice, pos.exitPrice, pos.lots, fees);
     totalPL += pl;
     if (pl > 0) menang++;
 
@@ -347,7 +412,7 @@ function renderRecap(closed) {
   recapEl.innerHTML = `
     <div class="stat-grid">
       <div class="stat">
-        <div class="stat-label">Total P/L Realisasi</div>
+        <div class="stat-label">Total P/L Realisasi (bersih fee)</div>
         <div class="stat-value ${totalCls}">${totalTanda}${Math.round(totalPL).toLocaleString("id-ID")}</div>
       </div>
       <div class="stat">
@@ -371,5 +436,7 @@ function renderRecap(closed) {
 
 document.getElementById("btnTambahPosisi").addEventListener("click", tambahPosisi);
 document.getElementById("btnRefreshPortfolio").addEventListener("click", refreshHargaPortfolio);
+document.getElementById("btnSimpanFee").addEventListener("click", simpanFee);
 
+isiFormFee();
 renderPortfolio();
