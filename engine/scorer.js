@@ -10,8 +10,17 @@ export function calculateScore(data) {
   if (data.ema9 > data.ema20) score += 10;
 
   // RSI
+  // Penalti overbought DIBUAT BERTINGKAT (24 Juli 2026) — sebelumnya flat
+  // -10 baik RSI 71 maupun 99, padahal makin ekstrem RSI-nya makin rawan
+  // profit-taking besok pagi (lihat warning STRONG BUY di warnings.js,
+  // yang menemukan skor tertinggi justru underperform). RSI 90+ dianggap
+  // paling overextended -> penalti terbesar.
   if (data.rsi >= 45 && data.rsi <= 65) {
     score += 10;
+  } else if (data.rsi >= 90) {
+    score -= 20;
+  } else if (data.rsi >= 80) {
+    score -= 15;
   } else if (data.rsi > 70) {
     score -= 10;
   } else if (data.rsi < 30) {
