@@ -4,6 +4,8 @@ import { checkNewsWarnings } from "../engine/newsCheck.js";
 import { getFundamentalData } from "../services/fundamentalService.js";
 import { getIhsgCloses } from "../services/marketService.js";
 import { getSector } from "../config/universe.js";
+import { getLatestMacroSnapshot } from "../services/macroDataService.js";
+import { applyRegimeAdjustment } from "../engine/marketRegime.js";
 
 export default async function handler(req, res) {
 
@@ -28,6 +30,13 @@ export default async function handler(req, res) {
     const news = await checkNewsWarnings(kode);
     hasil.warnings = [...hasil.warnings, ...news.warnings];
     hasil.newsCount = news.newsCount;
+
+    // Layer makro — best-effort, lapisan terpisah dari hasil.score asli
+    // (lihat catatan di engine/marketRegime.js).
+    const macroSnapshot = await getLatestMacroSnapshot();
+    hasil.marketRegime = macroSnapshot?.market_regime ?? null;
+    hasil.marketRegimeScore = macroSnapshot?.market_regime_score ?? 50;
+    hasil.scoreAdjusted = applyRegimeAdjustment(hasil.score, hasil.marketRegimeScore);
 
     return res.status(200).json({
       success: true,
