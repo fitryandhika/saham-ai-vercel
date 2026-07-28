@@ -22,6 +22,8 @@ import { nDayReturn } from "../engine/relativeStrength.js";
 import { UNIVERSE, getSector } from "../config/universe.js";
 import { logScanSnapshots } from "../services/dataLogService.js";
 import { isTradingDay, nonTradingDayReason, todayWIB } from "../config/tradingCalendar.js";
+import { getLatestMacroSnapshot } from "../services/macroDataService.js";
+import { applyRegimeAdjustment } from "../engine/marketRegime.js";
 
 // Butuh Vercel Pro (atau plan dengan maxDuration lebih besar) untuk scan
 // universe penuh. Di Hobby, function akan terpotong di ~10s — pakai
@@ -41,6 +43,15 @@ const RETURN_PERIOD = 20; // n-hari untuk relative strength
 // kriteria baru yang terbukti prediktif dari data yang lebih besar
 // (rencana evaluasi ulang akhir Juli 2026).
 const HIGH_CONVICTION_ENABLED = false;
+
+// Layer makro (28 Juli 2026) — dimulai OFF secara default, sama pola
+// kill-switch-nya seperti HIGH_CONVICTION_ENABLED di atas. market_regime
+// & score_adjusted TETAP dihitung dan dicatat ke scan_history walau
+// flag ini false (supaya datanya terkumpul untuk dianalisa dulu), tapi
+// TIDAK dipakai untuk menyaring/mengubah urutan hasil yang ditampilkan
+// sampai terbukti prediktif dari data nyata — nyalakan lewat
+// ?macroFilter=true setelah ada cukup data untuk divalidasi.
+const MACRO_FILTER_ENABLED = false;
 
 async function runPool(items, worker, concurrency) {
   const results = new Array(items.length);
@@ -73,6 +84,7 @@ export default async function handler(req, res) {
       sector,
       onlyBreakout,
       highConviction,
+      macroFilter,
       force
     } = req.query;
 
@@ -107,6 +119,14 @@ export default async function handler(req, res) {
     }
 
     const ihsgCloses = await getIhsgCloses();
+
+    // Layer makro — best-effort. Kalau macro_snapshot belum pernah
+    // terisi (macro-scan belum jalan/gagal) atau Supabase belum
+    // dikonfigurasi, regime dinetralkan (score 50) oleh
+    // applyRegimeAdjustment di bawah, TIDAK menggagalkan scan.
+    const macroSnapshot = await getLatestMacroSnapshot();
+    const marketRegime = macroSnapshot?.market_regime ?? null;
+    const marketRegimeScore = macroSnapshot?.market_regime_score ?? 50;
 
     // ==========================
     // Tahap 1 — fetch data candle semua kode (paralel, concurrency-limited)
@@ -159,6 +179,13 @@ export default async function handler(req, res) {
 
           const hasil = analyzeStock(item.stockData);
           hasil.sector = item.sector;
+
+          // Layer makro — lapisan terpisah, TIDAK mengubah hasil.score
+          // asli (lihat catatan di engine/marketRegime.js).
+          hasil.marketRegime = marketRegime;
+          hasil.marketRegimeScore = marketRegimeScore;
+          hasil.scoreAdjusted = applyRegimeAdjustment(hasil.score, marketRegimeScore);
+
           return hasil;
         } catch (e) {
           analyzeErrors.push({ kode: item.kode, error: e.message });
@@ -215,7 +242,11 @@ export default async function handler(req, res) {
       session_gain_label: d.sessionGain?.label ?? null,
 
       illiquid: d.liquidity?.illiquid ?? false,
-      illiquid_reason: d.liquidity?.reason ?? null
+      illiquid_reason: d.liquidity?.reason ?? null,
+
+      market_regime: d.marketRegime ?? null,
+      market_regime_score: d.marketRegimeScore ?? null,
+      score_adjusted: d.scoreAdjusted ?? null
     }));
 
     // Fire-and-forget-ish: ditunggu tapi kegagalan logging TIDAK boleh
@@ -268,6 +299,17 @@ export default async function handler(req, res) {
       hasilFilter = hasilFilter.filter((d) => d.breakout && d.breakout.isBreakout);
     }
 
+    // Filter regime makro (OFF secara default, lihat MACRO_FILTER_ENABLED
+    // di atas) — saat RISK_OFF, sinyal BUY/STRONG BUY butuh score_adjusted
+    // yang lebih tinggi supaya lolos, bukan langsung dibuang semua.
+    if (MACRO_FILTER_ENABLED && macroFilter === "true" && marketRegime === "RISK_OFF") {
+      hasilFilter = hasilFilter.filter((d) => {
+        const isBuySignal = d.signal === "BUY" || d.signal === "STRONG BUY";
+        if (!isBuySignal) return true;
+        return d.scoreAdjusted >= 80;
+      });
+    }
+
     // Ranking (24 Juli 2026 — ditambah entry timing sebagai kriteria
     // pertama): sebelumnya urutan cuma pakai breakout+rank, jadi saham
     // signal BUY/STRONG BUY dengan skor tinggi bisa nangkring di atas
@@ -302,6 +344,10 @@ export default async function handler(req, res) {
       illiquidCount, // dibuang dari `data` tapi tetap dicatat di scan_history untuk training
       highConvictionRequested: highConviction === "true",
       highConvictionApplied: HIGH_CONVICTION_ENABLED && highConviction === "true",
+      marketRegime,
+      marketRegimeScore,
+      macroFilterRequested: macroFilter === "true",
+      macroFilterApplied: MACRO_FILTER_ENABLED && macroFilter === "true",
       logging: logResult,
       data: hasilFilter
     });
