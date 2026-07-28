@@ -1,5 +1,6 @@
 {
   "crons": [
+    { "path": "/api/macro-scan", "schedule": "20 9 * * 1-5" },
     { "path": "/api/scan?highConviction=false", "schedule": "30 9 * * 1-5" },
     { "path": "/api/label-outcomes", "schedule": "15 2 * * 1-5" },
     { "path": "/api/label-outcomes-close", "schedule": "0 9 * * 1-5" }
