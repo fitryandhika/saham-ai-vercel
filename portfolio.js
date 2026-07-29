@@ -21,7 +21,7 @@ function updateClockAndWindow() {
   const { hour, minute } = getJakartaParts();
 
   const clockEl = document.getElementById("clock");
-  const barEl = document.getElementById("windowBar");
+  const barEl = document.getElementById("tickerBar");
   const labelEl = document.getElementById("windowLabel");
 
   const hh = String(hour).padStart(2, "0");
@@ -35,7 +35,7 @@ function updateClockAndWindow() {
   const buyWindowStart = 14 * 60;
   const marketClose = 15 * 60 + 30;
 
-  barEl.className = "window-bar";
+  barEl.className = "ticker-bar";
 
   if (minutesNow >= buyWindowStart && minutesNow < marketClose) {
     barEl.classList.add("buy-window");
@@ -54,6 +54,63 @@ function updateClockAndWindow() {
 
 updateClockAndWindow();
 setInterval(updateClockAndWindow, 30000);
+
+
+// ==========================
+// Badge Regime Market + Ticker IHSG (layer makro)
+// ==========================
+// Sama seperti script.js — baca /api/macro-latest (read-only), isi
+// ticker IHSG & badge regime di header. Best-effort, tidak mengganggu
+// fitur lain kalau gagal/belum ada data.
+
+async function loadRegimeBadge() {
+  const badgeEl = document.getElementById("regimeBadge");
+  const ihsgEl = document.getElementById("tickerIhsg");
+  if (!badgeEl) return;
+
+  try {
+    const res = await fetch("/api/macro-latest");
+    const json = await res.json();
+
+    if (ihsgEl) {
+      if (json.available && json.ihsg_close) {
+        const chg = json.ihsg_change_pct;
+        const chgClass = chg > 0 ? "positive" : chg < 0 ? "negative" : "";
+        const chgText = chg === null || chg === undefined
+          ? ""
+          : ` <span class="chg ${chgClass}">${chg > 0 ? "▲" : chg < 0 ? "▼" : "•"} ${Math.abs(chg)}%</span>`;
+        ihsgEl.innerHTML = `IHSG ${json.ihsg_close.toLocaleString("id-ID", { maximumFractionDigits: 2 })}${chgText}`;
+      } else {
+        ihsgEl.textContent = "IHSG —";
+      }
+    }
+
+    if (!json.success || !json.available) {
+      badgeEl.className = "regime-badge neutral";
+      badgeEl.textContent = "⚪ Regime market: belum ada data";
+      return;
+    }
+
+    const regime = json.market_regime;
+    const score = json.market_regime_score;
+
+    if (regime === "RISK_ON") {
+      badgeEl.className = "regime-badge risk-on";
+      badgeEl.textContent = `🟢 Risk-On (${score})`;
+    } else if (regime === "RISK_OFF") {
+      badgeEl.className = "regime-badge risk-off";
+      badgeEl.textContent = `🔴 Risk-Off (${score})`;
+    } else {
+      badgeEl.className = "regime-badge neutral";
+      badgeEl.textContent = `⚪ Netral (${score})`;
+    }
+  } catch (e) {
+    badgeEl.className = "regime-badge neutral";
+    badgeEl.textContent = "⚪ Regime market: gagal dimuat";
+  }
+}
+
+loadRegimeBadge();
 
 // ==========================
 // Panggil API (dipakai untuk refresh harga)
