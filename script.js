@@ -56,6 +56,49 @@ updateClockAndWindow();
 setInterval(updateClockAndWindow, 30000);
 
 // ==========================
+// Badge Regime Market (layer makro)
+// ==========================
+// Baca /api/macro-latest (read-only, tidak fetch FRED/Yahoo ulang) lalu
+// tampilkan sebagai badge kecil di bawah windowBar. Best-effort — kalau
+// gagal/belum ada data, badge tetap netral, tidak mengganggu fitur lain.
+
+async function loadRegimeBadge() {
+  const badgeEl = document.getElementById("regimeBadge");
+  if (!badgeEl) return;
+
+  try {
+    const res = await fetch("/api/macro-latest");
+    const json = await res.json();
+
+    if (!json.success || !json.available) {
+      badgeEl.className = "regime-badge neutral";
+      badgeEl.textContent = "⚪ Regime market: belum ada data";
+      return;
+    }
+
+    const regime = json.market_regime;
+    const score = json.market_regime_score;
+
+    if (regime === "RISK_ON") {
+      badgeEl.className = "regime-badge risk-on";
+      badgeEl.textContent = `🟢 Risk-On (${score}) — market kondusif`;
+    } else if (regime === "RISK_OFF") {
+      badgeEl.className = "regime-badge risk-off";
+      badgeEl.textContent = `🔴 Risk-Off (${score}) — ekstra hati-hati`;
+    } else {
+      badgeEl.className = "regime-badge neutral";
+      badgeEl.textContent = `⚪ Netral (${score})`;
+    }
+  } catch (e) {
+    badgeEl.className = "regime-badge neutral";
+    badgeEl.textContent = "⚪ Regime market: gagal dimuat";
+  }
+}
+
+loadRegimeBadge();
+
+
+// ==========================
 // Watchlist (localStorage)
 // ==========================
 
