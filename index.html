@@ -1,101 +1,67 @@
-// ==========================
-// Dashboard Riwayat & Evaluasi — /api/history
-// ==========================
-//
-// Dipakai oleh dashboard.html untuk menampilkan:
-//   1. Tabel riwayat scan_history (prediksi + hasil aktual, kalau sudah dilabel)
-//   2. Ringkasan akurasi (win rate, avg return) per signal / bucket skor /
-//      breakout level / tanggal, dihitung dari engine/evaluationStats.js
-//
-// Query params:
-//   ?view=summary            -> ringkasan statistik (default kalau tidak diisi)
-//   ?view=table               -> baris mentah untuk tabel
-//   &date=YYYY-MM-DD          -> filter tanggal scan tertentu
-//   &kode=BBCA                -> filter satu emiten
-//   &onlyLabeled=true         -> (view=table) hanya baris yang sudah ada hasil aktualnya
-//   &limit=&offset=           -> (view=table) paginasi
-//   &sinceDate=YYYY-MM-DD     -> (view=summary) batasi rentang untuk ringkasan
-//   &format=csv                -> (view=table) unduh sebagai file CSV, bukan JSON
-//                                  (limit default jadi lebih besar — lihat di bawah —
-//                                  supaya bisa export ribuan baris sekaligus untuk
-//                                  dianalisa manual di Excel/Google Sheets)
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SahamAI — Beli Sore, Jual Pagi</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
 
-import { getScanHistoryRows, getAllScanHistoryRows, getLabeledRowsForStats } from "../services/dataLogService.js";
-import { computeSummary } from "../engine/evaluationStats.js";
-import { rowsToCsv } from "../utils/csv.js";
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">◆</span>
+    <span class="brand-name">SahamAI</span>
+  </div>
+  <div class="clock" id="clock">--:--</div>
+</header>
 
-// Kolom & urutan untuk export CSV — dipilih manual (bukan Object.keys)
-// supaya urutannya stabil dan enak dibaca di spreadsheet, tidak
-// tergantung urutan kolom yang dikembalikan Supabase.
-const CSV_COLUMNS = [
-  "kode", "sector", "scan_date", "close", "score", "signal", "entry",
-  "rsi", "macd", "sma20", "sma50", "ema9", "ema20", "risk_reward", "atr",
-  "breakout_level", "breakout_distance_pct", "closing_strength",
-  "volume_ratio", "volume_signal", "volume_accel_slope_pct", "volume_accelerating",
-  "rs_vs_ihsg", "rs_vs_sector", "rs_label",
-  "gap_outlook", "gap_probability",
-  "session_gain_score", "session_gain_label",
-  "illiquid", "illiquid_reason",
-  "market_regime", "market_regime_score", "score_adjusted",
-  "actual_next_open", "actual_next_close", "actual_next_high", "actual_next_low",
-  "max_gain_from_open_pct", "next_day_return_pct",
-  "peak_time_wib", "peak_session_phase",
-  "gap_up_realized", "labeled_at", "close_labeled_at"
-];
+<div id="windowBar" class="window-bar">
+  <span id="windowLabel">Memuat status market…</span>
+</div>
 
-export default async function handler(req, res) {
-  try {
-    const { view = "summary", date, kode, onlyLabeled, limit, offset, sinceDate, format } = req.query;
+<div id="regimeBar" class="regime-bar">
+  <span id="regimeBadge" class="regime-badge neutral">⚪ Memuat regime market…</span>
+</div>
 
-    if (view === "table") {
-      const isCsv = format === "csv";
+<nav class="nav-tabs">
+  <a href="index.html" class="nav-tab active">Analisa</a>
+  <a href="portfolio.html" class="nav-tab">Portofolio</a>
+  <a href="news.html" class="nav-tab">News</a>
+  <a href="dashboard.html" class="nav-tab">Riwayat</a>
+</nav>
 
-      // Export CSV: kalau user TIDAK set limit manual, tarik SEMUA baris yang
-      // cocok filter (loop paginasi per 1000 baris) — bukan cuma 1 halaman.
-      // Ini supaya "Kosongkan tanggal" benar-benar menampilkan semua data
-      // yang sudah dilabel, tidak kepotong di batas max-rows Supabase (1000).
-      // Kalau user set &limit= manual, tetap dihormati (single page, seperti semula).
-      const rows = isCsv && !limit
-        ? await getAllScanHistoryRows({
-            scanDate: date,
-            kode,
-            onlyLabeled: onlyLabeled === "true"
-          })
-        : await getScanHistoryRows({
-            scanDate: date,
-            kode,
-            onlyLabeled: onlyLabeled === "true",
-            limit: limit ? parseInt(limit, 10) : 200,
-            offset: offset ? parseInt(offset, 10) : 0
-          });
+<main class="container">
 
-      if (isCsv) {
-        const csv = rowsToCsv(rows, CSV_COLUMNS);
-        const filename = `scan_history_${date || kode || "export"}_${new Date().toISOString().slice(0, 10)}.csv`;
+  <section class="panel">
+    <label class="panel-label" for="kode">Analisa kode saham</label>
+    <div class="input-row">
+      <input id="kode" type="text" placeholder="Contoh: BBCA" value="BBCA" autocomplete="off">
+      <button class="btn-primary" id="btnAnalisa">Analisa</button>
+    </div>
 
-        res.setHeader("Content-Type", "text/csv; charset=utf-8");
-        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-        // BOM supaya Excel (termasuk versi HP) langsung kebaca UTF-8 dengan benar,
-        // bukan salah encoding di kolom yang ada karakter non-ASCII.
-        return res.status(200).send("\uFEFF" + csv);
-      }
+    <div class="watchlist-row">
+      <div class="chips" id="chips"></div>
+      <button class="btn-ghost" id="btnAddWatch">+ Watchlist</button>
+    </div>
 
-      return res.status(200).json({ success: true, view: "table", count: rows.length, data: rows });
-    }
+    <button class="btn-secondary" id="btnAnalisaSemua">Analisa Semua Watchlist</button>
+    <button class="btn-secondary" id="btnScreenerMurah">🔍 Batch Scan Semua Emiten (&lt;300, skor ≥65)</button>
+  </section>
 
-    // view === "summary"
-    const rows = await getLabeledRowsForStats({ sinceDate, kode });
-    const summary = computeSummary(rows);
+  <section id="hasil" class="results"></section>
 
-    return res.status(200).json({ success: true, view: "summary", data: summary });
+  <p class="disclaimer">
+    Data harga dari Yahoo Finance, delay ±15–20 menit untuk saham IDX.
+    Bukan rekomendasi finansial — selalu cek ulang sebelum entry.
+    Portofolio tersimpan hanya di HP ini (tidak sinkron ke perangkat lain).
+  </p>
 
-  } catch (error) {
-    console.error(error);
+</main>
 
-    return res.status(500).json({
-      success: false,
-      message: "Gagal mengambil riwayat/ringkasan.",
-      error: error.message
-    });
-  }
-}
+<script src="script.js"></script>
+</body>
+</html>
