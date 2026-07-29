@@ -21,7 +21,7 @@ function updateClockAndWindow() {
   const { hour, minute } = getJakartaParts();
 
   const clockEl = document.getElementById("clock");
-  const barEl = document.getElementById("windowBar");
+  const barEl = document.getElementById("tickerBar");
   const labelEl = document.getElementById("windowLabel");
 
   const hh = String(hour).padStart(2, "0");
@@ -35,7 +35,7 @@ function updateClockAndWindow() {
   const buyWindowStart = 14 * 60;
   const marketClose = 15 * 60 + 30;
 
-  barEl.className = "window-bar";
+  barEl.className = "ticker-bar";
 
   if (minutesNow >= buyWindowStart && minutesNow < marketClose) {
     barEl.classList.add("buy-window");
@@ -64,11 +64,25 @@ setInterval(updateClockAndWindow, 30000);
 
 async function loadRegimeBadge() {
   const badgeEl = document.getElementById("regimeBadge");
+  const ihsgEl = document.getElementById("tickerIhsg");
   if (!badgeEl) return;
 
   try {
     const res = await fetch("/api/macro-latest");
     const json = await res.json();
+
+    if (ihsgEl) {
+      if (json.available && json.ihsg_close) {
+        const chg = json.ihsg_change_pct;
+        const chgClass = chg > 0 ? "positive" : chg < 0 ? "negative" : "";
+        const chgText = chg === null || chg === undefined
+          ? ""
+          : ` <span class="chg ${chgClass}">${chg > 0 ? "▲" : chg < 0 ? "▼" : "•"} ${Math.abs(chg)}%</span>`;
+        ihsgEl.innerHTML = `IHSG ${json.ihsg_close.toLocaleString("id-ID", { maximumFractionDigits: 2 })}${chgText}`;
+      } else {
+        ihsgEl.textContent = "IHSG —";
+      }
+    }
 
     if (!json.success || !json.available) {
       badgeEl.className = "regime-badge neutral";
@@ -81,10 +95,10 @@ async function loadRegimeBadge() {
 
     if (regime === "RISK_ON") {
       badgeEl.className = "regime-badge risk-on";
-      badgeEl.textContent = `🟢 Risk-On (${score}) — market kondusif`;
+      badgeEl.textContent = `🟢 Risk-On (${score})`;
     } else if (regime === "RISK_OFF") {
       badgeEl.className = "regime-badge risk-off";
-      badgeEl.textContent = `🔴 Risk-Off (${score}) — ekstra hati-hati`;
+      badgeEl.textContent = `🔴 Risk-Off (${score})`;
     } else {
       badgeEl.className = "regime-badge neutral";
       badgeEl.textContent = `⚪ Netral (${score})`;
@@ -176,6 +190,54 @@ function trendClass(trend) {
   return "sideways";
 }
 
+// ==========================
+// ARA/ARB — batas Auto Rejection Atas/Bawah BEI
+// ==========================
+// Aturan per Surat Keputusan Direksi BEI No. Kep-00003/BEI/04-2025,
+// efektif 8 April 2025: ARA berjenjang per fraksi harga, ARB flat 15%
+// untuk semua rentang harga. Ini estimasi INFORMASIONAL dari harga
+// close (bukan acuan resmi order matching — cek aplikasi sekuritas
+// untuk angka pasti, terutama untuk saham baru IPO yang batasnya beda).
+function getAraArb(close) {
+  let araPct;
+  if (close <= 200) araPct = 0.35;
+  else if (close <= 5000) araPct = 0.25;
+  else araPct = 0.20;
+
+  const arbPct = 0.15;
+
+  return {
+    araPct,
+    arbPct,
+    ara: Math.round(close * (1 + araPct)),
+    arb: Math.round(close * (1 - arbPct))
+  };
+}
+
+function renderAraArb(close) {
+  if (typeof close !== "number" || close <= 0) return "";
+
+  const { araPct, arbPct, ara, arb } = getAraArb(close);
+
+  return `
+    <div class="aa-box">
+      <div class="aa-title">Estimasi Batas ARA/ARB Sesi Berikutnya</div>
+      <div class="aa-bar-wrap"><div class="aa-marker"></div></div>
+      <div class="aa-labels">
+        <span class="aa-arb">
+          <span class="aa-value">${arb.toLocaleString("id-ID")}</span>
+          <span class="aa-pct">ARB -${Math.round(arbPct * 100)}%</span>
+        </span>
+        <span class="aa-ara">
+          <span class="aa-value">${ara.toLocaleString("id-ID")}</span>
+          <span class="aa-pct">ARA +${Math.round(araPct * 100)}%</span>
+        </span>
+      </div>
+      <div class="aa-note">Dihitung dari close hari ini (${close.toLocaleString("id-ID")}) — estimasi, bukan acuan resmi order matching.</div>
+    </div>
+  `;
+}
+
 function renderCard(d) {
   const vClass = verdictClass(d.verdict);
   const tClass = trendClass(d.marketTrend);
@@ -256,6 +318,8 @@ function renderCard(d) {
           <span class="tp-rr">RR 1:${d.riskRewardLevels.tp3}</span>
         </div>
       </div>
+
+      ${renderAraArb(d.close)}
 
       ${warningsHtml}
 
