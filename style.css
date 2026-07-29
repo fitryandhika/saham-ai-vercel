@@ -430,6 +430,7 @@ button{
 .badge.bullish{background:var(--green-dim);color:var(--green);}
 .badge.bearish{background:var(--red-dim);color:var(--red);}
 .badge.sideways{background:rgba(132,148,163,.15);color:var(--muted);}
+.badge.reversal{background:var(--amber-dim);color:var(--amber);}
 
 .verdict-box{
   background:var(--surface-2);
