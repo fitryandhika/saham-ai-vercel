@@ -244,6 +244,19 @@ function statusPill(row) {
     : `<span class="result-pill loss">Tidak Gap Up</span>`;
 }
 
+function regimeBadge(regime) {
+  if (regime === "RISK_ON") {
+    return `<span class="regime-pill risk-on">🟢 Risk-On</span>`;
+  }
+  if (regime === "RISK_OFF") {
+    return `<span class="regime-pill risk-off">🔴 Risk-Off</span>`;
+  }
+  if (regime === "NEUTRAL") {
+    return `<span class="regime-pill neutral">⚪ Netral</span>`;
+  }
+  return `<span class="regime-pill unknown">–</span>`;
+}
+
 function renderHistoryTable(rows) {
   const el = document.getElementById("historyTableWrap");
 
@@ -262,6 +275,7 @@ function renderHistoryTable(rows) {
         <td>${r.close ?? "–"}</td>
         <td>${r.actual_next_open ?? "–"}</td>
         <td class="${retClass(r.next_day_return_pct)}">${fmtPct(r.next_day_return_pct)}</td>
+        <td>${regimeBadge(r.market_regime)}</td>
         <td>${statusPill(r)}</td>
       </tr>
     `)
@@ -273,7 +287,7 @@ function renderHistoryTable(rows) {
         <thead>
           <tr>
             <th>Tanggal</th><th>Kode</th><th>Signal</th><th>Score</th>
-            <th>Close</th><th>Next Open</th><th>Return</th><th>Hasil</th>
+            <th>Close</th><th>Next Open</th><th>Return</th><th>Regime</th><th>Hasil</th>
           </tr>
         </thead>
         <tbody>${body}</tbody>
