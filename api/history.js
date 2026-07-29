@@ -36,7 +36,7 @@ const CSV_COLUMNS = [
   "gap_outlook", "gap_probability",
   "session_gain_score", "session_gain_label",
   "illiquid", "illiquid_reason",
-  "market_regime", "market_regime_score", "score_adjusted",
+  "market_regime", "market_regime_score", "score_adjusted", "reversal_candidate",
   "actual_next_open", "actual_next_close", "actual_next_high", "actual_next_low",
   "max_gain_from_open_pct", "next_day_return_pct",
   "peak_time_wib", "peak_session_phase",
