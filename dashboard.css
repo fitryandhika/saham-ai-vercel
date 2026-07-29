@@ -150,6 +150,19 @@
 .result-pill.loss{background:rgba(229,97,90,.15);color:var(--red);}
 .result-pill.pending{background:rgba(132,148,163,.15);color:var(--muted);}
 
+.regime-pill{
+  font-size:11px;
+  font-weight:600;
+  padding:2px 8px;
+  border-radius:999px;
+  white-space:nowrap;
+}
+
+.regime-pill.risk-on{background:rgba(51,196,130,.15);color:var(--green);}
+.regime-pill.risk-off{background:rgba(229,97,90,.15);color:var(--red);}
+.regime-pill.neutral{background:rgba(132,148,163,.15);color:var(--muted);}
+.regime-pill.unknown{background:rgba(132,148,163,.08);color:var(--muted);}
+
 .empty-state{
   text-align:center;
   color:var(--muted);
