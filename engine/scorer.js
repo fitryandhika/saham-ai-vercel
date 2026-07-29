@@ -85,7 +85,39 @@ export function calculateScore(data) {
     else if (label === "JAUH UNDERPERFORM") score -= 6;
   }
 
+  // Reversal / oversold-bounce bonus — ditambahkan 29 Juli 2026, dari
+  // analisis 133 kejadian emiten yang skornya di-HOLD/SELL oleh scorer
+  // di atas tapi harganya justru naik besoknya (15-29 Juli 2026,
+  // gap_up_realized). Pola khasnya: RSI belum jenuh beli, MACD masih
+  // negatif, underperform vs pasar (jadi kena penalti RS di atas) —
+  // TAPI harga masih bertahan di atas SMA50 (bukan breakdown total)
+  // dan closing strength tidak jelek-jelek amat. Ini kebalikan dari
+  // filosofi breakout/momentum yang dominan di scorer ini.
+  //
+  // CATATAN JUJUR: sampel dasarnya baru 10 hari/133 kejadian — bonus
+  // ini SENGAJA dibuat kecil (+6, bukan reweight besar) dan flag-nya
+  // (isReversalCandidate) dicatat terpisah ke scan_history lewat
+  // analyzer.js/api/scan.js supaya validitasnya bisa dievaluasi sendiri
+  // dari data nyata, bukan cuma diasumsikan benar dari analisis ini.
+  if (isReversalCandidate(data)) {
+    score += 6;
+  }
+
   return Math.max(0, Math.min(score, 100));
+}
+
+// Dipisah jadi fungsi sendiri (bukan cuma inline di calculateScore)
+// supaya analyzer.js bisa attach flag-nya ke hasil (d.reversalCandidate)
+// untuk dicatat & dievaluasi terpisah dari skor akhir.
+export function isReversalCandidate(data) {
+  return Boolean(
+    data.relativeStrength &&
+    (data.relativeStrength.label === "UNDERPERFORM" || data.relativeStrength.label === "JAUH UNDERPERFORM") &&
+    typeof data.rsi === "number" && data.rsi < 60 &&
+    data.macd && data.macd.macd < 0 &&
+    typeof data.close === "number" && typeof data.sma50 === "number" && data.close > data.sma50 &&
+    typeof data.closingStrength === "number" && data.closingStrength >= 0.3
+  );
 }
 
 export function recommendation(score) {
