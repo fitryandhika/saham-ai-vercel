@@ -33,7 +33,8 @@ import {
 
 import {
   calculateScore,
-  recommendation
+  recommendation,
+  isReversalCandidate
 } from "./scorer.js";
 
 import {
@@ -188,6 +189,18 @@ export function analyzeStock(data) {
     breakout,
     closingStrength,
     volumeAcceleration,
+    relativeStrength
+  });
+
+  // Flag terpisah (bukan cuma andalkan bonus di dalam skor) supaya
+  // scan_history bisa mencatat mana yang kena bonus reversal ini —
+  // dipakai untuk validasi pola nanti, lihat catatan di scorer.js.
+  const reversalCandidate = isReversalCandidate({
+    rsi,
+    macd,
+    close,
+    sma50,
+    closingStrength,
     relativeStrength
   });
 
@@ -388,6 +401,7 @@ export function analyzeStock(data) {
 
     score,
     signal: finalSignal,
+    reversalCandidate,
 
     confidence,
     reasons,
