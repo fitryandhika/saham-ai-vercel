@@ -19,15 +19,21 @@
   <div class="clock" id="clock">--:--</div>
 </header>
 
-<div id="windowBar" class="window-bar">
-  <span id="windowLabel">Memuat status market…</span>
+<div id="tickerBar" class="ticker-bar">
+  <div class="ticker-track">
+    <span class="ticker-item ticker-ihsg" id="tickerIhsg">IHSG —</span>
+    <span class="ticker-sep">·</span>
+    <span class="ticker-item" id="windowLabel">Memuat status market…</span>
+    <span class="ticker-sep">·</span>
+    <span class="ticker-item"><span id="regimeBadge" class="regime-badge neutral">⚪ Memuat regime…</span></span>
+  </div>
 </div>
 
 <nav class="nav-tabs">
-  <a href="index.html" class="nav-tab">Analisa</a>
-  <a href="portfolio.html" class="nav-tab active">Portofolio</a>
-  <a href="news.html" class="nav-tab">News</a>
-  <a href="dashboard.html" class="nav-tab">Riwayat</a>
+  <a href="index.html" class="nav-tab"><span class="nav-icon">📊</span><span class="nav-text">Analisa</span></a>
+  <a href="portfolio.html" class="nav-tab active"><span class="nav-icon">💼</span><span class="nav-text">Portofolio</span></a>
+  <a href="news.html" class="nav-tab"><span class="nav-icon">📰</span><span class="nav-text">News</span></a>
+  <a href="dashboard.html" class="nav-tab"><span class="nav-icon">📈</span><span class="nav-text">Riwayat</span></a>
 </nav>
 
 <main class="container">
@@ -57,7 +63,7 @@
       <span class="panel-label">Portofolio Aktif</span>
       <button class="btn-ghost" id="btnRefreshPortfolio">Refresh Harga</button>
     </div>
-    <div id="portfolioList"></div>
+    <div id="portfolioList" class="portfolio-list"></div>
   </section>
 
   <section class="panel">
