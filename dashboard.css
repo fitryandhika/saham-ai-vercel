@@ -169,3 +169,321 @@
   font-size:13px;
   padding:24px 0;
 }
+/* ==========================================================
+   Dashboard Overview — hero + widget grid (fitur baru)
+   ========================================================== */
+
+.dash-hero{
+  position:relative;
+  border-radius:var(--radius-lg);
+  padding:22px 20px;
+  margin-bottom:16px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(139,124,246,.35), transparent 55%),
+    radial-gradient(circle at 0% 100%, rgba(227,162,61,.25), transparent 55%),
+    var(--surface);
+  border:1px solid var(--border);
+  overflow:hidden;
+}
+
+.dash-hero-eyebrow{
+  display:inline-block;
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  color:var(--violet);
+  background:var(--violet-dim);
+  padding:4px 10px;
+  border-radius:999px;
+  margin-bottom:10px;
+}
+
+.dash-hero-title{
+  font-family:var(--font-display);
+  font-size:24px;
+  margin:0 0 6px;
+  letter-spacing:-.02em;
+}
+
+.dash-hero-sub{
+  margin:0;
+  color:var(--muted);
+  font-size:13px;
+  max-width:520px;
+  line-height:1.5;
+}
+
+.dash-section-title{
+  font-family:var(--font-display);
+  font-size:16px;
+  color:var(--text);
+  margin:28px 2px 12px;
+}
+
+.widget-grid{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:14px;
+  margin-bottom:8px;
+}
+
+@media (min-width:760px){
+  .widget-grid{grid-template-columns:repeat(2,1fr);}
+  .widget-span2{grid-column:span 2;}
+}
+
+.widget-card{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--radius-lg);
+  padding:16px;
+  display:flex;
+  flex-direction:column;
+  min-width:0;
+}
+
+.widget-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin-bottom:12px;
+  flex-wrap:wrap;
+}
+
+.widget-title{
+  font-family:var(--font-display);
+  font-weight:700;
+  font-size:14px;
+}
+
+/* ----- IHSG chart ----- */
+
+.chart-period-switch{
+  display:flex;
+  gap:4px;
+  background:var(--surface-2);
+  border-radius:999px;
+  padding:3px;
+}
+
+.period-btn{
+  background:transparent;
+  color:var(--muted);
+  font-size:11px;
+  font-weight:700;
+  padding:5px 10px;
+  border-radius:999px;
+}
+
+.period-btn.active{background:var(--amber);color:#1A1300;}
+
+.ihsg-stats{
+  display:flex;
+  align-items:baseline;
+  gap:12px;
+  margin-bottom:10px;
+  flex-wrap:wrap;
+}
+
+.ihsg-stats .ihsg-value{
+  font-family:var(--font-mono);
+  font-size:26px;
+  font-weight:700;
+}
+
+.ihsg-stats .ihsg-chg{
+  font-family:var(--font-mono);
+  font-size:13px;
+  font-weight:700;
+  padding:2px 8px;
+  border-radius:999px;
+}
+
+.ihsg-stats .ihsg-chg.positive{color:var(--green);background:var(--green-dim);}
+.ihsg-stats .ihsg-chg.negative{color:var(--red);background:var(--red-dim);}
+
+.chart-wrap{width:100%;}
+.chart-wrap svg{width:100%;height:auto;display:block;}
+
+/* ----- Foreign flow ----- */
+
+.flow-badge{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  font-family:var(--font-mono);
+  font-weight:700;
+  font-size:15px;
+  padding:6px 12px;
+  border-radius:10px;
+  margin-bottom:10px;
+}
+
+.flow-badge.inflow{background:var(--green-dim);color:var(--green);}
+.flow-badge.outflow{background:var(--red-dim);color:var(--red);}
+.flow-badge.neutral{background:rgba(132,148,163,.15);color:var(--muted);}
+
+.flow-reasons{
+  list-style:none;
+  margin:0;
+  padding:0;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+
+.flow-reasons li{
+  font-size:12px;
+  color:var(--muted);
+  line-height:1.4;
+  padding-left:14px;
+  position:relative;
+}
+
+.flow-reasons li::before{
+  content:"•";
+  position:absolute;
+  left:0;
+  color:var(--violet);
+}
+
+.flow-note{
+  margin-top:10px;
+  font-size:11px;
+  color:var(--muted-2);
+  font-style:italic;
+}
+
+/* ----- Asia markets ----- */
+
+.asia-list{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+}
+
+.asia-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  padding:8px 4px;
+  border-bottom:1px solid var(--border-soft);
+}
+
+.asia-row:last-child{border-bottom:none;}
+
+.asia-row .asia-name{
+  display:flex;
+  flex-direction:column;
+  gap:1px;
+}
+
+.asia-row .asia-name strong{font-size:13px;font-weight:600;}
+.asia-row .asia-name span{font-size:11px;color:var(--muted);}
+
+.asia-row .asia-num{
+  text-align:right;
+  font-family:var(--font-mono);
+}
+
+.asia-row .asia-close{font-size:13px;}
+.asia-row .asia-chg{
+  font-size:12px;
+  font-weight:700;
+}
+
+.asia-chg.positive{color:var(--green);}
+.asia-chg.negative{color:var(--red);}
+.asia-chg.flat{color:var(--muted);}
+
+/* ----- Top emiten leaderboard ----- */
+
+.emiten-list{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  margin-top:10px;
+}
+
+.emiten-row{
+  display:grid;
+  grid-template-columns:24px 1.3fr .8fr .8fr .9fr;
+  align-items:center;
+  gap:8px;
+  padding:9px 10px;
+  background:var(--surface-2);
+  border-radius:10px;
+  font-family:var(--font-mono);
+  font-size:12px;
+}
+
+.emiten-row.head{
+  background:transparent;
+  color:var(--muted);
+  font-family:var(--font-body);
+  font-size:10px;
+  text-transform:uppercase;
+  letter-spacing:.03em;
+  padding:0 10px;
+}
+
+.emiten-rank{
+  color:var(--amber);
+  font-weight:700;
+  text-align:center;
+}
+
+.emiten-kode{font-weight:700;color:var(--text);}
+.emiten-kode small{display:block;color:var(--muted);font-weight:400;font-size:10px;}
+
+.signal-pill{
+  font-size:10px;
+  font-weight:700;
+  padding:2px 7px;
+  border-radius:999px;
+  display:inline-block;
+  white-space:nowrap;
+}
+
+.signal-pill.buy{background:var(--green-dim);color:var(--green);}
+.signal-pill.strong-buy{background:var(--green-dim);color:var(--green);}
+.signal-pill.hold{background:rgba(132,148,163,.15);color:var(--muted);}
+.signal-pill.sell{background:var(--red-dim);color:var(--red);}
+
+/* ----- News list ----- */
+
+.news-list{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+}
+
+.news-row{
+  display:block;
+  padding:10px 4px;
+  border-bottom:1px solid var(--border-soft);
+  text-decoration:none;
+  color:var(--text);
+}
+
+.news-row:last-child{border-bottom:none;}
+
+.news-row .news-title{
+  font-size:13px;
+  font-weight:600;
+  line-height:1.4;
+  margin-bottom:4px;
+}
+
+.news-row .news-meta{
+  font-size:11px;
+  color:var(--muted);
+  font-family:var(--font-mono);
+}
+
+.news-row:hover .news-title{color:var(--amber);}
+
+.dash-section-break{margin-top:4px;}
