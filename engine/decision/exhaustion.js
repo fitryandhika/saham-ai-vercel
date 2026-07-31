@@ -1,173 +1,258 @@
-// =========================================
-// Exhaustion Detector
-// Version 1.0
-// =========================================
+/**
+ * ==========================================
+ * SahamAI v2.1
+ * Exhaustion Detector
+ * ------------------------------------------
+ * Tujuan:
+ * Mengurangi sinyal BUY ketika saham sudah
+ * terlalu overextended.
+ *
+ * Output:
+ * {
+ *   score,
+ *   level,
+ *   reasons
+ * }
+ * ==========================================
+ */
 
 export function calculateExhaustion({
-    closePrices = [],
-    highPrices = [],
-    lowPrices = [],
-    volume = [],
-    rsi = 50,
-    bollinger = {}
+  candles = [],
+  closePrices = [],
+  highPrices = [],
+  lowPrices = [],
+  volumes = [],
+  rsi = 50,
+  bollinger = null
 }) {
 
-    let score = 0;
-    const reasons = [];
+  let score = 0;
 
-    const latestClose = closePrices.at(-1);
+  const reasons = [];
 
-    // ==========================
-    // 1. RSI Overbought
-    // ==========================
+  if (!closePrices.length) {
+    return {
+      score: 0,
+      level: "NORMAL",
+      reasons: []
+    };
+  }
 
-    if (rsi >= 80) {
-        score += 20;
-        reasons.push("RSI extremely overbought");
-    } else if (rsi >= 72) {
-        score += 10;
-        reasons.push("RSI overbought");
-    }
+  const close = closePrices.at(-1);
 
-    // ==========================
-    // 2. Rally 3 Hari
-    // ==========================
+  // ==============================
+  // RSI
+  // ==============================
 
-    if (closePrices.length >= 4) {
+  if (rsi >= 85) {
+    score += 25;
+    reasons.push("RSI sangat overbought");
+  }
 
-        const gain3 =
-            ((latestClose - closePrices.at(-4))
-            / closePrices.at(-4)) * 100;
+  else if (rsi >= 80) {
+    score += 18;
+    reasons.push("RSI ekstrem");
+  }
 
-        if (gain3 >= 15) {
-            score += 15;
-            reasons.push("3-day rally >15%");
-        } else if (gain3 >= 10) {
-            score += 10;
-            reasons.push("3-day rally >10%");
-        }
+  else if (rsi >= 72) {
+    score += 10;
+    reasons.push("RSI overbought");
+  }
 
-    }
+  // ==============================
+  // Rally 3 Hari
+  // ==============================
 
-    // ==========================
-    // 3. Rally 5 Hari
-    // ==========================
+  if (closePrices.length >= 4) {
 
-    if (closePrices.length >= 6) {
+    const gain3 =
+      ((close - closePrices.at(-4))
+      / closePrices.at(-4)) * 100;
 
-        const gain5 =
-            ((latestClose - closePrices.at(-6))
-            / closePrices.at(-6)) * 100;
+    if (gain3 >= 15) {
 
-        if (gain5 >= 20) {
-            score += 15;
-            reasons.push("5-day rally >20%");
-        }
+      score += 15;
+
+      reasons.push("Naik >15% dalam 3 hari");
 
     }
 
-    // ==========================
-    // 4. Bollinger Band
-    // ==========================
+    else if (gain3 >= 10) {
 
-    if (bollinger.upper) {
+      score += 10;
 
-        if (latestClose > bollinger.upper) {
-
-            score += 10;
-
-            reasons.push("Close above Upper BB");
-
-        } else {
-
-            const distance =
-                ((bollinger.upper - latestClose)
-                / latestClose) * 100;
-
-            if (distance <= 1) {
-
-                score += 5;
-
-                reasons.push("Near Upper BB");
-
-            }
-
-        }
+      reasons.push("Naik >10% dalam 3 hari");
 
     }
 
-    // ==========================
-    // 5. Upper Shadow
-    // ==========================
+  }
+
+  // ==============================
+  // Rally 5 Hari
+  // ==============================
+
+  if (closePrices.length >= 6) {
+
+    const gain5 =
+      ((close - closePrices.at(-6))
+      / closePrices.at(-6)) * 100;
+
+    if (gain5 >= 25) {
+
+      score += 20;
+
+      reasons.push("Naik >25% dalam 5 hari");
+
+    }
+
+    else if (gain5 >= 18) {
+
+      score += 12;
+
+      reasons.push("Naik >18% dalam 5 hari");
+
+    }
+
+  }
+
+  // ==============================
+  // Bollinger
+  // ==============================
+
+  if (bollinger && bollinger.upper) {
+
+    if (close > bollinger.upper) {
+
+      score += 10;
+
+      reasons.push("Close di atas Upper Bollinger");
+
+    }
+
+    else {
+
+      const distance =
+        ((bollinger.upper - close)
+        / close) * 100;
+
+      if (distance <= 1) {
+
+        score += 5;
+
+        reasons.push("Sangat dekat Upper Bollinger");
+
+      }
+
+    }
+
+  }
+
+  // ==============================
+  // Long Upper Shadow
+  // ==============================
+
+  if (
+    highPrices.length &&
+    lowPrices.length
+  ) {
+
+    const high = highPrices.at(-1);
+
+    const low = lowPrices.at(-1);
+
+    const body = Math.abs(close - low);
+
+    const upperShadow = high - close;
 
     if (
-        highPrices.length &&
-        lowPrices.length &&
-        closePrices.length
+      body > 0 &&
+      upperShadow >= body * 2
     ) {
 
-        const high = highPrices.at(-1);
+      score += 10;
 
-        const low = lowPrices.at(-1);
-
-        const body = Math.abs(latestClose - low);
-
-        const upperShadow = high - latestClose;
-
-        if (
-            body > 0 &&
-            upperShadow >= body * 2
-        ) {
-
-            score += 10;
-
-            reasons.push("Long upper shadow");
-
-        }
+      reasons.push("Upper shadow panjang");
 
     }
 
-    // ==========================
-    // 6. Volume Weakening
-    // ==========================
+  }
 
-    if (volume.length >= 3) {
+  // ==============================
+  // Volume Menurun
+  // ==============================
 
-        const v1 = volume.at(-3);
+  if (volumes.length >= 3) {
 
-        const v2 = volume.at(-2);
+    const v1 = volumes.at(-3);
 
-        const v3 = volume.at(-1);
+    const v2 = volumes.at(-2);
 
-        if (v1 > v2 && v2 > v3) {
+    const v3 = volumes.at(-1);
 
-            score += 10;
+    if (
+      v1 > v2 &&
+      v2 > v3
+    ) {
 
-            reasons.push("Volume weakening");
+      score += 10;
 
-        }
+      reasons.push("Volume terus menurun");
 
     }
 
-    // ==========================
+  }
 
-    let level = "NORMAL";
+  // ==============================
+  // ATR Expansion
+  // ==============================
 
-    if (score >= 50)
-        level = "EXTREME";
-    else if (score >= 31)
-        level = "HIGH";
-    else if (score >= 16)
-        level = "WARNING";
+  if (candles.length >= 6) {
 
-    return {
+    const ranges = candles
+      .slice(-5)
+      .map(c => c.high - c.low);
 
-        score,
+    const avg =
+      ranges.reduce((a,b)=>a+b,0)
+      / ranges.length;
 
-        level,
+    const today =
+      candles.at(-1).high -
+      candles.at(-1).low;
 
-        reasons
+    if (today >= avg * 1.8) {
 
-    };
+      score += 5;
+
+      reasons.push("Range harian terlalu besar");
+
+    }
+
+  }
+
+  // ==============================
+  // Final Level
+  // ==============================
+
+  let level = "NORMAL";
+
+  if (score >= 50)
+    level = "EXTREME";
+
+  else if (score >= 30)
+    level = "HIGH";
+
+  else if (score >= 15)
+    level = "WARNING";
+
+  return {
+
+    score,
+
+    level,
+
+    reasons
+
+  };
 
 }
