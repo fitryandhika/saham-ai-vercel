@@ -410,3 +410,285 @@ document.getElementById("btnExportCsv").addEventListener("click", exportCsv);
 
 loadSummary();
 loadTable();
+
+// ==========================================================
+// Widget: Grafik IHSG (SVG line chart, tanpa library eksternal)
+// ==========================================================
+
+let currentIhsgPeriod = "1bln";
+
+function buildLineChartSvg(values, { width = 600, height = 180, positive = true } = {}) {
+  if (!values || values.length < 2) return "";
+
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const padX = 4;
+  const padY = 10;
+  const w = width - padX * 2;
+  const h = height - padY * 2;
+
+  const points = values.map((v, i) => {
+    const x = padX + (i / (values.length - 1)) * w;
+    const y = padY + h - ((v - min) / range) * h;
+    return [x, y];
+  });
+
+  const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"}${p[0].toFixed(2)},${p[1].toFixed(2)}`).join(" ");
+  const areaPath = `${linePath} L${points.at(-1)[0].toFixed(2)},${height - padY} L${points[0][0].toFixed(2)},${height - padY} Z`;
+
+  const stroke = positive ? "#22C55E" : "#EF4444";
+  const fillId = positive ? "ihsgFillPos" : "ihsgFillNeg";
+  const fillTop = positive ? "rgba(34,197,94,.35)" : "rgba(239,68,68,.35)";
+
+  return `
+    <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="${fillId}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="${fillTop}" />
+          <stop offset="100%" stop-color="rgba(0,0,0,0)" />
+        </linearGradient>
+      </defs>
+      <path d="${areaPath}" fill="url(#${fillId})" stroke="none" />
+      <path d="${linePath}" fill="none" stroke="${stroke}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" />
+    </svg>
+  `;
+}
+
+async function loadIhsgChart(period) {
+  const statsEl = document.getElementById("ihsgChartStats");
+  const chartEl = document.getElementById("ihsgChartWrap");
+
+  try {
+    const json = await fetchJSON(`/api/ihsg-chart?period=${period}`);
+
+    const chg = json.changeFromPrevPct;
+    const chgClass = chg > 0 ? "positive" : chg < 0 ? "negative" : "";
+    const chgIcon = chg > 0 ? "▲" : chg < 0 ? "▼" : "•";
+
+    statsEl.innerHTML = `
+      <span class="ihsg-value">${json.latest?.toLocaleString("id-ID", { maximumFractionDigits: 2 }) ?? "–"}</span>
+      <span class="ihsg-chg ${chgClass}">${chgIcon} ${fmtPct(chg)}</span>
+      <span class="hint-text" style="margin:0;">Periode: ${fmtPct(json.changeFromStartPct)}</span>
+    `;
+
+    const positive = (json.changeFromStartPct ?? 0) >= 0;
+    chartEl.innerHTML = buildLineChartSvg(json.values, { positive });
+  } catch (e) {
+    statsEl.innerHTML = "";
+    chartEl.innerHTML = `<div class="empty-state">Gagal memuat grafik IHSG: ${e.message}</div>`;
+  }
+}
+
+document.querySelectorAll("#ihsgPeriodSwitch .period-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#ihsgPeriodSwitch .period-btn").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    currentIhsgPeriod = btn.dataset.period;
+    loadIhsgChart(currentIhsgPeriod);
+  });
+});
+
+// ==========================================================
+// Widget: Arus Dana Asing
+// ==========================================================
+
+async function loadForeignFlow() {
+  const el = document.getElementById("foreignFlowWrap");
+
+  try {
+    const res = await fetch("/api/foreign-flow");
+    const json = await res.json();
+
+    if (!json.success) throw new Error(json.message || "Gagal memuat");
+
+    if (!json.available) {
+      el.innerHTML = `<div class="empty-state">${json.message}</div>`;
+      return;
+    }
+
+    const dirMap = {
+      INFLOW: { cls: "inflow", icon: "🟢", label: "Estimasi Net Inflow" },
+      OUTFLOW: { cls: "outflow", icon: "🔴", label: "Estimasi Net Outflow" },
+      NEUTRAL: { cls: "neutral", icon: "⚪", label: "Netral / Tidak Jelas Arah" }
+    };
+
+    const d = dirMap[json.direction] || dirMap.NEUTRAL;
+    const badgeLabel = json.mode === "actual"
+      ? (json.direction === "INFLOW" ? "Net Inflow (data aktual)" : "Net Outflow (data aktual)")
+      : d.label;
+
+    const reasons = (json.reasons || [])
+      .map((r) => `<li>${r}</li>`)
+      .join("");
+
+    el.innerHTML = `
+      <div class="flow-badge ${d.cls}">${d.icon} ${badgeLabel}</div>
+      <ul class="flow-reasons">${reasons}</ul>
+      <div class="flow-note">${json.note || ""}</div>
+    `;
+  } catch (e) {
+    el.innerHTML = `<div class="empty-state">Gagal memuat arus dana asing: ${e.message}</div>`;
+  }
+}
+
+// ==========================================================
+// Widget: Kondisi Pasar Asia
+// ==========================================================
+
+async function loadAsiaMarkets() {
+  const el = document.getElementById("asiaMarketsWrap");
+
+  try {
+    const res = await fetch("/api/asia-markets");
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || "Gagal memuat");
+
+    const rows = json.data
+      .map((m) => {
+        if (m.status !== "ok" || m.changePct === null) {
+          return `
+            <div class="asia-row">
+              <div class="asia-name"><strong>${m.name}</strong><span>${m.country}</span></div>
+              <div class="asia-num"><span class="asia-close">–</span></div>
+            </div>
+          `;
+        }
+        const cls = m.changePct > 0 ? "positive" : m.changePct < 0 ? "negative" : "flat";
+        const icon = m.changePct > 0 ? "▲" : m.changePct < 0 ? "▼" : "•";
+        return `
+          <div class="asia-row">
+            <div class="asia-name"><strong>${m.name}</strong><span>${m.country}</span></div>
+            <div class="asia-num">
+              <div class="asia-close">${m.close.toLocaleString("id-ID")}</div>
+              <div class="asia-chg ${cls}">${icon} ${Math.abs(m.changePct)}%</div>
+            </div>
+          </div>
+        `;
+      })
+      .join("");
+
+    el.innerHTML = `<div class="asia-list">${rows}</div>`;
+  } catch (e) {
+    el.innerHTML = `<div class="empty-state">Gagal memuat kondisi pasar Asia: ${e.message}</div>`;
+  }
+}
+
+// ==========================================================
+// Widget: Top 10 Emiten <300
+// ==========================================================
+
+function signalPillClass(signal) {
+  if (signal === "STRONG BUY") return "strong-buy";
+  if (signal === "BUY") return "buy";
+  if (signal === "SELL" || signal === "STRONG SELL") return "sell";
+  return "hold";
+}
+
+async function loadTopEmiten() {
+  const btn = document.getElementById("btnLoadTopEmiten");
+  const el = document.getElementById("topEmitenWrap");
+
+  btn.disabled = true;
+  btn.textContent = "Memindai…";
+  el.innerHTML = `<div class="empty-state">Memindai seluruh emiten &lt;Rp300 di server, mohon tunggu…</div>`;
+
+  try {
+    const res = await fetch("/api/scan?maxPrice=300");
+    const json = await res.json();
+
+    btn.disabled = false;
+    btn.textContent = "Muat Ulang";
+
+    if (json.skipped) {
+      el.innerHTML = `<div class="empty-state">${json.message}</div>`;
+      return;
+    }
+
+    if (!json.success) throw new Error(json.message || "Scan gagal");
+
+    const top10 = (json.data || []).slice(0, 10);
+
+    if (!top10.length) {
+      el.innerHTML = `<div class="empty-state">Tidak ada emiten &lt;Rp300 yang lolos saat ini.</div>`;
+      return;
+    }
+
+    const head = `
+      <div class="emiten-row head">
+        <span>#</span><span>Kode</span><span>Harga</span><span>Skor</span><span>Signal</span>
+      </div>
+    `;
+
+    const rows = top10
+      .map((d, i) => `
+        <div class="emiten-row">
+          <span class="emiten-rank">${i + 1}</span>
+          <span class="emiten-kode">${d.kode}<small>${d.entry === "NOW" ? "Entry: Now" : "Entry: " + (d.entry || "–")}</small></span>
+          <span>${d.close ?? "–"}</span>
+          <span>${d.score ?? "–"}</span>
+          <span class="signal-pill ${signalPillClass(d.signal)}">${d.signal ?? "–"}</span>
+        </div>
+      `)
+      .join("");
+
+    el.innerHTML = `<div class="emiten-list">${head}${rows}</div>`;
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = "Muat Data";
+    el.innerHTML = `<div class="empty-state">Gagal memindai emiten: ${e.message}</div>`;
+  }
+}
+
+document.getElementById("btnLoadTopEmiten").addEventListener("click", loadTopEmiten);
+
+// ==========================================================
+// Widget: Berita Penting
+// ==========================================================
+
+function newsAgeLabel(pubDate) {
+  if (!pubDate) return "";
+  const d = new Date(pubDate);
+  if (isNaN(d.getTime())) return "";
+  const hours = Math.round((Date.now() - d.getTime()) / (1000 * 60 * 60));
+  if (hours < 1) return "Baru saja";
+  if (hours < 24) return `${hours} jam lalu`;
+  return `${Math.round(hours / 24)} hari lalu`;
+}
+
+async function loadMarketNews() {
+  const el = document.getElementById("marketNewsWrap");
+
+  try {
+    const res = await fetch("/api/market-news");
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || "Gagal memuat");
+
+    if (!json.data.length) {
+      el.innerHTML = `<div class="empty-state">Belum ada berita terbaru.</div>`;
+      return;
+    }
+
+    const rows = json.data
+      .map((n) => `
+        <a class="news-row" href="${n.link || "#"}" target="_blank" rel="noopener noreferrer">
+          <div class="news-title">${n.title}</div>
+          <div class="news-meta">${n.source} · ${newsAgeLabel(n.pubDate)}</div>
+        </a>
+      `)
+      .join("");
+
+    el.innerHTML = `<div class="news-list">${rows}</div>`;
+  } catch (e) {
+    el.innerHTML = `<div class="empty-state">Gagal memuat berita: ${e.message}</div>`;
+  }
+}
+
+// ==========================================================
+// Init widget baru
+// ==========================================================
+
+loadIhsgChart(currentIhsgPeriod);
+loadForeignFlow();
+loadAsiaMarkets();
+loadMarketNews();
