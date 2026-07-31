@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SahamAI — Riwayat & Evaluasi</title>
+<title>SahamAI — Dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -32,12 +32,69 @@
 
 <nav class="nav-tabs">
   <a href="index.html" class="nav-tab"><span class="nav-icon">📊</span><span class="nav-text">Analisa</span></a>
+  <a href="dashboard.html" class="nav-tab active"><span class="nav-icon">🏠</span><span class="nav-text">Dashboard</span></a>
   <a href="portfolio.html" class="nav-tab"><span class="nav-icon">💼</span><span class="nav-text">Portofolio</span></a>
-  <a href="news.html" class="nav-tab"><span class="nav-icon">📰</span><span class="nav-text">News</span></a>
-  <a href="dashboard.html" class="nav-tab active"><span class="nav-icon">📈</span><span class="nav-text">Riwayat</span></a>
 </nav>
 
 <main class="container">
+
+  <section class="dash-hero">
+    <div class="dash-hero-text">
+      <span class="dash-hero-eyebrow">Ringkasan Pasar Hari Ini</span>
+      <h1 class="dash-hero-title">Dashboard SahamAI</h1>
+      <p class="dash-hero-sub">Pantau IHSG, arus dana asing, kondisi bursa Asia, kandidat saham murah, dan berita penting — semua dalam satu layar.</p>
+    </div>
+  </section>
+
+  <section class="widget-grid">
+
+    <div class="widget-card widget-span2">
+      <div class="widget-head">
+        <span class="widget-title">📈 Grafik IHSG</span>
+        <div class="chart-period-switch" id="ihsgPeriodSwitch">
+          <button class="period-btn active" data-period="1bln">1B</button>
+          <button class="period-btn" data-period="3bln">3B</button>
+          <button class="period-btn" data-period="6bln">6B</button>
+          <button class="period-btn" data-period="1thn">1T</button>
+        </div>
+      </div>
+      <div id="ihsgChartStats" class="ihsg-stats"></div>
+      <div id="ihsgChartWrap" class="chart-wrap"><div class="empty-state">Memuat grafik IHSG…</div></div>
+    </div>
+
+    <div class="widget-card">
+      <div class="widget-head">
+        <span class="widget-title">💱 Arus Dana Asing</span>
+      </div>
+      <div id="foreignFlowWrap"><div class="empty-state">Memuat…</div></div>
+    </div>
+
+    <div class="widget-card">
+      <div class="widget-head">
+        <span class="widget-title">🌏 Kondisi Pasar Asia</span>
+      </div>
+      <div id="asiaMarketsWrap"><div class="empty-state">Memuat…</div></div>
+    </div>
+
+    <div class="widget-card widget-span2">
+      <div class="widget-head">
+        <span class="widget-title">💎 Top 10 Emiten &lt;300</span>
+        <button class="btn-mini" id="btnLoadTopEmiten">Muat Data</button>
+      </div>
+      <p class="hint-text">Hasil batch scan seluruh emiten harga &lt;Rp300, diranking skor AI &amp; entry timing. Bisa makan waktu ~30–60 detik.</p>
+      <div id="topEmitenWrap"></div>
+    </div>
+
+    <div class="widget-card widget-span2">
+      <div class="widget-head">
+        <span class="widget-title">📰 Berita Penting</span>
+      </div>
+      <div id="marketNewsWrap"><div class="empty-state">Memuat berita…</div></div>
+    </div>
+
+  </section>
+
+  <h2 class="dash-section-title">Riwayat &amp; Evaluasi Prediksi AI</h2>
 
   <section class="panel">
     <label class="panel-label">Ringkasan akurasi prediksi vs hasil aktual</label>
@@ -90,10 +147,13 @@
   <section id="historyTableWrap" class="results"></section>
 
   <p class="disclaimer">
-    Data ditarik dari tabel <code>scan_history</code> di Supabase (diisi otomatis oleh
-    /api/scan tiap sore dan dilabel oleh /api/label-outcomes tiap pagi).
-    Angka win rate di sini adalah proxy "gap_up_realized" (lihat db/TRAINING.MD),
-    bukan simulasi profit riil — pakai sebagai indikasi awal, bukan keputusan final.
+    Grafik IHSG &amp; kondisi pasar Asia dari Yahoo Finance (delay ±15–20 menit).
+    Arus dana asing adalah <strong>estimasi proxy</strong> dari tren DXY/USD-IDR/IHSG
+    (bukan data net buy/sell resmi IDX) kecuali sudah diisi manual. Berita dari Google News RSS.
+    Data riwayat &amp; evaluasi ditarik dari tabel <code>scan_history</code> di Supabase (diisi otomatis
+    oleh /api/scan tiap sore dan dilabel oleh /api/label-outcomes tiap pagi). Angka win rate adalah
+    proxy "gap_up_realized" (lihat db/TRAINING.MD), bukan simulasi profit riil — semua angka di
+    halaman ini adalah indikasi awal, bukan rekomendasi atau keputusan finansial final.
   </p>
 
 </main>
