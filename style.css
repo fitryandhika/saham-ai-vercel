@@ -22,6 +22,9 @@
   --red-dim:rgba(239,68,68,.15);
   --amber:#E3A23D;
   --amber-dim:rgba(227,162,61,.15);
+  --violet:#8B7CF6;
+  --violet-dim:rgba(139,124,246,.15);
+  --gradient-accent:linear-gradient(135deg,#8B7CF6 0%,#E3A23D 100%);
 
   --font-display:'Space Grotesk',sans-serif;
   --font-body:'Inter',sans-serif;
@@ -309,6 +312,20 @@ button{
 }
 
 .btn-secondary:hover{border-color:var(--amber);}
+
+.btn-mini{
+  background:var(--violet-dim);
+  color:var(--violet);
+  font-size:12px;
+  font-weight:700;
+  padding:6px 12px;
+  border-radius:999px;
+  white-space:nowrap;
+  flex-shrink:0;
+}
+
+.btn-mini:hover{background:var(--violet);color:#12101F;}
+.btn-mini:disabled{opacity:.5;cursor:default;}
 
 .btn-ghost{
   background:transparent;
