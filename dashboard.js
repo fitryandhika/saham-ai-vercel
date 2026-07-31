@@ -460,7 +460,7 @@ async function loadIhsgChart(period) {
   const chartEl = document.getElementById("ihsgChartWrap");
 
   try {
-    const json = await fetchJSON(`/api/ihsg-chart?period=${period}`);
+    const json = await fetchJSON(`/api/dashboard-data?type=ihsg&period=${period}`);
 
     const chg = json.changeFromPrevPct;
     const chgClass = chg > 0 ? "positive" : chg < 0 ? "negative" : "";
@@ -497,7 +497,7 @@ async function loadForeignFlow() {
   const el = document.getElementById("foreignFlowWrap");
 
   try {
-    const res = await fetch("/api/foreign-flow");
+    const res = await fetch("/api/dashboard-data?type=flow");
     const json = await res.json();
 
     if (!json.success) throw new Error(json.message || "Gagal memuat");
@@ -540,7 +540,7 @@ async function loadAsiaMarkets() {
   const el = document.getElementById("asiaMarketsWrap");
 
   try {
-    const res = await fetch("/api/asia-markets");
+    const res = await fetch("/api/dashboard-data?type=asia");
     const json = await res.json();
     if (!json.success) throw new Error(json.message || "Gagal memuat");
 
@@ -660,7 +660,7 @@ async function loadMarketNews() {
   const el = document.getElementById("marketNewsWrap");
 
   try {
-    const res = await fetch("/api/market-news");
+    const res = await fetch("/api/dashboard-data?type=news");
     const json = await res.json();
     if (!json.success) throw new Error(json.message || "Gagal memuat");
 
