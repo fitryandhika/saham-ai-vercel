@@ -1,0 +1,192 @@
+/* ==========================================================
+   Riwayat & Evaluasi Prediksi AI — pakai variabel warna & utility
+   (.empty-state, .hint-text, .page-hero, .stat-row) dari style.css.
+   ========================================================== */
+
+.summary-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+}
+
+@media (min-width:640px){
+  .summary-grid{grid-template-columns:repeat(4,1fr);}
+}
+
+.summary-stat{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:14px;
+  padding:14px 16px;
+}
+
+.summary-stat .stat-label{
+  font-size:11px;
+  color:var(--muted);
+  text-transform:uppercase;
+  letter-spacing:.04em;
+  margin-bottom:6px;
+}
+
+.summary-stat .stat-value{
+  font-family:var(--font-mono);
+  font-size:22px;
+  font-weight:700;
+}
+
+.summary-stat .stat-value.positive{color:var(--green);}
+.summary-stat .stat-value.negative{color:var(--red);}
+
+.mini-table{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+
+.mini-table-row{
+  display:grid;
+  grid-template-columns:1.4fr .6fr .8fr .8fr;
+  align-items:center;
+  gap:8px;
+  padding:9px 10px;
+  background:var(--surface-2);
+  border-radius:10px;
+  font-family:var(--font-mono);
+  font-size:12px;
+}
+
+.mini-table-row.head{
+  background:transparent;
+  color:var(--muted);
+  font-family:var(--font-body);
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:.03em;
+  padding:0 10px;
+}
+
+.mini-table-row .win-rate.positive{color:var(--green);font-weight:600;}
+.mini-table-row .win-rate.negative{color:var(--red);font-weight:600;}
+
+.trend-list{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  max-height:320px;
+  overflow-y:auto;
+  padding-right:2px;
+}
+
+.trend-row{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:7px 10px;
+  border-radius:8px;
+  font-family:var(--font-mono);
+  font-size:12px;
+}
+
+.trend-row:nth-child(odd){background:var(--surface-2);}
+
+.trend-bar-wrap{
+  flex:1;
+  margin:0 10px;
+  height:6px;
+  background:var(--border);
+  border-radius:999px;
+  overflow:hidden;
+}
+
+.trend-bar{
+  height:100%;
+  background:var(--green);
+}
+
+.trend-pending{
+  color:var(--muted);
+  font-style:italic;
+}
+
+/* ----- Filter panel (kode + tanggal) ----- */
+
+.riwayat-filter-row{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  align-items:center;
+}
+
+.riwayat-filter-row .filter-label{
+  font-size:11px;
+  color:var(--muted);
+  text-transform:uppercase;
+  letter-spacing:.04em;
+  width:100%;
+}
+
+/* ----- Tabel riwayat mentah ----- */
+
+.history-table-scroll{
+  overflow-x:auto;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:14px;
+  padding:0;
+}
+
+.history-table{
+  width:100%;
+  border-collapse:collapse;
+  font-family:var(--font-mono);
+  font-size:12px;
+  min-width:720px;
+}
+
+.history-table th,
+.history-table td{
+  padding:10px 12px;
+  text-align:left;
+  border-bottom:1px solid var(--border);
+  white-space:nowrap;
+}
+
+.history-table thead th{
+  position:sticky;
+  top:0;
+  z-index:1;
+  background:var(--surface-2);
+  color:var(--muted);
+  font-family:var(--font-body);
+  font-size:10px;
+  text-transform:uppercase;
+  letter-spacing:.03em;
+}
+
+.history-table tbody tr:hover{background:var(--surface-2);}
+.history-table tbody tr:last-child td{border-bottom:none;}
+
+.result-pill{
+  font-size:11px;
+  font-weight:600;
+  padding:3px 9px;
+  border-radius:999px;
+  white-space:nowrap;
+}
+
+.result-pill.win{background:var(--green-dim);color:var(--green);}
+.result-pill.loss{background:var(--red-dim);color:var(--red);}
+.result-pill.pending{background:rgba(132,148,163,.15);color:var(--muted);}
+
+.regime-pill{
+  font-size:11px;
+  font-weight:600;
+  padding:3px 9px;
+  border-radius:999px;
+  white-space:nowrap;
+}
+
+.regime-pill.risk-on{background:var(--green-dim);color:var(--green);}
+.regime-pill.risk-off{background:var(--red-dim);color:var(--red);}
+.regime-pill.neutral{background:rgba(132,148,163,.15);color:var(--muted);}
+.regime-pill.unknown{background:rgba(132,148,163,.08);color:var(--muted);}
