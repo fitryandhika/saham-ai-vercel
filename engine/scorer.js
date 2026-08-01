@@ -103,6 +103,26 @@ export function calculateScore(data) {
     score += 6;
   }
 
+  // Exhaustion & Distribution — ditambahkan 31 Juli 2026, respons
+  // langsung ke temuan STRONG BUY win rate (35.1%) lebih rendah dari
+  // HOLD/SELL (~37-38%) di data akhir Juli. Lihat catatan lengkap di
+  // engine/indicators/exhaustion.js & distribution.js untuk definisi
+  // skornya. Penalti di sini SENGAJA dibuat proporsional tapi tidak
+  // ekstrem (maks -18 gabungan) karena kedua indikator ini BELUM
+  // divalidasi dari data nyata — exhaustionScore/distributionScore
+  // tetap dicatat penuh ke scan_history (lihat api/scan.js) supaya
+  // bisa dievaluasi dari next_day_return_pct sesungguhnya, baru
+  // diperbesar/dikecilkan bobotnya kalau terbukti prediktif.
+  if (data.exhaustion) {
+    if (data.exhaustion.exhaustionScore >= 60) score -= 12;
+    else if (data.exhaustion.exhaustionScore >= 35) score -= 6;
+  }
+
+  if (data.distribution) {
+    if (data.distribution.distributionScore >= 60) score -= 12;
+    else if (data.distribution.distributionScore >= 35) score -= 6;
+  }
+
   return Math.max(0, Math.min(score, 100));
 }
 
