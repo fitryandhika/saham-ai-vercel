@@ -331,7 +331,7 @@ export async function getLabeledRowsForStats({ sinceDate, kode, maxRows = 50000 
   if (!cfg) return [];
 
   const cols = [
-    "kode", "sector", "scan_date", "score", "signal",
+    "kode", "sector", "scan_date", "score", "signal", "rsi",
     "breakout_level", "closing_strength", "volume_signal",
     "gap_outlook", "next_day_return_pct", "gap_up_realized"
   ].join(",");
