@@ -44,11 +44,30 @@ export function getEntryTiming({
   signal,
   rsi,
   riskReward,
-  breakout
+  breakout,
+  exhaustion,
+  distribution
 }) {
 
   const isConfirmedBreakout = breakout && breakout.isBreakout &&
     (breakout.level === "STRONG_BREAKOUT" || breakout.level === "BREAKOUT");
+
+  // Gate exhaustion & distribution (31 Juli 2026) — kalau DUA-DUANYA
+  // tinggi sekaligus (bukan cuma salah satu), ini kombinasi rally
+  // meregang + tanda-tanda distribusi yang paling rawan "sudah
+  // direkomendasikan BUY, besoknya malah sideways/turun lama" (lihat
+  // catatan di engine/indicators/exhaustion.js & distribution.js).
+  // Diblokir di sini (entry timing), BUKAN cuma lewat penalti skor di
+  // scorer.js, supaya tetap ketahuan kalau skornya kebetulan masih
+  // tinggi dari kriteria lain — entry-nya tetap tidak "NOW".
+  const bothExhaustedAndDistributing =
+    exhaustion && distribution &&
+    exhaustion.exhaustionScore >= 60 &&
+    distribution.distributionScore >= 60;
+
+  if (bothExhaustedAndDistributing) {
+    return "AVOID";
+  }
 
   // Breakout kuat wajar mendorong RSI ke area overbought — itu bukan
   // alasan untuk memblokir entry seperti kondisi overbought biasa
