@@ -47,11 +47,17 @@
 
   <section class="panel">
     <label class="panel-label">Ringkasan akurasi prediksi vs hasil aktual</label>
+    <div class="period-filter" id="periodFilter" role="group" aria-label="Filter periode">
+      <button type="button" class="period-pill" data-days="7">7 Hari</button>
+      <button type="button" class="period-pill" data-days="30">30 Hari</button>
+      <button type="button" class="period-pill" data-days="90">90 Hari</button>
+      <button type="button" class="period-pill active" data-days="">Semua</button>
+    </div>
     <div class="input-row">
       <input id="sinceDate" type="date" autocomplete="off">
       <button class="btn-primary" id="btnRefresh">Refresh</button>
     </div>
-    <p class="hint-text">Kosongkan tanggal untuk melihat semua data yang sudah dilabel.</p>
+    <p class="hint-text">Pilih periode cepat di atas, atau isi tanggal manual untuk custom lalu klik Refresh.</p>
   </section>
 
   <section id="summaryOverall" class="results"></section>
