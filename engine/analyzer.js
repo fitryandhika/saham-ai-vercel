@@ -68,6 +68,10 @@ import { calculateSessionGainScore } from "./sessionGainScore.js";
 
 import { checkLiquidity } from "./liquidity.js";
 
+import { calculateExhaustion } from "./indicators/exhaustion.js";
+
+import { calculateDistribution } from "./indicators/distribution.js";
+
 export function analyzeStock(data) {
 
   const close = data.closePrices.at(-1);
@@ -118,6 +122,26 @@ export function analyzeStock(data) {
   const volumeAcceleration = calculateVolumeAcceleration(data.volumes);
 
   // ==========================
+  // Exhaustion & Distribution (31 Juli 2026) — lihat catatan lengkap
+  // di engine/indicators/exhaustion.js & distribution.js. Dihitung
+  // dari histori candle saham itu sendiri. ATR dipindah ke sini
+  // (dipakai exhaustion) supaya cuma dihitung sekali; bagian Risk
+  // Management di bawah pakai variabel `atr` yang sama, bukan hitung
+  // ulang.
+  // ==========================
+
+  const atr = getATR(data.candles, 14);
+
+  const exhaustion = calculateExhaustion({
+    closePrices: data.closePrices,
+    atr
+  });
+
+  const distribution = calculateDistribution({
+    candles: data.candles
+  });
+
+  // ==========================
   // Relative Strength vs IHSG & Sektor
   // ==========================
   // data.ihsgCloses & data.sectorReturn diisi oleh caller (api/analyze.js
@@ -134,10 +158,9 @@ export function analyzeStock(data) {
   });
 
   // ==========================
-  // Risk Management (ATR-based)
+  // Risk Management (ATR-based) — `atr` sudah dihitung di atas
+  // (dipakai exhaustion), dipakai ulang di sini.
   // ==========================
-
-  const atr = getATR(data.candles, 14);
 
   const support = calculateSupport(data.candles, 20);
 
@@ -189,7 +212,9 @@ export function analyzeStock(data) {
     breakout,
     closingStrength,
     volumeAcceleration,
-    relativeStrength
+    relativeStrength,
+    exhaustion,
+    distribution
   });
 
   // Flag terpisah (bukan cuma andalkan bonus di dalam skor) supaya
@@ -264,7 +289,9 @@ export function analyzeStock(data) {
     signal,
     rsi,
     riskReward,
-    breakout
+    breakout,
+    exhaustion,
+    distribution
   });
 
   const verdict = getFinalVerdict({
@@ -348,7 +375,9 @@ export function analyzeStock(data) {
     atr,
     close,
     closingStrength,
-    relativeStrength
+    relativeStrength,
+    exhaustion,
+    distribution
   });
 
   // Kalau fundamental punya warning nyata, buang placeholder
@@ -442,6 +471,9 @@ export function analyzeStock(data) {
     closingStrengthLabel,
     volumeAcceleration,
     relativeStrength,
+
+    exhaustion,
+    distribution,
 
     fundamental,
 
