@@ -317,7 +317,16 @@ export async function getRowsMissingHighLow({ limit = 5000 } = {}) {
 // "belum dilabel" (misal scan hari ini yang outcome-nya baru bisa dihitung
 // besok) — supaya hari yang sudah discan tapi belum dilabel tetap kelihatan
 // di tren harian sebagai "menunggu pelabelan", bukan hilang tanpa keterangan.
-export async function getLabeledRowsForStats({ sinceDate, kode } = {}) {
+//
+// PERBAIKAN 2 Agustus 2026: sebelumnya cuma 1x fetch dengan limit=10000,
+// tapi Supabase (PostgREST) punya batas keras server-side (default
+// max-rows 1000) yang DIAM-DIAM memotong hasil ke 1000 baris walau
+// `limit` di query string diminta lebih besar — makanya "Total Scan"
+// di dashboard selalu mentok 1.000 walau data yang sudah discan lebih
+// dari itu. Diperbaiki jadi loop per 1000 baris pakai offset (sama
+// pola dengan getAllScanHistoryRows), sampai halaman tidak penuh lagi
+// atau kena batas pengaman maxRows.
+export async function getLabeledRowsForStats({ sinceDate, kode, maxRows = 50000 } = {}) {
   const cfg = getConfig();
   if (!cfg) return [];
 
@@ -327,31 +336,47 @@ export async function getLabeledRowsForStats({ sinceDate, kode } = {}) {
     "gap_outlook", "next_day_return_pct", "gap_up_realized"
   ].join(",");
 
-  const params = new URLSearchParams();
-  params.set("select", cols);
-  // Urutkan dari TERBARU dulu (bukan asc/tertua) supaya kalau total riwayat
-  // sudah melebihi limit 10000, yang kepotong adalah data LAMA — bukan data
-  // terbaru seperti hari ini/kemarin. Urutan hasil tidak masalah buat
-  // computeSummary() karena semua agregasi di sana (groupBy per tanggal,
-  // per bucket skor, dst) tidak bergantung pada urutan array input.
-  params.set("order", "scan_date.desc");
-  params.set("limit", "10000");
+  const PAGE_SIZE = 1000; // samakan dengan max-rows Supabase supaya tiap halaman penuh
+  let offset = 0;
+  let all = [];
 
-  if (sinceDate) params.set("scan_date", `gte.${sinceDate}`);
-  if (kode) params.set("kode", `eq.${kode.toUpperCase()}`);
+  while (true) {
+    const params = new URLSearchParams();
+    params.set("select", cols);
+    // Urutkan dari TERBARU dulu supaya kalau kena batas pengaman
+    // maxRows, yang kepotong data LAMA — bukan hari ini/kemarin.
+    // Urutan hasil tidak masalah buat computeSummary() karena semua
+    // agregasi di sana (groupBy per tanggal, per bucket skor, dst)
+    // tidak bergantung pada urutan array input.
+    params.set("order", "scan_date.desc");
+    params.set("limit", String(PAGE_SIZE));
+    params.set("offset", String(offset));
 
-  const res = await fetch(`${cfg.url}/rest/v1/scan_history?${params.toString()}`, {
-    headers: {
-      apikey: cfg.key,
-      Authorization: `Bearer ${cfg.key}`
+    if (sinceDate) params.set("scan_date", `gte.${sinceDate}`);
+    if (kode) params.set("kode", `eq.${kode.toUpperCase()}`);
+
+    const res = await fetch(`${cfg.url}/rest/v1/scan_history?${params.toString()}`, {
+      headers: {
+        apikey: cfg.key,
+        Authorization: `Bearer ${cfg.key}`
+      }
+    });
+
+    if (!res.ok) {
+      throw new Error(`Supabase select gagal (${res.status}): ${await res.text()}`);
     }
-  });
 
-  if (!res.ok) {
-    throw new Error(`Supabase select gagal (${res.status}): ${await res.text()}`);
+    const page = await res.json();
+    all = all.concat(page);
+
+    if (page.length < PAGE_SIZE || all.length >= maxRows) {
+      break;
+    }
+
+    offset += PAGE_SIZE;
   }
 
-  return res.json();
+  return all;
 }
 
 export default logScanSnapshots;
