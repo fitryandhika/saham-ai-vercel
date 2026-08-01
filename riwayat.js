@@ -351,6 +351,47 @@ function renderHistoryTable(rows) {
 }
 
 // ==========================
+// Filter periode (pill 7/30/90 hari / semua)
+// ==========================
+//
+// Pill cuma cara cepat untuk mengisi #sinceDate (input tanggal manual
+// yang sudah ada) — bukan mekanisme terpisah, supaya /api/history
+// ?sinceDate=... yang sudah ada dari awal tetap satu-satunya sumber
+// kebenaran filter, tidak ada 2 state yang bisa tidak sinkron.
+
+function setActivePill(days) {
+  document.querySelectorAll(".period-pill").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.days === days);
+  });
+}
+
+function daysAgoIso(days) {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
+document.getElementById("periodFilter").addEventListener("click", (e) => {
+  const btn = e.target.closest(".period-pill");
+  if (!btn) return;
+
+  const days = btn.dataset.days;
+  setActivePill(days);
+
+  const sinceDateInput = document.getElementById("sinceDate");
+  sinceDateInput.value = days ? daysAgoIso(Number(days)) : "";
+
+  loadSummary();
+});
+
+// Kalau user isi tanggal manual sendiri (bukan lewat pill), matikan
+// highlight pill supaya tidak menyesatkan seolah masih di preset 30/90
+// hari padahal sudah custom.
+document.getElementById("sinceDate").addEventListener("change", () => {
+  setActivePill(null);
+});
+
+// ==========================
 // Load data
 // ==========================
 
