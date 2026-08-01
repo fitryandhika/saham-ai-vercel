@@ -325,7 +325,8 @@ export function analyzeStock(data) {
     momentum,
     volume,
     rsi,
-    marketTrend
+    marketTrend,
+    calibrationMap: data.gapCalibration
   });
 
   const rank = getRank(
