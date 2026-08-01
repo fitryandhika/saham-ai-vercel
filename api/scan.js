@@ -23,6 +23,7 @@ import { UNIVERSE, getSector } from "../config/universe.js";
 import { logScanSnapshots } from "../services/dataLogService.js";
 import { isTradingDay, nonTradingDayReason, todayWIB } from "../config/tradingCalendar.js";
 import { getLatestMacroSnapshot } from "../services/macroDataService.js";
+import { getGapCalibrationMap } from "../services/gapCalibrationService.js";
 import { applyRegimeAdjustment } from "../engine/marketRegime.js";
 
 // Butuh Vercel Pro (atau plan dengan maxDuration lebih besar) untuk scan
@@ -128,6 +129,15 @@ export default async function handler(req, res) {
     const marketRegime = macroSnapshot?.market_regime ?? null;
     const marketRegimeScore = macroSnapshot?.market_regime_score ?? 50;
 
+    // Gap Probability hybrid (2 Agustus 2026) — tabel kalibrasi dibaca
+    // SEKALI di sini (bukan per saham), dipakai ulang untuk semua kode
+    // dalam batch ini lewat data.gapCalibration di bawah. Best-effort:
+    // kalau tabel belum pernah dihitung (cron label-outcomes-close
+    // belum jalan) atau Supabase belum dikonfigurasi, Map kosong ->
+    // engine/gap.js otomatis fallback ke heuristik murni, tidak
+    // menggagalkan scan.
+    const gapCalibrationMap = await getGapCalibrationMap();
+
     // ==========================
     // Tahap 1 — fetch data candle semua kode (paralel, concurrency-limited)
     // ==========================
@@ -176,6 +186,7 @@ export default async function handler(req, res) {
           item.stockData.ihsgCloses = ihsgCloses;
           item.stockData.sectorReturn = sectorReturns[item.sector] ?? null;
           item.stockData.sector = item.sector;
+          item.stockData.gapCalibration = gapCalibrationMap;
 
           const hasil = analyzeStock(item.stockData);
           hasil.sector = item.sector;
@@ -237,6 +248,8 @@ export default async function handler(req, res) {
       gap_probability: d.gap?.probability
         ? parseFloat(String(d.gap.probability).replace("%", ""))
         : null,
+      gap_calibration_applied: d.gap?.calibrationApplied ?? false,
+      gap_bucket_sample_count: d.gap?.bucketSampleCount ?? null,
 
       session_gain_score: d.sessionGain?.sessionGainScore ?? null,
       session_gain_label: d.sessionGain?.label ?? null,
