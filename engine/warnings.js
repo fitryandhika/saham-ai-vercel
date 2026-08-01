@@ -7,7 +7,9 @@ export function generateWarnings({
   atr,
   close,
   closingStrength,
-  relativeStrength
+  relativeStrength,
+  exhaustion,
+  distribution
 }) {
 
   const warnings = [];
@@ -67,6 +69,20 @@ export function generateWarnings({
   if (relativeStrength && relativeStrength.label === "JAUH UNDERPERFORM") {
     warnings.push(
       "Saham jauh underperform IHSG/sektor — kenaikan (kalau ada) lebih lemah dari pasar."
+    );
+  }
+
+  // Exhaustion & Distribution (31 Juli 2026) — lihat catatan lengkap
+  // di engine/indicators/exhaustion.js & distribution.js.
+  if (exhaustion && exhaustion.exhaustionScore >= 35) {
+    warnings.push(
+      `Tanda-tanda rally kelelahan (skor ${exhaustion.exhaustionScore}/100)${exhaustion.reasons.length ? ": " + exhaustion.reasons[0] : ""} — rawan jeda/koreksi sebelum lanjut naik.`
+    );
+  }
+
+  if (distribution && distribution.distributionScore >= 35) {
+    warnings.push(
+      `Indikasi distribusi (skor ${distribution.distributionScore}/100)${distribution.reasons.length ? ": " + distribution.reasons[0] : ""} — waspada meski harga masih terlihat kuat.`
     );
   }
 
