@@ -108,6 +108,36 @@
   font-style:italic;
 }
 
+/* ----- Filter periode (pill/chip) ----- */
+
+.period-filter{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  margin:10px 0 12px;
+}
+
+.period-pill{
+  font-family:var(--font-mono);
+  font-size:12px;
+  font-weight:600;
+  padding:6px 14px;
+  border-radius:999px;
+  background:var(--surface-2);
+  border:1px solid var(--border);
+  color:var(--muted);
+  cursor:pointer;
+  transition:border-color .15s, color .15s, background .15s;
+}
+
+.period-pill:hover{border-color:var(--amber);color:var(--text);}
+
+.period-pill.active{
+  background:var(--amber-dim);
+  border-color:var(--amber);
+  color:var(--amber);
+}
+
 /* ----- Filter panel (kode + tanggal) ----- */
 
 .riwayat-filter-row{
