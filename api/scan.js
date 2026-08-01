@@ -247,7 +247,12 @@ export default async function handler(req, res) {
       market_regime: d.marketRegime ?? null,
       market_regime_score: d.marketRegimeScore ?? null,
       score_adjusted: d.scoreAdjusted ?? null,
-      reversal_candidate: d.reversalCandidate ?? false
+      reversal_candidate: d.reversalCandidate ?? false,
+
+      exhaustion_score: d.exhaustion?.exhaustionScore ?? null,
+      exhaustion_label: d.exhaustion?.label ?? null,
+      distribution_score: d.distribution?.distributionScore ?? null,
+      distribution_label: d.distribution?.label ?? null
     }));
 
     // Fire-and-forget-ish: ditunggu tapi kegagalan logging TIDAK boleh
