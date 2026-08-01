@@ -18,8 +18,10 @@
 // benar kalau baris ini bukan backlog lama). Robust untuk kedua kasus:
 // dilabel hari yang sama atau backlog beberapa hari ke belakang.
 
-import { getPendingCloseSnapshots, getOldestOpenLabeledDate, updateLabel } from "../services/dataLogService.js";
+import { getPendingCloseSnapshots, getOldestOpenLabeledDate, updateLabel, getLabeledRowsForStats } from "../services/dataLogService.js";
 import { getStockData, getIntradayPeakTime, findTradingDayCandleAfter } from "../services/stockService.js";
+import { computeGapCalibration } from "../engine/gapCalibration.js";
+import { saveGapCalibration } from "../services/gapCalibrationService.js";
 
 export const config = {
   maxDuration: 60
@@ -164,6 +166,33 @@ export default async function handler(req, res) {
     const notFound = ok.filter((r) => r.status === "NOT_FOUND").length;
     const peakTimeFound = ok.filter((r) => r.status === "OK" && r.peakTimeWIB).length;
 
+    // ==========================
+    // Recompute Gap Calibration (2 Agustus 2026) — best-effort, TIDAK
+    // boleh menggagalkan response labeling tahap 2 kalau gagal. Dijalankan
+    // di sini (bukan endpoint cron terpisah) supaya tidak nambah jumlah
+    // serverless function (Vercel Hobby plan mentok 12, sudah pernah
+    // kejadian sebelumnya) — dan karena titik ini pas: label harian baru
+    // saja selesai, jadi tabel gap_calibration dihitung dari data
+    // paling baru begitu tersedia.
+    // ==========================
+    let gapCalibration = { recomputed: false };
+
+    try {
+      const rows = await getLabeledRowsForStats({});
+      const table = computeGapCalibration(rows);
+      const saveResult = await saveGapCalibration(table);
+
+      gapCalibration = {
+        recomputed: true,
+        buckets: table.length,
+        totalLabeledRows: rows.length,
+        ...saveResult
+      };
+    } catch (e) {
+      console.error("Recompute gap calibration gagal:", e.message);
+      gapCalibration = { recomputed: false, error: e.message };
+    }
+
     return res.status(200).json({
       success: true,
       scanDate,
@@ -174,7 +203,8 @@ export default async function handler(req, res) {
       notFound, // kemungkinan besar butuh api/relabel-high-low.js kalau backlog kelewat jauh
       peakTimeFound, // dari yang berhasil dilabel, berapa yang juga dapat jam puncaknya
       failed: failed.length,
-      failedDetail: failed
+      failedDetail: failed,
+      gapCalibration
     });
 
   } catch (error) {
