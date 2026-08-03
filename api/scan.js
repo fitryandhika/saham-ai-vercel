@@ -19,7 +19,7 @@ import { analyzeStock } from "../engine/analyzer.js";
 import { getStockData } from "../services/stockService.js";
 import { getIhsgCloses } from "../services/marketService.js";
 import { nDayReturn } from "../engine/relativeStrength.js";
-import { UNIVERSE, getSector } from "../config/universe.js";
+import { resolveUniverse } from "../config/universe.js";
 import { logScanSnapshots } from "../services/dataLogService.js";
 import { isTradingDay, nonTradingDayReason, todayWIB } from "../config/tradingCalendar.js";
 import { getLatestMacroSnapshot } from "../services/macroDataService.js";
@@ -107,6 +107,12 @@ export default async function handler(req, res) {
       });
     }
 
+    // Universe dinamis (3 Agustus 2026) — coba tabel universe_snapshot
+    // (hasil filter likuiditas otomatis, lihat api/universe-refresh.js)
+    // dulu, fallback ke daftar statis config/universe.js kalau tabel
+    // masih kosong/gagal. sectorOf() sudah menggabungkan keduanya juga.
+    const { list: UNIVERSE, sectorOf, source: universeSource } = await resolveUniverse();
+
     let kodeList = UNIVERSE;
 
     if (limit) {
@@ -116,7 +122,7 @@ export default async function handler(req, res) {
 
     if (sector) {
       kodeList = kodeList.filter(
-        (k) => getSector(k).toLowerCase() === String(sector).toLowerCase()
+        (k) => sectorOf(k).toLowerCase() === String(sector).toLowerCase()
       );
     }
 
@@ -154,7 +160,7 @@ export default async function handler(req, res) {
         // menggagalkan scan kode ini.
         const fundamentals = await getZapiFundamentals(kode);
 
-        return { kode, stockData, stockReturn, sector: getSector(kode), fundamentals };
+        return { kode, stockData, stockReturn, sector: sectorOf(kode), fundamentals };
       },
       CONCURRENCY
     );
@@ -367,6 +373,7 @@ export default async function handler(req, res) {
     return res.status(200).json({
       success: true,
       scanned: kodeList.length,
+      universeSource, // "DB" (universe_snapshot, otomatis) atau "STATIC_FALLBACK"
       succeeded: analyzed.length,
       failed: failed.length + analyzeErrors.length,
       failedCodes: [...failed, ...analyzeErrors.map((e) => e.kode)],
