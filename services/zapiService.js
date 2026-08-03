@@ -96,6 +96,51 @@ export async function getZapiFundamentals(kode) {
 }
 
 // ==========================
+// IDX listed-companies (Sektor/SubSektor RESMI, bukan kategorisasi
+// komunitas) — dipaginate sekali per refresh, jauh lebih murah daripada
+// panggil getZapiFundamentals per-saham satu-satu.
+// ==========================
+async function getListedCompaniesPage({ start = 0, length = 100 } = {}) {
+  const json = await tryFetchJson(
+    `/finance:idx:companies/listed-companies?start=${start}&length=${length}`
+  );
+
+  const rows = Array.isArray(json?.data) ? json.data : [];
+  const recordsTotal = Number(json?.recordsTotal ?? rows.length);
+
+  return { rows, recordsTotal: Number.isFinite(recordsTotal) ? recordsTotal : rows.length };
+}
+
+// Return Map<kode, { sector, subSector }> untuk SEMUA emiten terdaftar —
+// dipakai api/universe-refresh.js supaya tidak perlu fetch fundamental
+// per-saham cuma untuk sektor. Best-effort: gagal di tengah -> Map
+// parsial (lebih baik daripada kosong total).
+export async function getIdxSectorMap({ pageSize = 100, maxPages = 20 } = {}) {
+  const map = new Map();
+  let start = 0;
+
+  for (let page = 0; page < maxPages; page++) {
+    const { rows, recordsTotal } = await getListedCompaniesPage({ start, length: pageSize });
+
+    if (!rows || rows.length === 0) break;
+
+    for (const row of rows) {
+      const kode = row.KodeEmiten;
+      if (!kode) continue;
+      map.set(kode, {
+        sector: row.Sektor || "Lainnya",
+        subSector: row.SubSektor || null
+      });
+    }
+
+    start += pageSize;
+    if (map.size >= recordsTotal || rows.length < pageSize) break;
+  }
+
+  return map;
+}
+
+// ==========================
 // IDX stock-summary (list SEMUA emiten, dipaginate) — dipakai untuk
 // membangun universe otomatis, lihat api/universe-refresh.js
 // ==========================
