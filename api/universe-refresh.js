@@ -8,21 +8,24 @@
 // tidak pernah dimasukkan ke daftar manual — bukan soal skor/filter.
 //
 // Alur:
-//   1. Tarik SEMUA emiten aktif IDX (~959) dari finance:idx:stock-summary
-//      (zapi.web.id), dipaginate ~10x request (murah, 1x jalan per
-//      minggu — bukan tiap scan harian).
-//   2. Filter likuiditas: nilai transaksi (Value) HARI SNAPSHOT INI
+//   1. Tarik SEMUA emiten aktif IDX (~959) dari finance:idx/stock-summary
+//      (zapi.web.id), dipaginate ~10x request.
+//   2. Tarik SEKALI daftar sektor RESMI dari
+//      finance:idx:companies/listed-companies (Sektor/SubSektor asli
+//      IDX, bukan kategorisasi komunitas) — juga dipaginate, tapi cuma
+//      1x untuk SEMUA emiten sekaligus, bukan per-saham satu-satu.
+//      (Sebelumnya sempat pakai getZapiFundamentals per-saham buat
+//      sektor — diganti karena ini jauh lebih murah/cepat dan sumbernya
+//      lebih otoritatif.)
+//   3. Filter likuiditas: nilai transaksi (Value) HARI SNAPSHOT INI
 //      >= Rp1.000.000.000 (Rp1 miliar). CATATAN JUJUR: ini proxy dari
 //      SATU hari trading (hari cron ini jalan), BUKAN rata-rata N-hari
 //      sungguhan — menghitung rata-rata N-hari untuk ~959 emiten butuh
-//      ~959×N pemanggilan candle history yang terlalu berat untuk 1x
-//      cron run. Karena refresh-nya mingguan, distorsi dari satu hari
-//      yang kebetulan sepi/ramai tetap kekoreksi minggu berikutnya.
-//   3. Exclude harga <= 51 (gocap ekstrem, biasanya tidak bergerak wajar
+//      panggilan candle history yang terlalu berat untuk 1x cron run.
+//      Karena refresh-nya mingguan, distorsi dari satu hari yang
+//      kebetulan sepi/ramai tetap kekoreksi minggu berikutnya.
+//   4. Exclude harga <= 51 (gocap ekstrem, biasanya tidak bergerak wajar
 //      untuk strategi beli-sore-jual-pagi).
-//   4. Untuk emiten yang LOLOS filter (jauh lebih sedikit dari 959),
-//      ambil sektornya dari finance:stockbit:symbol (getZapiFundamentals,
-//      sudah dipakai juga di api/scan.js) — otomatis, bukan hardcode.
 //   5. Simpan ke tabel universe_snapshot (replace total, bukan upsert
 //      parsial — lihat replaceUniverseSnapshot).
 //
@@ -30,8 +33,7 @@
 // resolveUniverse(), dengan fallback ke daftar statis lama kalau tabel
 // kosong/gagal.
 
-import { getAllIdxStockSummary } from "../services/zapiService.js";
-import { getZapiFundamentals } from "../services/zapiService.js";
+import { getAllIdxStockSummary, getIdxSectorMap } from "../services/zapiService.js";
 import { replaceUniverseSnapshot } from "../services/dataLogService.js";
 
 export const config = {
@@ -40,90 +42,63 @@ export const config = {
 
 const MIN_DAILY_VALUE = 1_000_000_000; // Rp1 miliar — lihat catatan di atas
 const MIN_PRICE = 51; // exclude gocap ekstrem
-const SECTOR_LOOKUP_CONCURRENCY = 10;
-
-async function runPool(items, worker, concurrency) {
-  const results = new Array(items.length);
-  let cursor = 0;
-
-  async function next() {
-    while (cursor < items.length) {
-      const i = cursor++;
-      try {
-        results[i] = await worker(items[i], i);
-      } catch (e) {
-        results[i] = { error: e.message };
-      }
-    }
-  }
-
-  await Promise.all(
-    Array.from({ length: Math.min(concurrency, items.length) }, next)
-  );
-
-  return results;
-}
 
 export default async function handler(req, res) {
   try {
-    const allRows = await getAllIdxStockSummary({ pageSize: 100, maxPages: 20 });
+    const [allRows, sectorMap] = await Promise.all([
+      getAllIdxStockSummary({ pageSize: 100, maxPages: 20 }),
+      getIdxSectorMap({ pageSize: 100, maxPages: 20 })
+    ]);
 
     if (!allRows || allRows.length === 0) {
       return res.status(200).json({
         ok: false,
-        message: "Tidak ada data dari finance:idx:stock-summary — universe TIDAK diubah (tabel lama tetap dipakai sebagai fallback).",
+        message: "Tidak ada data dari finance:idx/stock-summary — universe TIDAK diubah (tabel lama tetap dipakai sebagai fallback).",
         fetchedTotal: 0
       });
     }
 
-    // Filter likuiditas + harga.
-    const survivors = allRows.filter((row) => {
+    // Filter likuiditas + harga, sekalian susun baris final (sektor dari
+    // Map yang sudah ditarik sekali di atas, bukan fetch per-saham).
+    const validRows = [];
+
+    for (const row of allRows) {
       const value = Number(row.Value);
       const close = Number(row.Close);
-      return (
-        Number.isFinite(value) &&
-        value >= MIN_DAILY_VALUE &&
-        Number.isFinite(close) &&
-        close > MIN_PRICE &&
-        row.StockCode
-      );
-    });
+      const kode = row.StockCode;
 
-    // Ambil sektor per emiten yang lolos (jumlahnya jauh lebih kecil
-    // dari 959, jadi aman di-pool concurrency kecil).
-    const withSector = await runPool(
-      survivors,
-      async (row) => {
-        const kode = row.StockCode;
-        const fundamentals = await getZapiFundamentals(kode);
+      if (
+        !kode ||
+        !Number.isFinite(value) ||
+        value < MIN_DAILY_VALUE ||
+        !Number.isFinite(close) ||
+        close <= MIN_PRICE
+      ) {
+        continue;
+      }
 
-        const closePrice = Number(row.Close);
-        const listedShares = Number(row.ListedShares);
-        const marketCap =
-          Number.isFinite(closePrice) && Number.isFinite(listedShares)
-            ? closePrice * listedShares
-            : fundamentals?.marketCap ?? null;
+      const listedShares = Number(row.ListedShares);
+      const marketCap =
+        Number.isFinite(close) && Number.isFinite(listedShares)
+          ? close * listedShares
+          : null;
 
-        return {
-          kode,
-          sector: fundamentals?.sector || "Lainnya",
-          last_price: Number.isFinite(closePrice) ? closePrice : null,
-          daily_value: Number.isFinite(Number(row.Value)) ? Number(row.Value) : null,
-          market_cap: marketCap,
-          refreshed_at: new Date().toISOString()
-        };
-      },
-      SECTOR_LOOKUP_CONCURRENCY
-    );
-
-    const validRows = withSector.filter((r) => r && !r.error && r.kode);
+      validRows.push({
+        kode,
+        sector: sectorMap.get(kode)?.sector || "Lainnya",
+        last_price: close,
+        daily_value: value,
+        market_cap: marketCap,
+        refreshed_at: new Date().toISOString()
+      });
+    }
 
     if (validRows.length === 0) {
       return res.status(200).json({
         ok: false,
-        message: "Semua baris gagal diproses setelah filter likuiditas — universe TIDAK diubah.",
+        message: "Tidak ada emiten yang lolos filter likuiditas — universe TIDAK diubah.",
         fetchedTotal: allRows.length,
-        survivorsAfterLiquidityFilter: survivors.length
+        sectorMapSize: sectorMap.size
       });
     }
 
@@ -132,7 +107,8 @@ export default async function handler(req, res) {
     return res.status(200).json({
       ok: !error,
       fetchedTotal: allRows.length,
-      survivorsAfterLiquidityFilter: survivors.length,
+      sectorMapSize: sectorMap.size,
+      survivorsAfterLiquidityFilter: validRows.length,
       saved,
       minDailyValue: MIN_DAILY_VALUE,
       minPrice: MIN_PRICE,
