@@ -10,6 +10,10 @@
 //   2. Intraday peak time yang lebih presisi (per-menit) — Yahoo hanya
 //      punya interval 15m dan cuma retensi ~60 hari.
 //
+// Pakai SDK resmi (zpi-sdk, lihat tab "Code examples" > zpi-sdk di
+// dashboard zapi.web.id) — bukan fetch manual — supaya auth/header
+// selalu ikut versi resmi dan tidak perlu ditebak-tebak formatnya.
+//
 // KETERBATASAN PENTING: endpoint intraday zapi (finance:stockbit:chart,
 // timeframe=today) HANYA punya data HARI INI, tidak historis. Jadi cuma
 // berguna kalau dipanggil pada tanggal yang sama dengan targetnya
@@ -21,45 +25,53 @@
 // Semua fungsi di sini best-effort: gagal fetch/parse -> return null,
 // TIDAK PERNAH throw, supaya tidak pernah menggagalkan scan/labeling.
 
-const BASE_URL = "https://api.zpi.web.id/v1";
-const API_KEY = process.env.ZAPI_API_KEY || ""; // isi di Vercel env kalau endpoint butuh auth
+import { ZpiClient } from "zpi-sdk";
 
-async function tryFetchJson(url) {
-  try {
-    const headers = { Accept: "application/json" };
-    if (API_KEY) headers["Authorization"] = `Bearer ${API_KEY}`;
+let client = null;
 
-    const res = await fetch(url, { headers });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch (e) {
-    console.error("zapiService fetch error:", url, e.message);
+function getClient() {
+  if (client) return client;
+
+  const apiKey = process.env.ZAPI_API_KEY;
+  if (!apiKey) {
+    console.warn("ZAPI_API_KEY belum diset — fitur zapi (fundamental/intraday) nonaktif.");
     return null;
   }
+
+  client = new ZpiClient({ apiKey });
+  return client;
 }
 
 // ==========================
 // Fundamental snapshot (marketCap, PE ratio, sector versi Stockbit)
 // ==========================
 export async function getZapiFundamentals(kode) {
-  const url = `${BASE_URL}/finance:stockbit:symbol?symbol=${encodeURIComponent(kode)}`;
-  const json = await tryFetchJson(url);
+  const c = getClient();
+  if (!c) return null;
 
-  const d = json?.data;
-  if (!d) return null;
+  try {
+    const raw = await c.run("finance:stockbit:symbol", { symbol: kode });
+    // Defensif: SDK bisa saja return langsung isi data, atau masih
+    // bungkus { project, data, timestamp } seperti response REST biasa.
+    const data = raw?.data ?? raw;
+    if (!data) return null;
 
-  const marketCap = Number(d.marketCap);
-  const peRatio = Number(d.peRatio);
+    const marketCap = Number(data.marketCap);
+    const peRatio = Number(data.peRatio);
 
-  return {
-    marketCap: Number.isFinite(marketCap) ? marketCap : null,
-    peRatio: Number.isFinite(peRatio) ? peRatio : null,
-    sector: d.sector ?? null,
-    subSector: d.subSector ?? null,
-    marketStatus: d.marketStatus ?? null,
-    bestBid: d.bestBid ?? null,
-    bestOffer: d.bestOffer ?? null
-  };
+    return {
+      marketCap: Number.isFinite(marketCap) ? marketCap : null,
+      peRatio: Number.isFinite(peRatio) ? peRatio : null,
+      sector: data.sector ?? null,
+      subSector: data.subSector ?? null,
+      marketStatus: data.marketStatus ?? null,
+      bestBid: data.bestBid ?? null,
+      bestOffer: data.bestOffer ?? null
+    };
+  } catch (e) {
+    console.error(`getZapiFundamentals(${kode}) gagal:`, e.message);
+    return null;
+  }
 }
 
 // ==========================
@@ -69,36 +81,46 @@ export async function getZapiFundamentals(kode) {
 // sama dengan tanggal hari ini WIB) — fungsi ini sendiri tidak
 // memvalidasi itu supaya tetap simpel & mudah dites terpisah.
 export async function getZapiIntradayPeakToday(kode) {
-  const url =
-    `${BASE_URL}/finance:stockbit:chart?symbol=${encodeURIComponent(kode)}` +
-    `&market=indonesia&timeframe=today&interval=intraday`;
+  const c = getClient();
+  if (!c) return null;
 
-  const json = await tryFetchJson(url);
-  const items = json?.data?.items;
+  try {
+    const raw = await c.run("finance:stockbit:chart", {
+      symbol: kode,
+      market: "indonesia",
+      timeframe: "today",
+      interval: "intraday"
+    });
+    const data = raw?.data ?? raw;
 
-  if (!Array.isArray(items) || items.length === 0) return null;
+    const items = data?.items;
+    if (!Array.isArray(items) || items.length === 0) return null;
 
-  let peakItem = null;
-  for (const item of items) {
-    const price = Number(item.price);
-    if (!Number.isFinite(price)) continue;
-    if (!peakItem || price > peakItem.price) {
-      peakItem = { price, time: item.time };
+    let peakItem = null;
+    for (const item of items) {
+      const price = Number(item.price);
+      if (!Number.isFinite(price)) continue;
+      if (!peakItem || price > peakItem.price) {
+        peakItem = { price, time: item.time };
+      }
     }
+
+    if (!peakItem || !peakItem.time) return null;
+
+    // item.time format: "2026-08-03 09:43:00" (sudah WIB, lihat contoh
+    // response) -> ambil komponen HH:MM saja.
+    const match = String(peakItem.time).match(/(\d{2}):(\d{2})/);
+    if (!match) return null;
+
+    const peakTimeWIB = `${match[1]}:${match[2]}`;
+
+    return {
+      peakTimeWIB,
+      peakHigh: peakItem.price,
+      source: "ZAPI_STOCKBIT_INTRADAY"
+    };
+  } catch (e) {
+    console.error(`getZapiIntradayPeakToday(${kode}) gagal:`, e.message);
+    return null;
   }
-
-  if (!peakItem || !peakItem.time) return null;
-
-  // item.time format: "2026-08-03 09:43:00" (sudah WIB, lihat contoh
-  // response) -> ambil komponen HH:MM saja.
-  const match = String(peakItem.time).match(/(\d{2}):(\d{2})/);
-  if (!match) return null;
-
-  const peakTimeWIB = `${match[1]}:${match[2]}`;
-
-  return {
-    peakTimeWIB,
-    peakHigh: peakItem.price,
-    source: "ZAPI_STOCKBIT_INTRADAY"
-  };
 }
