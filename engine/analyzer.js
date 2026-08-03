@@ -192,6 +192,21 @@ export function analyzeStock(data) {
   // data.fundamental diisi oleh api/analyze.js sebelum memanggil
   // analyzeStock() — kalau kosong/tidak ada, analyzeFundamental()
   // menetralkan skornya ke 50 (tidak menghukum).
+  //
+  // CATATAN (3 Agustus 2026): fundamental.score TIDAK LAGI di-blend ke
+  // skor akhir (lihat riwayat di bawah) — ketahuan bahwa api/scan.js
+  // (batch) tidak pernah mengisi data.fundamental sama sekali, sementara
+  // api/analyze.js (manual satu-saham) selalu mengisi. Akibatnya skor
+  // yang sama persis bisa beda antara hasil batch scan vs analisa manual
+  // untuk saham yang sama (batch selalu dapat skor fundamental netral 50,
+  // manual dapat skor fundamental asli) — bisa menggeser sinyal/verdict
+  // (mis. BUY vs STRONG BUY) padahal teknikalnya identik. Daripada
+  // menambah fetch fundamental ke scan.js (berisiko timeout di Vercel
+  // Hobby plan untuk scan universe penuh ~240+ kode), fundamental
+  // dilepas dari skor sepenuhnya. fundamental.label & fundamental.warnings
+  // tetap dihitung & ditampilkan (di halaman analisa manual saja, karena
+  // cuma di situ data.fundamental terisi) sebagai info tambahan, TIDAK
+  // memengaruhi score/signal/verdict lagi.
 
   const fundamental = analyzeFundamental(data.fundamental || {});
 
@@ -229,11 +244,9 @@ export function analyzeStock(data) {
     relativeStrength
   });
 
-  // Blend skor teknikal (80%) dengan skor fundamental (20%).
-  // Bobot fundamental sengaja kecil — strategi beli-sore-jual-pagi
-  // tetap didominasi price action jangka pendek, fundamental cuma
-  // jadi filter kualitas tambahan, bukan penentu utama.
-  score = Math.round(score * 0.8 + fundamental.score * 0.2);
+  // Skor akhir MURNI teknikal (lihat catatan "Fundamental Analysis" di
+  // atas) — dulu di sini ada blend 80% teknikal + 20% fundamental, sudah
+  // dilepas supaya skor konsisten antara batch scan dan analisa manual.
   score = Math.max(0, Math.min(score, 100));
 
   const signal = recommendation(score);
