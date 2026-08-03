@@ -1,4 +1,6 @@
 import { getOfficialTodayData } from "./idxService.js";
+import { getZapiIntradayPeakToday } from "./zapiService.js";
+import { todayWIB } from "../config/tradingCalendar.js";
 
 export async function getStockData(kode, range = "6mo") {
 
@@ -130,6 +132,27 @@ export function findTradingDayCandleAfter(candles, scanDate) {
 // H+1/H+2 dari tanggal targetnya (mis. cron sempat gagal sehari), tapi
 // cukup kecil supaya responsnya ringan.
 export async function getIntradayPeakTime(kode, targetDateWIB, { range = "5d", interval = "15m" } = {}) {
+  // Coba zapi (data per-menit dari Stockbit) DULUAN, tapi HANYA kalau
+  // targetDateWIB adalah hari ini — endpoint intraday zapi cuma punya
+  // data hari berjalan, tidak historis (lihat catatan di zapiService.js).
+  // Ini lebih presisi dari Yahoo 15m, jadi kalau berhasil langsung
+  // dipakai tanpa lanjut ke Yahoo.
+  if (targetDateWIB === todayWIB()) {
+    try {
+      const zapiPeak = await getZapiIntradayPeakToday(kode);
+      if (zapiPeak) {
+        return {
+          peakTimeWIB: zapiPeak.peakTimeWIB,
+          peakHigh: zapiPeak.peakHigh,
+          peakSessionPhase: classifySessionPhase(zapiPeak.peakTimeWIB),
+          source: zapiPeak.source
+        };
+      }
+    } catch (e) {
+      console.error(`getZapiIntradayPeakToday(${kode}) gagal, fallback ke Yahoo:`, e.message);
+    }
+  }
+
   try {
     const symbol = `${kode}.JK`;
     const url =
@@ -188,7 +211,7 @@ export async function getIntradayPeakTime(kode, targetDateWIB, { range = "5d", i
 // Perkiraan jadwal sesi reguler bursa IDX (WIB). Kalau BEI merevisi jam
 // perdagangan, sesuaikan batas menit di bawah — dampaknya cuma ke label
 // fase, bukan ke peakTimeWIB (yang tetap akurat apa adanya dari data).
-function classifySessionPhase(hhmm) {
+export function classifySessionPhase(hhmm) {
   const [h, m] = hhmm.split(":").map(Number);
   const minutes = h * 60 + m;
 
