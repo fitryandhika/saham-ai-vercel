@@ -75,8 +75,58 @@ export async function getZapiFundamentals(kode) {
 }
 
 // ==========================
-// Intraday peak time — HARI INI SAJA (lihat catatan keterbatasan di atas)
+// IDX stock-summary (list SEMUA emiten, dipaginate) — dipakai untuk
+// membangun universe otomatis, lihat api/universe-refresh.js
 // ==========================
+
+// Satu halaman mentah dari endpoint list finance:idx:stock-summary.
+// Bentuk responsnya beda dari endpoint stockbit di atas (tidak dibungkus
+// {project, data:{...}}) — array baris langsung di properti "data", jadi
+// unwrap-nya juga dibikin defensif sendiri di sini.
+async function getIdxStockSummaryPage({ start = 0, length = 100 } = {}) {
+  const c = getClient();
+  if (!c) return { rows: [], recordsTotal: 0 };
+
+  try {
+    const raw = await c.run("finance:idx:stock-summary", { start, length });
+
+    const rows = Array.isArray(raw)
+      ? raw
+      : Array.isArray(raw?.data)
+      ? raw.data
+      : [];
+
+    const recordsTotal = Number(raw?.recordsTotal ?? rows.length);
+
+    return { rows, recordsTotal: Number.isFinite(recordsTotal) ? recordsTotal : rows.length };
+  } catch (e) {
+    console.error(`getIdxStockSummaryPage(start=${start}) gagal:`, e.message);
+    return { rows: [], recordsTotal: 0 };
+  }
+}
+
+// Loop pagination sampai semua baris (~959 emiten IDX) terkumpul.
+// Best-effort: kalau satu halaman gagal/kosong di tengah jalan, berhenti
+// dan kembalikan apa yang sudah terkumpul — TIDAK throw, supaya cron
+// universe-refresh tetap bisa jalan dengan universe parsial daripada
+// gagal total.
+export async function getAllIdxStockSummary({ pageSize = 100, maxPages = 20 } = {}) {
+  let all = [];
+  let start = 0;
+
+  for (let page = 0; page < maxPages; page++) {
+    const { rows, recordsTotal } = await getIdxStockSummaryPage({ start, length: pageSize });
+
+    if (!rows || rows.length === 0) break;
+
+    all = all.concat(rows);
+    start += pageSize;
+
+    if (all.length >= recordsTotal || rows.length < pageSize) break;
+  }
+
+  return all;
+}
 // targetDateWIB dicek oleh caller SEBELUM manggil fungsi ini (harus
 // sama dengan tanggal hari ini WIB) — fungsi ini sendiri tidak
 // memvalidasi itu supaya tetap simpel & mudah dites terpisah.
