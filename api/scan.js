@@ -25,7 +25,12 @@ import { isTradingDay, nonTradingDayReason, todayWIB } from "../config/tradingCa
 import { getLatestMacroSnapshot } from "../services/macroDataService.js";
 import { getGapCalibrationMap } from "../services/gapCalibrationService.js";
 import { applyRegimeAdjustment } from "../engine/marketRegime.js";
-import { getZapiFundamentals } from "../services/zapiService.js";
+// (getZapiFundamentals dihapus dari sini 3 Agustus 2026 — dulu dipanggil
+// per-saham tiap scan dan kena rate limit 429 zapi. market_cap sekarang
+// dibaca dari cache mingguan lewat resolveUniverse().marketCapOf(), lihat
+// di bawah. PE ratio tidak lagi tersedia di scan_history karena sumbernya
+// (getZapiFundamentals) sudah tidak dipanggil per-scan; kalau perlu lagi
+// nanti, ambil di api/analyze.js saja untuk satu saham, bukan batch.)
 
 // Butuh Vercel Pro (atau plan dengan maxDuration lebih besar) untuk scan
 // universe penuh. Di Hobby, function akan terpotong di ~10s — pakai
@@ -111,7 +116,7 @@ export default async function handler(req, res) {
     // (hasil filter likuiditas otomatis, lihat api/universe-refresh.js)
     // dulu, fallback ke daftar statis config/universe.js kalau tabel
     // masih kosong/gagal. sectorOf() sudah menggabungkan keduanya juga.
-    const { list: UNIVERSE, sectorOf, source: universeSource } = await resolveUniverse();
+    const { list: UNIVERSE, sectorOf, marketCapOf, source: universeSource } = await resolveUniverse();
 
     let kodeList = UNIVERSE;
 
@@ -154,13 +159,7 @@ export default async function handler(req, res) {
         const stockData = await getStockData(kode);
         const stockReturn = nDayReturn(stockData.closePrices, RETURN_PERIOD);
 
-        // Fundamental tambahan dari zapi (marketCap, PE ratio) — best-effort,
-        // getZapiFundamentals() sendiri tidak pernah throw, jadi tidak perlu
-        // try/catch di sini. null kalau gagal/tidak tersedia, tidak
-        // menggagalkan scan kode ini.
-        const fundamentals = await getZapiFundamentals(kode);
-
-        return { kode, stockData, stockReturn, sector: sectorOf(kode), fundamentals };
+        return { kode, stockData, stockReturn, sector: sectorOf(kode), marketCap: marketCapOf(kode) };
       },
       CONCURRENCY
     );
@@ -204,8 +203,7 @@ export default async function handler(req, res) {
 
           const hasil = analyzeStock(item.stockData);
           hasil.sector = item.sector;
-          hasil.marketCap = item.fundamentals?.marketCap ?? null;
-          hasil.peRatio = item.fundamentals?.peRatio ?? null;
+          hasil.marketCap = item.marketCap ?? null;
 
           // Layer makro — lapisan terpisah, TIDAK mengubah hasil.score
           // asli (lihat catatan di engine/marketRegime.js).
@@ -284,7 +282,7 @@ export default async function handler(req, res) {
       distribution_label: d.distribution?.label ?? null,
 
       market_cap: d.marketCap ?? null,
-      pe_ratio: d.peRatio ?? null
+      pe_ratio: null // sudah tidak difetch per-scan, lihat catatan di atas file ini
     }));
 
     // Fire-and-forget-ish: ditunggu tapi kegagalan logging TIDAK boleh
