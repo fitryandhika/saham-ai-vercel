@@ -380,3 +380,102 @@ export async function getLabeledRowsForStats({ sinceDate, kode, maxRows = 50000 
 }
 
 export default logScanSnapshots;
+
+// ==========================
+// Universe Snapshot (lihat api/universe-refresh.js)
+// ==========================
+// Sama pola PostgREST-nya dengan fungsi-fungsi di atas. Tabel
+// universe_snapshot menyimpan daftar emiten yang lolos filter likuiditas
+// otomatis (menggantikan/melengkapi config/universe.js yang manual) —
+// lihat db/migration_2026-08-03-universe-refresh.sql.
+
+// Timpa SELURUH isi tabel dengan snapshot baru (bukan upsert baris demi
+// baris) — sengaja delete-then-insert, karena universe minggu ini bisa
+// saja TIDAK lagi memuat kode yang minggu lalu masih lolos filter (mis.
+// likuiditasnya turun) — upsert biasa tidak akan menghapus baris lama
+// yang sudah tidak relevan itu.
+export async function replaceUniverseSnapshot(rows) {
+  const cfg = getConfig();
+
+  if (!cfg) {
+    console.warn(
+      "SUPABASE_URL/SUPABASE_SERVICE_KEY belum diset — universe snapshot tidak disimpan."
+    );
+    return { saved: 0, skipped: true };
+  }
+
+  if (!rows || rows.length === 0) {
+    return { saved: 0, skipped: false };
+  }
+
+  try {
+    // Hapus semua baris lama dulu. Filter "kode=neq.__none__" dipakai
+    // karena PostgREST mewajibkan minimal satu filter untuk DELETE lewat
+    // REST API (tidak boleh DELETE tanpa WHERE sama sekali) — kode ini
+    // tidak pernah ada di data asli, jadi efeknya menghapus semua baris.
+    const delRes = await fetch(
+      `${cfg.url}/rest/v1/universe_snapshot?kode=neq.__none__`,
+      {
+        method: "DELETE",
+        headers: {
+          apikey: cfg.key,
+          Authorization: `Bearer ${cfg.key}`,
+          Prefer: "return=minimal"
+        }
+      }
+    );
+
+    if (!delRes.ok) {
+      throw new Error(`Supabase delete gagal (${delRes.status}): ${await delRes.text()}`);
+    }
+
+    const insRes = await fetch(`${cfg.url}/rest/v1/universe_snapshot`, {
+      method: "POST",
+      headers: {
+        apikey: cfg.key,
+        Authorization: `Bearer ${cfg.key}`,
+        "Content-Type": "application/json",
+        Prefer: "return=minimal"
+      },
+      body: JSON.stringify(rows)
+    });
+
+    if (!insRes.ok) {
+      throw new Error(`Supabase insert gagal (${insRes.status}): ${await insRes.text()}`);
+    }
+
+    return { saved: rows.length, skipped: false };
+  } catch (e) {
+    console.error("replaceUniverseSnapshot error:", e.message);
+    return { saved: 0, skipped: false, error: e.message };
+  }
+}
+
+// Dipakai oleh api/scan.js — kalau tabel kosong atau Supabase belum
+// diset, return [] dan caller HARUS fallback ke config/universe.js
+// statis (lihat resolveUniverse() di sana).
+export async function getUniverseFromDb() {
+  const cfg = getConfig();
+  if (!cfg) return [];
+
+  try {
+    const res = await fetch(
+      `${cfg.url}/rest/v1/universe_snapshot?select=kode,sector&order=kode.asc&limit=2000`,
+      {
+        headers: {
+          apikey: cfg.key,
+          Authorization: `Bearer ${cfg.key}`
+        }
+      }
+    );
+
+    if (!res.ok) {
+      throw new Error(`Supabase select gagal (${res.status}): ${await res.text()}`);
+    }
+
+    return res.json();
+  } catch (e) {
+    console.error("getUniverseFromDb error:", e.message);
+    return [];
+  }
+}
