@@ -4,8 +4,13 @@
 //
 // Tujuan: tahu ARAH MARKET dulu (risk-on / risk-off / netral) sebelum
 // percaya sinyal BUY dari saham manapun — konsisten dengan pola blend
-// yang sudah ada di analyzer.js (skor teknikal 80% + fundamental 20%,
-// lihat engine/fundamental.js). Di sini market_regime_score dipakai
+// yang dulu ada di analyzer.js (skor teknikal 80% + fundamental 20%) —
+// blend itu sudah dilepas 3 Agustus 2026 (lihat catatan di
+// engine/analyzer.js bagian "Fundamental Analysis"), tapi pola layer
+// terpisah di bawah ini tetap dipakai dengan alasan yang sama: jangan
+// override score/scan_history yang sudah ada, tambahkan sebagai kolom
+// terpisah (scoreAdjusted) supaya bisa dievaluasi independen. Di sini
+// market_regime_score dipakai
 // sebagai LAPISAN TERPISAH di atas score gabungan itu, bukan
 // menggantikannya — supaya scan_history tetap konsisten dengan data
 // yang sudah dikumpulkan (kolom `score` lama tidak berubah arti).
