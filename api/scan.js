@@ -25,6 +25,7 @@ import { isTradingDay, nonTradingDayReason, todayWIB } from "../config/tradingCa
 import { getLatestMacroSnapshot } from "../services/macroDataService.js";
 import { getGapCalibrationMap } from "../services/gapCalibrationService.js";
 import { applyRegimeAdjustment } from "../engine/marketRegime.js";
+import { getZapiFundamentals } from "../services/zapiService.js";
 
 // Butuh Vercel Pro (atau plan dengan maxDuration lebih besar) untuk scan
 // universe penuh. Di Hobby, function akan terpotong di ~10s — pakai
@@ -146,7 +147,14 @@ export default async function handler(req, res) {
       async (kode) => {
         const stockData = await getStockData(kode);
         const stockReturn = nDayReturn(stockData.closePrices, RETURN_PERIOD);
-        return { kode, stockData, stockReturn, sector: getSector(kode) };
+
+        // Fundamental tambahan dari zapi (marketCap, PE ratio) — best-effort,
+        // getZapiFundamentals() sendiri tidak pernah throw, jadi tidak perlu
+        // try/catch di sini. null kalau gagal/tidak tersedia, tidak
+        // menggagalkan scan kode ini.
+        const fundamentals = await getZapiFundamentals(kode);
+
+        return { kode, stockData, stockReturn, sector: getSector(kode), fundamentals };
       },
       CONCURRENCY
     );
@@ -190,6 +198,8 @@ export default async function handler(req, res) {
 
           const hasil = analyzeStock(item.stockData);
           hasil.sector = item.sector;
+          hasil.marketCap = item.fundamentals?.marketCap ?? null;
+          hasil.peRatio = item.fundamentals?.peRatio ?? null;
 
           // Layer makro — lapisan terpisah, TIDAK mengubah hasil.score
           // asli (lihat catatan di engine/marketRegime.js).
@@ -265,7 +275,10 @@ export default async function handler(req, res) {
       exhaustion_score: d.exhaustion?.exhaustionScore ?? null,
       exhaustion_label: d.exhaustion?.label ?? null,
       distribution_score: d.distribution?.distributionScore ?? null,
-      distribution_label: d.distribution?.label ?? null
+      distribution_label: d.distribution?.label ?? null,
+
+      market_cap: d.marketCap ?? null,
+      pe_ratio: d.peRatio ?? null
     }));
 
     // Fire-and-forget-ish: ditunggu tapi kegagalan logging TIDAK boleh
