@@ -16,6 +16,8 @@
 // rata-rata sektornya (lihat engine/relativeStrength.js) — dihitung
 // dari data batch itu sendiri, bukan indeks sektor eksternal terpisah.
 
+import { getUniverseFromDb } from "../services/dataLogService.js";
+
 export const SECTOR_UNIVERSE = {
   "Konstruksi & Properti": [
     "WIKA","WSKT","ADHI","PTPP","WEGE","TOTL","NRCA","ACST","WTON",
@@ -125,6 +127,46 @@ export const UNIVERSE = Array.from(new Set(Object.keys(SECTOR_MAP))).sort();
 
 export function getSector(kode) {
   return SECTOR_MAP[kode] || "Lainnya";
+}
+
+// ==========================
+// Universe dinamis (3 Agustus 2026) — lihat api/universe-refresh.js
+// ==========================
+// SECTOR_UNIVERSE/SECTOR_MAP/UNIVERSE di atas sekarang berperan sebagai
+// FALLBACK saja, bukan sumber utama lagi. Sumber utama adalah tabel
+// universe_snapshot (diisi mingguan oleh cron universe-refresh, hasil
+// filter likuiditas otomatis dari seluruh ~959 emiten IDX lewat zapi —
+// lihat services/zapiService.js getAllIdxStockSummary).
+//
+// Fallback ke daftar statis dipakai kalau: SUPABASE_URL/KEY belum
+// diset, tabel masih kosong (cron belum pernah jalan), atau query-nya
+// gagal — supaya api/scan.js TIDAK PERNAH mendapat universe kosong.
+//
+// Dipakai di api/scan.js sebagai:
+//   const { list, sectorOf } = await resolveUniverse();
+// (menggantikan `import { UNIVERSE, getSector }` yang statis)
+export async function resolveUniverse() {
+  const dbRows = await getUniverseFromDb();
+
+  if (dbRows && dbRows.length > 0) {
+    const dynamicSectorMap = {};
+    for (const row of dbRows) {
+      dynamicSectorMap[row.kode] = row.sector || "Lainnya";
+    }
+
+    return {
+      list: dbRows.map((r) => r.kode).sort(),
+      sectorOf: (kode) => dynamicSectorMap[kode] || getSector(kode),
+      source: "DB"
+    };
+  }
+
+  // Fallback: daftar statis lama.
+  return {
+    list: UNIVERSE,
+    sectorOf: getSector,
+    source: "STATIC_FALLBACK"
+  };
 }
 
 export default UNIVERSE;
