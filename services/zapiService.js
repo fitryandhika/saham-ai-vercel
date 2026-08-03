@@ -75,7 +75,7 @@ async function tryFetchJson(path) {
 // ==========================
 export async function getZapiFundamentals(kode) {
   const json = await tryFetchJson(
-    `/finance:stockbit:symbol?symbol=${encodeURIComponent(kode)}`
+    `/finance:stockbit/symbol?symbol=${encodeURIComponent(kode)}`
   );
 
   const data = json?.data;
@@ -101,7 +101,7 @@ export async function getZapiFundamentals(kode) {
 // ==========================
 async function getIdxStockSummaryPage({ start = 0, length = 100 } = {}) {
   const json = await tryFetchJson(
-    `/finance:idx:stock-summary?start=${start}&length=${length}`
+    `/finance:idx/stock-summary?start=${start}&length=${length}`
   );
 
   const rows = Array.isArray(json?.data) ? json.data : [];
@@ -141,7 +141,7 @@ export async function getAllIdxStockSummary({ pageSize = 100, maxPages = 20 } = 
 // memvalidasi itu supaya tetap simpel & mudah dites terpisah.
 export async function getZapiIntradayPeakToday(kode) {
   const json = await tryFetchJson(
-    `/finance:stockbit:chart?symbol=${encodeURIComponent(kode)}` +
+    `/finance:stockbit/chart?symbol=${encodeURIComponent(kode)}` +
       `&market=indonesia&timeframe=today&interval=intraday`
   );
 
