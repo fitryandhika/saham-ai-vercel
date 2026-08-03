@@ -9,10 +9,18 @@
 //      tidak menyediakan ini sama sekali.
 //   2. Intraday peak time yang lebih presisi (per-menit) — Yahoo hanya
 //      punya interval 15m dan cuma retensi ~60 hari.
+//   3. Universe otomatis (semua ~959 emiten IDX) — lihat
+//      getAllIdxStockSummary() & api/universe-refresh.js.
 //
-// Pakai SDK resmi (zpi-sdk, lihat tab "Code examples" > zpi-sdk di
-// dashboard zapi.web.id) — bukan fetch manual — supaya auth/header
-// selalu ikut versi resmi dan tidak perlu ditebak-tebak formatnya.
+// CATATAN (3 Agustus 2026): sebelumnya pakai paket "zpi-sdk" ("Code
+// examples" > tab zpi-sdk di dashboard zapi.web.id), tapi ternyata SDK
+// itu error internal (`t.replace is not a function`, dari kode ter-
+// minify SDK-nya sendiri, bukan dari cara kita pakai) untuk SEMUA
+// dataset yang dicoba. Dibalik ke fetch REST langsung yang sudah
+// terbukti jalan lewat "Try it" di dashboard sepanjang development.
+// Header auth dikirim DUA cara sekaligus (Bearer & X-API-Key) supaya
+// tetap jalan berapapun format yang dipakai servernya — header yang
+// tidak dikenali biasanya diabaikan begitu saja oleh server.
 //
 // KETERBATASAN PENTING: endpoint intraday zapi (finance:stockbit:chart,
 // timeframe=today) HANYA punya data HARI INI, tidak historis. Jadi cuma
@@ -25,84 +33,81 @@
 // Semua fungsi di sini best-effort: gagal fetch/parse -> return null,
 // TIDAK PERNAH throw, supaya tidak pernah menggagalkan scan/labeling.
 
-import { ZpiClient } from "zpi-sdk";
+const BASE_URL = "https://api.zpi.web.id/v1";
 
-let client = null;
-
-function getClient() {
-  if (client) return client;
-
+function buildHeaders() {
   const apiKey = process.env.ZAPI_API_KEY;
-  if (!apiKey) {
-    console.warn("ZAPI_API_KEY belum diset — fitur zapi (fundamental/intraday) nonaktif.");
+  const headers = { Accept: "application/json" };
+
+  if (apiKey) {
+    headers["Authorization"] = `Bearer ${apiKey}`;
+    headers["X-API-Key"] = apiKey;
+  }
+
+  return { headers, hasKey: Boolean(apiKey) };
+}
+
+async function tryFetchJson(path) {
+  const { headers, hasKey } = buildHeaders();
+
+  if (!hasKey) {
+    console.warn("ZAPI_API_KEY belum diset — fitur zapi (fundamental/intraday/universe) nonaktif.");
     return null;
   }
 
-  client = new ZpiClient({ apiKey });
-  return client;
+  try {
+    const res = await fetch(`${BASE_URL}${path}`, { headers });
+
+    if (!res.ok) {
+      console.error(`zapiService fetch gagal (${res.status}): ${path}`);
+      return null;
+    }
+
+    return await res.json();
+  } catch (e) {
+    console.error(`zapiService fetch error: ${path}`, e.message);
+    return null;
+  }
 }
 
 // ==========================
 // Fundamental snapshot (marketCap, PE ratio, sector versi Stockbit)
 // ==========================
 export async function getZapiFundamentals(kode) {
-  const c = getClient();
-  if (!c) return null;
+  const json = await tryFetchJson(
+    `/finance:stockbit:symbol?symbol=${encodeURIComponent(kode)}`
+  );
 
-  try {
-    const raw = await c.run("finance:stockbit:symbol", { symbol: kode });
-    // Defensif: SDK bisa saja return langsung isi data, atau masih
-    // bungkus { project, data, timestamp } seperti response REST biasa.
-    const data = raw?.data ?? raw;
-    if (!data) return null;
+  const data = json?.data;
+  if (!data) return null;
 
-    const marketCap = Number(data.marketCap);
-    const peRatio = Number(data.peRatio);
+  const marketCap = Number(data.marketCap);
+  const peRatio = Number(data.peRatio);
 
-    return {
-      marketCap: Number.isFinite(marketCap) ? marketCap : null,
-      peRatio: Number.isFinite(peRatio) ? peRatio : null,
-      sector: data.sector ?? null,
-      subSector: data.subSector ?? null,
-      marketStatus: data.marketStatus ?? null,
-      bestBid: data.bestBid ?? null,
-      bestOffer: data.bestOffer ?? null
-    };
-  } catch (e) {
-    console.error(`getZapiFundamentals(${kode}) gagal:`, e.message);
-    return null;
-  }
+  return {
+    marketCap: Number.isFinite(marketCap) ? marketCap : null,
+    peRatio: Number.isFinite(peRatio) ? peRatio : null,
+    sector: data.sector ?? null,
+    subSector: data.subSector ?? null,
+    marketStatus: data.marketStatus ?? null,
+    bestBid: data.bestBid ?? null,
+    bestOffer: data.bestOffer ?? null
+  };
 }
 
 // ==========================
 // IDX stock-summary (list SEMUA emiten, dipaginate) — dipakai untuk
 // membangun universe otomatis, lihat api/universe-refresh.js
 // ==========================
-
-// Satu halaman mentah dari endpoint list finance:idx:stock-summary.
-// Bentuk responsnya beda dari endpoint stockbit di atas (tidak dibungkus
-// {project, data:{...}}) — array baris langsung di properti "data", jadi
-// unwrap-nya juga dibikin defensif sendiri di sini.
 async function getIdxStockSummaryPage({ start = 0, length = 100 } = {}) {
-  const c = getClient();
-  if (!c) return { rows: [], recordsTotal: 0 };
+  const json = await tryFetchJson(
+    `/finance:idx:stock-summary?start=${start}&length=${length}`
+  );
 
-  try {
-    const raw = await c.run("finance:idx:stock-summary", { start, length });
+  const rows = Array.isArray(json?.data) ? json.data : [];
+  const recordsTotal = Number(json?.recordsTotal ?? rows.length);
 
-    const rows = Array.isArray(raw)
-      ? raw
-      : Array.isArray(raw?.data)
-      ? raw.data
-      : [];
-
-    const recordsTotal = Number(raw?.recordsTotal ?? rows.length);
-
-    return { rows, recordsTotal: Number.isFinite(recordsTotal) ? recordsTotal : rows.length };
-  } catch (e) {
-    console.error(`getIdxStockSummaryPage(start=${start}) gagal:`, e.message);
-    return { rows: [], recordsTotal: 0 };
-  }
+  return { rows, recordsTotal: Number.isFinite(recordsTotal) ? recordsTotal : rows.length };
 }
 
 // Loop pagination sampai semua baris (~959 emiten IDX) terkumpul.
@@ -127,50 +132,43 @@ export async function getAllIdxStockSummary({ pageSize = 100, maxPages = 20 } = 
 
   return all;
 }
+
+// ==========================
+// Intraday peak time — HARI INI SAJA (lihat catatan keterbatasan di atas)
+// ==========================
 // targetDateWIB dicek oleh caller SEBELUM manggil fungsi ini (harus
 // sama dengan tanggal hari ini WIB) — fungsi ini sendiri tidak
 // memvalidasi itu supaya tetap simpel & mudah dites terpisah.
 export async function getZapiIntradayPeakToday(kode) {
-  const c = getClient();
-  if (!c) return null;
+  const json = await tryFetchJson(
+    `/finance:stockbit:chart?symbol=${encodeURIComponent(kode)}` +
+      `&market=indonesia&timeframe=today&interval=intraday`
+  );
 
-  try {
-    const raw = await c.run("finance:stockbit:chart", {
-      symbol: kode,
-      market: "indonesia",
-      timeframe: "today",
-      interval: "intraday"
-    });
-    const data = raw?.data ?? raw;
+  const items = json?.data?.items;
+  if (!Array.isArray(items) || items.length === 0) return null;
 
-    const items = data?.items;
-    if (!Array.isArray(items) || items.length === 0) return null;
-
-    let peakItem = null;
-    for (const item of items) {
-      const price = Number(item.price);
-      if (!Number.isFinite(price)) continue;
-      if (!peakItem || price > peakItem.price) {
-        peakItem = { price, time: item.time };
-      }
+  let peakItem = null;
+  for (const item of items) {
+    const price = Number(item.price);
+    if (!Number.isFinite(price)) continue;
+    if (!peakItem || price > peakItem.price) {
+      peakItem = { price, time: item.time };
     }
-
-    if (!peakItem || !peakItem.time) return null;
-
-    // item.time format: "2026-08-03 09:43:00" (sudah WIB, lihat contoh
-    // response) -> ambil komponen HH:MM saja.
-    const match = String(peakItem.time).match(/(\d{2}):(\d{2})/);
-    if (!match) return null;
-
-    const peakTimeWIB = `${match[1]}:${match[2]}`;
-
-    return {
-      peakTimeWIB,
-      peakHigh: peakItem.price,
-      source: "ZAPI_STOCKBIT_INTRADAY"
-    };
-  } catch (e) {
-    console.error(`getZapiIntradayPeakToday(${kode}) gagal:`, e.message);
-    return null;
   }
+
+  if (!peakItem || !peakItem.time) return null;
+
+  // item.time format: "2026-08-03 09:43:00" (sudah WIB, lihat contoh
+  // response) -> ambil komponen HH:MM saja.
+  const match = String(peakItem.time).match(/(\d{2}):(\d{2})/);
+  if (!match) return null;
+
+  const peakTimeWIB = `${match[1]}:${match[2]}`;
+
+  return {
+    peakTimeWIB,
+    peakHigh: peakItem.price,
+    source: "ZAPI_STOCKBIT_INTRADAY"
+  };
 }
