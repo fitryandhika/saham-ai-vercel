@@ -460,7 +460,7 @@ export async function getUniverseFromDb() {
 
   try {
     const res = await fetch(
-      `${cfg.url}/rest/v1/universe_snapshot?select=kode,sector&order=kode.asc&limit=2000`,
+      `${cfg.url}/rest/v1/universe_snapshot?select=kode,sector,market_cap&order=kode.asc&limit=2000`,
       {
         headers: {
           apikey: cfg.key,
