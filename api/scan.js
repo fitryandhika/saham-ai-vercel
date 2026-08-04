@@ -19,7 +19,7 @@ import { analyzeStock } from "../engine/analyzer.js";
 import { getStockData } from "../services/stockService.js";
 import { getIhsgCloses } from "../services/marketService.js";
 import { nDayReturn } from "../engine/relativeStrength.js";
-import { resolveUniverse } from "../config/universe.js";
+import { resolveUniverse, UNIVERSE as STATIC_UNIVERSE } from "../config/universe.js";
 import { logScanSnapshots } from "../services/dataLogService.js";
 import { isTradingDay, nonTradingDayReason, todayWIB } from "../config/tradingCalendar.js";
 import { getLatestMacroSnapshot } from "../services/macroDataService.js";
@@ -117,6 +117,19 @@ export default async function handler(req, res) {
     // dulu, fallback ke daftar statis config/universe.js kalau tabel
     // masih kosong/gagal. sectorOf() sudah menggabungkan keduanya juga.
     const { list: UNIVERSE, sectorOf, marketCapOf, source: universeSource } = await resolveUniverse();
+
+    // Visibilitas saham yang gugur di tahap universe dinamis (3 Agustus
+    // 2026), sebelum sempat di-scan/dicek skornya sama sekali — beda
+    // dengan saham yang di-scan tapi dibuang di tahap filter minScore/
+    // maxPrice/illiquid di bawah. Kasus PSDN (skor 100 tapi tidak pernah
+    // muncul di batch) adalah contoh nyata: dia gugur DI SINI, bukan di
+    // filter skor. Cuma dibandingkan ke daftar statis lama (bukan ~959
+    // emiten IDX penuh) sebagai proxy "saham yang pernah dikenal sistem
+    // ini tapi sekarang hilang dari radar mingguan" — bukan hitungan
+    // lengkap semua saham IDX yang gugur likuiditas.
+    const dynamicSet = new Set(UNIVERSE);
+    const excludedFromUniverseCodes =
+      universeSource === "DB" ? STATIC_UNIVERSE.filter((k) => !dynamicSet.has(k)) : [];
 
     let kodeList = UNIVERSE;
 
@@ -379,6 +392,8 @@ export default async function handler(req, res) {
       breakoutCount: analyzed.filter((d) => d.breakout && d.breakout.isBreakout).length,
       readyNowCount: analyzed.filter((d) => d.entry === "NOW").length,
       illiquidCount, // dibuang dari `data` tapi tetap dicatat di scan_history untuk training
+      excludedFromUniverse: excludedFromUniverseCodes.length,
+      excludedFromUniverseCodes, // kode yang gugur di filter likuiditas mingguan sebelum sempat di-scan sama sekali
       highConvictionRequested: highConviction === "true",
       highConvictionApplied: HIGH_CONVICTION_ENABLED && highConviction === "true",
       marketRegime,
