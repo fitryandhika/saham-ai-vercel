@@ -102,11 +102,14 @@ export async function getZapiFundamentals(kode) {
 // ==========================
 async function getListedCompaniesPage({ start = 0, length = 100 } = {}) {
   const json = await tryFetchJson(
-    `/finance:idx:companies/listed-companies?start=${start}&length=${length}`
+    `/finance:idx/companies?length=${length}&start=${start}`
   );
 
-  const rows = Array.isArray(json?.data) ? json.data : [];
-  const recordsTotal = Number(json?.recordsTotal ?? rows.length);
+  // Response nested dua level (dikonfirmasi lewat "Try it" di dashboard
+  // zapi.web.id 4 Agustus 2026): { data: { recordsTotal, data: [...] } },
+  // BUKAN { data: [...] } langsung seperti asumsi kode lama.
+  const rows = Array.isArray(json?.data?.data) ? json.data.data : [];
+  const recordsTotal = Number(json?.data?.recordsTotal ?? rows.length);
 
   return { rows, recordsTotal: Number.isFinite(recordsTotal) ? recordsTotal : rows.length };
 }
@@ -146,11 +149,16 @@ export async function getIdxSectorMap({ pageSize = 100, maxPages = 20 } = {}) {
 // ==========================
 async function getIdxStockSummaryPage({ start = 0, length = 100 } = {}) {
   const json = await tryFetchJson(
-    `/finance:idx/stock-summary?start=${start}&length=${length}`
+    `/finance:idx/stock-summary?length=${length}&start=${start}`
   );
 
-  const rows = Array.isArray(json?.data) ? json.data : [];
-  const recordsTotal = Number(json?.recordsTotal ?? rows.length);
+  // Sama seperti /finance:idx/companies (lihat getListedCompaniesPage) —
+  // response nested dua level: { data: { recordsTotal, data: [...] } }.
+  // Field per-baris (StockCode/Close/Value/ListedShares) BELUM
+  // dikonfirmasi lewat "Try it" — kalau nama field aslinya beda,
+  // universe-refresh.js perlu disesuaikan juga (lihat validRows di sana).
+  const rows = Array.isArray(json?.data?.data) ? json.data.data : [];
+  const recordsTotal = Number(json?.data?.recordsTotal ?? rows.length);
 
   return { rows, recordsTotal: Number.isFinite(recordsTotal) ? recordsTotal : rows.length };
 }
