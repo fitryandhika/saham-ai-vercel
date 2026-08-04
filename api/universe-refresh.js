@@ -40,7 +40,18 @@ export const config = {
   maxDuration: 60
 };
 
-const MIN_DAILY_VALUE = 1_000_000_000; // Rp1 miliar — lihat catatan di atas
+// Ambang nilai transaksi harian di-tier berdasar harga (4 Agustus 2026).
+// Latar belakang: saham murah (<Rp300) seperti PSDN wajar punya nilai
+// transaksi RUPIAH lebih kecil dibanding saham mahal walau volume LEMBAR
+// sahamnya sehat — 1 miliar lembar saham Rp150 cuma Rp150 miliar, sedangkan
+// 1 juta lembar saham Rp15.000 sudah Rp15 miliar. Pakai ambang tunggal
+// Rp1 miliar buat semua harga secara sistematis membuang saham-saham murah
+// dari universe walau sinyalnya kuat (lihat kasus PSDN skor 100 yang hilang
+// dari batch scan padahal lolos analisa manual). Saham < Rp300 sekarang
+// pakai ambang lebih rendah, bukan disamakan dengan saham mahal.
+const MIN_DAILY_VALUE_DEFAULT = 1_000_000_000; // Rp1 miliar — saham >= Rp300
+const MIN_DAILY_VALUE_CHEAP = 300_000_000; // Rp300 juta — saham < Rp300
+const CHEAP_PRICE_THRESHOLD = 300;
 const MIN_PRICE = 51; // exclude gocap ekstrem
 
 export default async function handler(req, res) {
@@ -67,10 +78,15 @@ export default async function handler(req, res) {
       const close = Number(row.Close);
       const kode = row.StockCode;
 
+      const minValueForThisStock =
+        Number.isFinite(close) && close < CHEAP_PRICE_THRESHOLD
+          ? MIN_DAILY_VALUE_CHEAP
+          : MIN_DAILY_VALUE_DEFAULT;
+
       if (
         !kode ||
         !Number.isFinite(value) ||
-        value < MIN_DAILY_VALUE ||
+        value < minValueForThisStock ||
         !Number.isFinite(close) ||
         close <= MIN_PRICE
       ) {
@@ -110,7 +126,9 @@ export default async function handler(req, res) {
       sectorMapSize: sectorMap.size,
       survivorsAfterLiquidityFilter: validRows.length,
       saved,
-      minDailyValue: MIN_DAILY_VALUE,
+      minDailyValueDefault: MIN_DAILY_VALUE_DEFAULT,
+      minDailyValueCheap: MIN_DAILY_VALUE_CHEAP,
+      cheapPriceThreshold: CHEAP_PRICE_THRESHOLD,
       minPrice: MIN_PRICE,
       error: error || null
     });
