@@ -150,21 +150,27 @@ export async function resolveUniverse() {
 
   if (dbRows && dbRows.length > 0) {
     const dynamicSectorMap = {};
+    const dynamicMarketCapMap = {};
     for (const row of dbRows) {
       dynamicSectorMap[row.kode] = row.sector || "Lainnya";
+      dynamicMarketCapMap[row.kode] = row.market_cap ?? null;
     }
 
     return {
       list: dbRows.map((r) => r.kode).sort(),
       sectorOf: (kode) => dynamicSectorMap[kode] || getSector(kode),
+      marketCapOf: (kode) => dynamicMarketCapMap[kode] ?? null,
       source: "DB"
     };
   }
 
-  // Fallback: daftar statis lama.
+  // Fallback: daftar statis lama — belum ada data market cap per kode,
+  // jadi marketCapOf selalu null di jalur ini (bukan bug, memang belum
+  // ada sumbernya di sini).
   return {
     list: UNIVERSE,
     sectorOf: getSector,
+    marketCapOf: () => null,
     source: "STATIC_FALLBACK"
   };
 }
