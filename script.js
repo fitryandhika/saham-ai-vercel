@@ -446,6 +446,7 @@ document.getElementById("btnAnalisaSemua").addEventListener("click", analisaSemu
 // relative strength vs IHSG/sektor sudah terhitung di tiap hasil.
 
 const HARGA_MURAH_MAX = 300;
+const SKOR_MIN = 65; // harus sinkron dengan label tombol "skor ≥65" di HTML
 
 async function fetchScan(params = {}) {
   const qs = new URLSearchParams(params).toString();
@@ -464,10 +465,13 @@ function renderScanSummary(json, label) {
   const gagal = json.failed
     ? ` (${json.failed} kode gagal diambil datanya)`
     : "";
+  const universeNote = json.excludedFromUniverse
+    ? ` ${json.excludedFromUniverse} kode lain di watchlist manual tidak ikut di-scan sama sekali (gugur di filter likuiditas mingguan sebelum sempat dicek skornya).`
+    : "";
 
   return `<div class="loading">
     ${label}: ${json.data.length} dari ${json.scanned} saham lolos filter.
-    ${json.breakoutCount} kode breakout terdeteksi.${gagal}
+    ${json.breakoutCount} kode breakout terdeteksi.${gagal}${universeNote}
   </div>`;
 }
 
@@ -484,13 +488,17 @@ async function batchScanSemua() {
     // jauh lebih ketat daripada cuma cek skor mentah.
     const json = await fetchScan({
       maxPrice: HARGA_MURAH_MAX,
+      minScore: SKOR_MIN,
       highConviction: "true"
     });
 
     btn.disabled = false;
 
     if (!json.data.length) {
-      hasilEl.innerHTML = `<div class="loading">Tidak ada saham murah (&lt;${HARGA_MURAH_MAX}) dengan sinyal kuat & konsisten saat ini. Coba lagi nanti — filter ini memang ketat.</div>`;
+      const universeNote = json.excludedFromUniverse
+        ? ` (${json.excludedFromUniverse} kode lain sempat dicek tapi sudah gugur di tahap universe/likuiditas mingguan sebelum sampai ke filter skor — lihat log kalau mau tahu kode apa saja.)`
+        : "";
+      hasilEl.innerHTML = `<div class="loading">Tidak ada saham murah (&lt;${HARGA_MURAH_MAX}) dengan skor ≥${SKOR_MIN} & sinyal konsisten saat ini. Coba lagi nanti — filter ini memang ketat.${universeNote}</div>`;
       return;
     }
 
