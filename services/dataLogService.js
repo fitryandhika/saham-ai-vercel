@@ -308,6 +308,41 @@ export async function getRowsMissingHighLow({ limit = 5000 } = {}) {
   return res.json();
 }
 
+// Ambil baris yang belum punya session_gain_score — baris lama dari
+// sebelum engine/sessionGainScore.js dirilis (~22 Juli 2026). Beda
+// dengan getRowsMissingHighLow: tidak perlu fetch candle Yahoo Finance
+// sama sekali, karena semua input calculateSessionGainScore() (signal,
+// score, volume_accelerating, volume_signal, volume_ratio, gap_outlook,
+// rs_label) SUDAH tersimpan di baris itu sendiri — backfill-nya murni
+// hitung ulang dari kolom yang sudah ada, jadi jauh lebih cepat & tidak
+// butuh rate-limit ketat. Dipakai oleh api/relabel-session-gain.js.
+export async function getRowsMissingSessionGain({ limit = 5000 } = {}) {
+  const cfg = getConfig();
+  if (!cfg) return [];
+
+  const params = new URLSearchParams();
+  params.set(
+    "select",
+    "id,signal,score,volume_accelerating,volume_signal,volume_ratio,gap_outlook,rs_label,illiquid"
+  );
+  params.set("session_gain_score", "is.null");
+  params.set("order", "scan_date.asc");
+  params.set("limit", String(limit));
+
+  const res = await fetch(`${cfg.url}/rest/v1/scan_history?${params.toString()}`, {
+    headers: {
+      apikey: cfg.key,
+      Authorization: `Bearer ${cfg.key}`
+    }
+  });
+
+  if (!res.ok) {
+    throw new Error(`Supabase select gagal (${res.status}): ${await res.text()}`);
+  }
+
+  return res.json();
+}
+
 // Baris untuk ringkasan statistik, kolom diminimalkan (bukan select *)
 // supaya payload tetap ringan walau datasetnya sudah ribuan baris —
 // dipakai untuk menghitung ringkasan statistik di computeSummary().
@@ -333,7 +368,7 @@ export async function getLabeledRowsForStats({ sinceDate, kode, maxRows = 50000 
   const cols = [
     "kode", "sector", "scan_date", "score", "signal", "rsi",
     "breakout_level", "closing_strength", "volume_signal",
-    "gap_outlook", "next_day_return_pct", "gap_up_realized"
+    "gap_outlook", "next_day_return_pct", "gap_up_realized", "rs_label"
   ].join(",");
 
   const PAGE_SIZE = 1000; // samakan dengan max-rows Supabase supaya tiap halaman penuh
