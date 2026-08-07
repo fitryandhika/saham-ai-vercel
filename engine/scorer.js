@@ -103,6 +103,37 @@ export function calculateScore(data) {
     score += 6;
   }
 
+  // Capitulation Bounce bonus — ditambahkan 7 Agustus 2026, dari analisis
+  // export scan_history 15 Jul-6 Agt 2026 (5.692 baris): 164 saham naik
+  // >=5% dari open besoknya, 103 di antaranya (63%) berstatus HOLD/SELL
+  // H-1 — bukan BUY/STRONG BUY. Dari 103 itu, 41 (40%) punya pola yang
+  // SAMA seperti isReversalCandidate di atas (RSI netral, MACD negatif,
+  // underperform pasar, closing strength tidak jelek) TAPI GAGAL kena
+  // bonus reversal karena syarat "close > sma50" di isReversalCandidate
+  // ternyata salah arah untuk kelompok ini — 35/41 (85%) justru close-nya
+  // di BAWAH sma50, bukan di atas. Ini bukan saham yang "masih bertahan
+  // di tren", tapi saham yang sudah jatuh lebih dalam dan baru mantul
+  // (capitulation bounce), dengan volatilitas (ATR%) yang malah lebih
+  // tinggi dari rata-rata (5.46% vs 3.68%) — jadi memang lebih berisiko,
+  // bukan sinyal "coiling tenang".
+  //
+  // Divalidasi balik ke seluruh dataset (bukan cuma 103 kejadian yang
+  // memunculkan pola ini): rule ini menyala 428 kali dari 5.692 baris,
+  // dengan rata-rata max_gain_from_open_pct 2.45% vs baseline 1.76% di
+  // seluruh data — angkanya modest, BUKAN sinyal kuat, makanya bonusnya
+  // dibuat SETARA ATAU LEBIH KECIL dari reversal biasa (+5, bukan +6),
+  // dan mutually exclusive dengan isReversalCandidate lewat syarat
+  // close vs sma50 yang berkebalikan (tidak pernah menyala bersamaan).
+  //
+  // CATATAN JUJUR: sampel dasar cuma ~3 minggu data. Flag-nya
+  // (isCapitulationBounceCandidate) dicatat terpisah ke scan_history
+  // lewat analyzer.js/api/scan.js supaya bisa dievaluasi sendiri dari
+  // next_day_return_pct & max_gain_from_open_pct sesungguhnya seiring
+  // data bertambah — jangan diperbesar bobotnya sebelum tervalidasi.
+  if (isCapitulationBounceCandidate(data)) {
+    score += 5;
+  }
+
   // Exhaustion & Distribution — ditambahkan 31 Juli 2026, respons
   // langsung ke temuan STRONG BUY win rate (35.1%) lebih rendah dari
   // HOLD/SELL (~37-38%) di data akhir Juli. Lihat catatan lengkap di
@@ -136,6 +167,21 @@ export function isReversalCandidate(data) {
     typeof data.rsi === "number" && data.rsi < 60 &&
     data.macd && data.macd.macd < 0 &&
     typeof data.close === "number" && typeof data.sma50 === "number" && data.close > data.sma50 &&
+    typeof data.closingStrength === "number" && data.closingStrength >= 0.3
+  );
+}
+
+// Sama filosofinya dengan isReversalCandidate: dipisah jadi fungsi sendiri
+// supaya analyzer.js bisa attach flag-nya ke hasil
+// (d.capitulationBounceCandidate) untuk dicatat & dievaluasi terpisah dari
+// skor akhir. Lihat catatan lengkap di calculateScore() di atas.
+export function isCapitulationBounceCandidate(data) {
+  return Boolean(
+    data.relativeStrength &&
+    (data.relativeStrength.label === "UNDERPERFORM" || data.relativeStrength.label === "JAUH UNDERPERFORM") &&
+    typeof data.rsi === "number" && data.rsi >= 40 && data.rsi <= 55 &&
+    data.macd && data.macd.macd < 0 &&
+    typeof data.close === "number" && typeof data.sma50 === "number" && data.close < data.sma50 &&
     typeof data.closingStrength === "number" && data.closingStrength >= 0.3
   );
 }
