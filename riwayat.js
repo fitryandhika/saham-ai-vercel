@@ -311,6 +311,13 @@ function regimeBadge(regime) {
   return `<span class="regime-pill unknown">–</span>`;
 }
 
+function patternBadges(row) {
+  const badges = [];
+  if (row.reversal_candidate) badges.push(`<span class="pattern-pill reversal">🔄 Reversal</span>`);
+  if (row.capitulation_bounce_candidate) badges.push(`<span class="pattern-pill reversal">⚡ Capitulation</span>`);
+  return badges.length ? badges.join(" ") : "–";
+}
+
 function renderHistoryTable(rows) {
   const el = document.getElementById("historyTableWrap");
 
@@ -330,6 +337,7 @@ function renderHistoryTable(rows) {
         <td>${r.actual_next_open ?? "–"}</td>
         <td class="${retClass(r.next_day_return_pct)}">${fmtPct(r.next_day_return_pct)}</td>
         <td>${regimeBadge(r.market_regime)}</td>
+        <td>${patternBadges(r)}</td>
         <td>${statusPill(r)}</td>
       </tr>
     `)
@@ -341,7 +349,7 @@ function renderHistoryTable(rows) {
         <thead>
           <tr>
             <th>Tanggal</th><th>Kode</th><th>Signal</th><th>Score</th>
-            <th>Close</th><th>Next Open</th><th>Return</th><th>Regime</th><th>Hasil</th>
+            <th>Close</th><th>Next Open</th><th>Return</th><th>Regime</th><th>Pola</th><th>Hasil</th>
           </tr>
         </thead>
         <tbody>${body}</tbody>
@@ -415,8 +423,10 @@ async function loadSummary() {
 
 async function loadTable() {
   const kode = document.getElementById("kodeFilter").value.trim();
+  const pattern = document.getElementById("patternFilter")?.value || "";
   const params = new URLSearchParams({ view: "table", limit: "100" });
   if (kode) params.set("kode", kode);
+  if (pattern) params.set("pattern", pattern);
 
   const el = document.getElementById("historyTableWrap");
   el.innerHTML = `<div class="empty-state">Memuat…</div>`;
@@ -442,6 +452,7 @@ function exportCsv() {
   window.location.href = `/api/history?${params.toString()}`;
 }
 
+document.getElementById("patternFilter")?.addEventListener("change", loadTable);
 document.getElementById("btnRefresh").addEventListener("click", loadSummary);
 document.getElementById("btnLoadTable").addEventListener("click", loadTable);
 document.getElementById("btnExportCsv").addEventListener("click", exportCsv);
