@@ -46,7 +46,7 @@ const CSV_COLUMNS = [
 
 export default async function handler(req, res) {
   try {
-    const { view = "summary", date, kode, onlyLabeled, limit, offset, sinceDate, format } = req.query;
+    const { view = "summary", date, kode, onlyLabeled, pattern, limit, offset, sinceDate, format } = req.query;
 
     if (view === "table") {
       const isCsv = format === "csv";
@@ -66,6 +66,7 @@ export default async function handler(req, res) {
             scanDate: date,
             kode,
             onlyLabeled: onlyLabeled === "true",
+            pattern, // "reversal" | "capitulation" — lihat riwayat.js filter "Pola"
             limit: limit ? parseInt(limit, 10) : 200,
             offset: offset ? parseInt(offset, 10) : 0
           });
