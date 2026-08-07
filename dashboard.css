@@ -152,31 +152,49 @@
 .emiten-list{
   display:flex;
   flex-direction:column;
-  gap:6px;
+  gap:10px;
   margin-top:10px;
 }
 
-.emiten-row{
-  display:grid;
-  grid-template-columns:24px 1.3fr .8fr .8fr .9fr;
-  align-items:center;
-  gap:8px;
-  padding:9px 10px;
+.emiten-card{
   background:var(--surface-2);
   border-radius:10px;
+  padding:10px 12px;
+  border:1px solid var(--border-soft);
+}
+
+.emiten-card-head{
+  display:grid;
+  grid-template-columns:20px 1.3fr .8fr .6fr .9fr;
+  align-items:center;
+  gap:8px;
   font-family:var(--font-mono);
   font-size:12px;
 }
 
-.emiten-row.head{
-  background:transparent;
-  color:var(--muted);
-  font-family:var(--font-body);
-  font-size:10px;
-  text-transform:uppercase;
-  letter-spacing:.03em;
-  padding:0 10px;
+.emiten-close,.emiten-score{color:var(--text);}
+
+.emiten-badges{
+  margin-top:8px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:4px;
 }
+
+.emiten-reason{
+  margin-top:8px;
+  padding-top:8px;
+  border-top:1px solid var(--border-soft);
+  font-size:12px;
+  line-height:1.5;
+  color:var(--text);
+}
+
+.reason-line{margin-bottom:4px;}
+.reason-line:last-child{margin-bottom:0;}
+.reason-icon{margin-right:5px;}
+
+.emiten-reason-weak{color:var(--muted);font-style:italic;}
 
 .emiten-rank{
   color:var(--amber);
@@ -186,6 +204,17 @@
 
 .emiten-kode{font-weight:700;color:var(--text);}
 .emiten-kode small{display:block;color:var(--muted);font-weight:400;font-size:10px;}
+
+.pattern-pill{
+  font-size:10px;
+  font-weight:700;
+  padding:2px 8px;
+  border-radius:999px;
+  display:inline-block;
+  white-space:nowrap;
+  background:var(--amber-dim);
+  color:var(--amber);
+}
 
 .signal-pill{
   font-size:10px;
