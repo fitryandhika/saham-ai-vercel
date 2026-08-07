@@ -288,6 +288,7 @@ export default async function handler(req, res) {
       market_regime_score: d.marketRegimeScore ?? null,
       score_adjusted: d.scoreAdjusted ?? null,
       reversal_candidate: d.reversalCandidate ?? false,
+      capitulation_bounce_candidate: d.capitulationBounceCandidate ?? false,
 
       exhaustion_score: d.exhaustion?.exhaustionScore ?? null,
       exhaustion_label: d.exhaustion?.label ?? null,
