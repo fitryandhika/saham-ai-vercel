@@ -312,6 +312,88 @@ function signalPillClass(signal) {
   return "hold";
 }
 
+// Bangun daftar alasan POSITIF kenapa emiten ini layak dilihat sekarang,
+// diurutkan dari sinyal yang paling kuat dasarnya. Dua alasan teratas
+// (capitulationBounceCandidate & reversalCandidate) sengaja menyebutkan
+// angka validasi historisnya secara eksplisit — supaya jelas alasannya
+// BUKAN cuma skor AI biasa, tapi memang pola yang sama dengan yang
+// ditemukan dari analisis 5.692 baris scan_history (7 Agustus 2026).
+// Lihat catatan lengkap di engine/scorer.js & engine/gapCalibration.js.
+function buildReasons(d) {
+  const reasons = [];
+
+  if (d.capitulationBounceCandidate) {
+    reasons.push({
+      icon: "⚡",
+      text: "Pola Capitulation Bounce: RSI netral (40–55), MACD masih negatif, saham lagi underperform pasar — tapi closing strength masih kuat. Pola PERSIS SAMA ditemukan pada 41 dari 103 saham yang historisnya naik >5% besoknya walau H-1 masih HOLD/SELL. Divalidasi balik ke seluruh histori: rata-rata gain intraday 2,45% vs baseline 1,76%."
+    });
+  }
+
+  if (d.reversalCandidate) {
+    reasons.push({
+      icon: "🔄",
+      text: "Pola Reversal Candidate: RSI netral, MACD negatif, tapi harga masih di atas SMA50 dan closing strength menunjukkan pembeli mulai masuk — indikasi tren turun mulai kehabisan tenaga."
+    });
+  }
+
+  if (d.breakout?.isBreakout) {
+    const pct = typeof d.breakout.distancePercent === "number" ? ` (+${d.breakout.distancePercent.toFixed(1)}% dari level breakout)` : "";
+    reasons.push({ icon: "🚀", text: `${d.breakout.level === "STRONG_BREAKOUT" ? "Strong breakout" : "Breakout"} dari resistance${pct}.` });
+  }
+
+  if (d.relativeStrength && (d.relativeStrength.label === "OUTPERFORM" || d.relativeStrength.label === "JAUH OUTPERFORM")) {
+    reasons.push({ icon: "📈", text: `${d.relativeStrength.label === "JAUH OUTPERFORM" ? "Jauh outperform" : "Outperform"} IHSG — lebih kuat dari pasar secara umum.` });
+  }
+
+  if (d.volumeAcceleration?.accelerating) {
+    reasons.push({ icon: "📊", text: "Volume beli makin deras dibanding hari-hari sebelumnya (akselerasi volume positif)." });
+  }
+
+  if (typeof d.gap?.probability !== "undefined" && d.gap?.calibrationApplied && parseFloat(String(d.gap.probability)) >= 60) {
+    reasons.push({ icon: "🌅", text: `Probabilitas gap up besok pagi ${d.gap.probability}, berdasarkan ${d.gap.bucketSampleCount ?? "banyak"} kejadian historis serupa.` });
+  }
+
+  if (typeof d.riskReward === "number" && d.riskReward >= 2) {
+    reasons.push({ icon: "⚖️", text: `Risk/reward menarik (1:${d.riskReward.toFixed(1)}).` });
+  }
+
+  return reasons;
+}
+
+function renderEmitenCard(d, i) {
+  const reasons = buildReasons(d);
+  const hasStrongSignal = reasons.length > 0;
+
+  const badges = `
+    ${d.capitulationBounceCandidate ? `<span class="pattern-pill">⚡ Capitulation Bounce</span>` : ""}
+    ${d.reversalCandidate ? `<span class="pattern-pill">🔄 Reversal Candidate</span>` : ""}
+    ${d.breakout?.isBreakout ? `<span class="pattern-pill">🚀 Breakout</span>` : ""}
+    ${d.relativeStrength && (d.relativeStrength.label === "OUTPERFORM" || d.relativeStrength.label === "JAUH OUTPERFORM") ? `<span class="pattern-pill">📈 RS ${d.relativeStrength.label}</span>` : ""}
+  `;
+
+  // "Kenapa layak dibeli sekarang": rangkai maks 2 alasan teratas jadi
+  // penjelasan singkat. Kalau tidak ada sinyal kuat sama sekali (cuma
+  // lolos filter harga & skor biasa), jujur tampilkan itu — jangan
+  // dipaksakan seolah-olah ada alasan kuat padahal tidak ada.
+  const explanation = hasStrongSignal
+    ? `<div class="emiten-reason">${reasons.slice(0, 2).map(r => `<div class="reason-line"><span class="reason-icon">${r.icon}</span>${r.text}</div>`).join("")}</div>`
+    : `<div class="emiten-reason emiten-reason-weak">Lolos filter harga &amp; skor, tapi belum ada pola kuat (breakout/RS/reversal/capitulation) yang terdeteksi — masuk kategori HOLD, bukan sinyal beli kuat.</div>`;
+
+  return `
+    <div class="emiten-card">
+      <div class="emiten-card-head">
+        <span class="emiten-rank">${i + 1}</span>
+        <span class="emiten-kode">${d.kode}<small>${d.entry === "NOW" ? "Entry: Now" : "Entry: " + (d.entry || "–")}</small></span>
+        <span class="emiten-close">${d.close ?? "–"}</span>
+        <span class="emiten-score">${d.score ?? "–"}</span>
+        <span class="signal-pill ${signalPillClass(d.signal)}">${d.signal ?? "–"}</span>
+      </div>
+      ${badges.trim() ? `<div class="emiten-badges">${badges}</div>` : ""}
+      ${explanation}
+    </div>
+  `;
+}
+
 async function loadTopEmiten() {
   const btn = document.getElementById("btnLoadTopEmiten");
   const el = document.getElementById("topEmitenWrap");
@@ -341,25 +423,9 @@ async function loadTopEmiten() {
       return;
     }
 
-    const head = `
-      <div class="emiten-row head">
-        <span>#</span><span>Kode</span><span>Harga</span><span>Skor</span><span>Signal</span>
-      </div>
-    `;
+    const cards = top10.map((d, i) => renderEmitenCard(d, i)).join("");
 
-    const rows = top10
-      .map((d, i) => `
-        <div class="emiten-row">
-          <span class="emiten-rank">${i + 1}</span>
-          <span class="emiten-kode">${d.kode}<small>${d.entry === "NOW" ? "Entry: Now" : "Entry: " + (d.entry || "–")}</small></span>
-          <span>${d.close ?? "–"}</span>
-          <span>${d.score ?? "–"}</span>
-          <span class="signal-pill ${signalPillClass(d.signal)}">${d.signal ?? "–"}</span>
-        </div>
-      `)
-      .join("");
-
-    el.innerHTML = `<div class="emiten-list">${head}${rows}</div>`;
+    el.innerHTML = `<div class="emiten-list">${cards}</div>`;
   } catch (e) {
     btn.disabled = false;
     btn.textContent = "Muat Data";
