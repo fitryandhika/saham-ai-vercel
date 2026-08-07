@@ -265,6 +265,7 @@ function renderCard(d) {
         ${d.relativeStrength && (d.relativeStrength.label === "UNDERPERFORM" || d.relativeStrength.label === "JAUH UNDERPERFORM") ? `<span class="badge bearish">RS ${d.relativeStrength.label}</span>` : ""}
         ${d.sector ? `<span class="badge sideways">${d.sector}</span>` : ""}
         ${d.reversalCandidate ? `<span class="badge reversal">🔄 Reversal Candidate</span>` : ""}
+        ${d.capitulationBounceCandidate ? `<span class="badge reversal">⚡ Capitulation Bounce</span>` : ""}
       </div>
 
       <div class="verdict-box ${vClass}">
