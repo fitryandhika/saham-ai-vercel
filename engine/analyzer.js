@@ -34,7 +34,8 @@ import {
 import {
   calculateScore,
   recommendation,
-  isReversalCandidate
+  isReversalCandidate,
+  isCapitulationBounceCandidate
 } from "./scorer.js";
 
 import {
@@ -244,6 +245,19 @@ export function analyzeStock(data) {
     relativeStrength
   });
 
+  // Sama seperti reversalCandidate di atas — dicatat terpisah supaya
+  // scan_history bisa validasi pola "capitulation bounce" (lihat catatan
+  // lengkap di scorer.js). Mutually exclusive dengan reversalCandidate
+  // (yang satu butuh close > sma50, yang ini close < sma50).
+  const capitulationBounceCandidate = isCapitulationBounceCandidate({
+    rsi,
+    macd,
+    close,
+    sma50,
+    closingStrength,
+    relativeStrength
+  });
+
   // Skor akhir MURNI teknikal (lihat catatan "Fundamental Analysis" di
   // atas) — dulu di sini ada blend 80% teknikal + 20% fundamental, sudah
   // dilepas supaya skor konsisten antara batch scan dan analisa manual.
@@ -339,6 +353,7 @@ export function analyzeStock(data) {
     volume,
     rsi,
     marketTrend,
+    rsLabel: relativeStrength?.label,
     calibrationMap: data.gapCalibration
   });
 
@@ -445,6 +460,7 @@ export function analyzeStock(data) {
     score,
     signal: finalSignal,
     reversalCandidate,
+    capitulationBounceCandidate,
 
     confidence,
     reasons,
