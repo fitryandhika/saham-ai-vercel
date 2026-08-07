@@ -207,6 +207,7 @@ export async function getScanHistoryRows({
   scanDate,
   kode,
   onlyLabeled = false,
+  pattern, // "reversal" | "capitulation" | undefined — lihat api/history.js
   limit = 200,
   offset = 0
 } = {}) {
@@ -222,6 +223,8 @@ export async function getScanHistoryRows({
   if (scanDate) params.set("scan_date", `eq.${scanDate}`);
   if (kode) params.set("kode", `eq.${kode.toUpperCase()}`);
   if (onlyLabeled) params.set("gap_up_realized", "not.is.null");
+  if (pattern === "reversal") params.set("reversal_candidate", "eq.true");
+  if (pattern === "capitulation") params.set("capitulation_bounce_candidate", "eq.true");
 
   const res = await fetch(`${cfg.url}/rest/v1/scan_history?${params.toString()}`, {
     headers: {
