@@ -7,6 +7,13 @@ import { getBucketKey } from "./gapCalibration.js";
 // menengah) dominan dipimpin data historis, sementara bucket yang
 // jarang kejadian (misal STRONG BUY + OVERSOLD + LOW volume) tetap
 // aman fallback ke heuristik karena sampelnya tipis.
+//
+// UPDATE 7 Agustus 2026: bucket kalibrasi (lihat getBucketKey di
+// gapCalibration.js) sekarang juga membedakan arah relative strength
+// (underperform pasar atau tidak) — sebelumnya dua saham dengan
+// score/RSI/volume sama tapi salah satu underperform pasar & satunya
+// tidak, disamakan ke bucket yang sama walau win rate historisnya bisa
+// beda jauh. Lihat catatan lengkap & validasi di gapCalibration.js.
 const SHRINKAGE_K = 30;
 
 export function getGapProbability({
@@ -16,6 +23,7 @@ export function getGapProbability({
   volume,
   rsi,
   marketTrend,
+  rsLabel,
   calibrationMap
 }) {
 
@@ -67,7 +75,7 @@ export function getGapProbability({
   let bucketSampleCount = 0;
 
   if (calibrationMap && calibrationMap.size > 0) {
-    const key = getBucketKey({ score, rsi, volumeSignal: volume?.signal });
+    const key = getBucketKey({ score, rsi, volumeSignal: volume?.signal, rsLabel });
     const bucket = key ? calibrationMap.get(key) : null;
 
     if (bucket && bucket.sample_count > 0) {
