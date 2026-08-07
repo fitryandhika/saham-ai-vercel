@@ -220,3 +220,15 @@
 .regime-pill.risk-off{background:var(--red-dim);color:var(--red);}
 .regime-pill.neutral{background:rgba(132,148,163,.15);color:var(--muted);}
 .regime-pill.unknown{background:rgba(132,148,163,.08);color:var(--muted);}
+
+.pattern-pill{
+  font-size:11px;
+  font-weight:600;
+  padding:3px 9px;
+  border-radius:999px;
+  white-space:nowrap;
+  display:inline-block;
+  margin:1px;
+  background:var(--amber-dim);
+  color:var(--amber);
+}
