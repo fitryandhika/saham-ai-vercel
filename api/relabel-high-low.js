@@ -21,9 +21,21 @@
 // "remainingKode: 0" — satu kali panggil sengaja dibatasi jumlah emiten
 // (bukan jumlah baris) supaya tidak timeout, karena tiap emiten perlu 1x
 // fetch ke Yahoo Finance yang makan waktu beberapa ratus ms.
+//
+// UPDATE 7 Agustus 2026 — digabung dengan backfill session_gain_score
+// (bukan file endpoint baru, supaya jumlah serverless function tidak
+// nambah lagi dari 12 dan kena limit Vercel Hobby seperti insiden
+// sebelumnya, lihat catatan di api/dashboard-data.js):
+//   GET /api/relabel-high-low?target=session-gain          -> backfill session_gain_score 2000 baris pertama
+//   GET /api/relabel-high-low?target=session-gain&limit=500 -> batasi jumlah per panggilan
+// Mode ini TIDAK fetch Yahoo Finance sama sekali (semua input
+// calculateSessionGainScore sudah ada di baris itu sendiri), jadi jauh
+// lebih cepat dan terpisah total dari logic high/low di bawah — lihat
+// handler target === "session-gain" di awal handler().
 
-import { getRowsMissingHighLow, updateLabel } from "../services/dataLogService.js";
+import { getRowsMissingHighLow, getRowsMissingSessionGain, updateLabel } from "../services/dataLogService.js";
 import { getStockData, getIntradayPeakTime } from "../services/stockService.js";
+import { calculateSessionGainScore } from "../engine/sessionGainScore.js";
 
 export const config = {
   maxDuration: 60
@@ -75,6 +87,70 @@ function findNextTradingDayCandle(candles, scanDate) {
   return null;
 }
 
+// Backfill session_gain_score — lihat catatan "UPDATE 7 Agustus 2026" di
+// atas. Terpisah total dari logic high/low di bawah (tidak ada fetch
+// eksternal), jadi bisa proses per BARIS langsung, bukan per kode.
+async function handleSessionGainBackfill(req, res) {
+  const limit = req.query.limit ? parseInt(req.query.limit, 10) : 2000;
+  const rows = await getRowsMissingSessionGain({ limit });
+
+  if (rows.length === 0) {
+    return res.status(200).json({
+      success: true,
+      message: "Tidak ada baris lama yang perlu di-backfill — semua sudah punya session_gain_score.",
+      processed: 0,
+      remaining: 0
+    });
+  }
+
+  const results = await runPool(
+    rows,
+    async (row) => {
+      // Sama seperti finalSessionGain di analyzer.js: saham illiquid
+      // (saham beku/floor price) langsung 0/SANGAT RENDAH, konsisten
+      // dengan baris baru dari scan normal.
+      if (row.illiquid) {
+        await updateLabel(row.id, { session_gain_score: 0, session_gain_label: "SANGAT RENDAH" });
+        return { id: row.id, ok: true };
+      }
+
+      const result = calculateSessionGainScore({
+        signal: row.signal,
+        score: row.score,
+        volumeAccelerating: row.volume_accelerating,
+        volumeSignal: row.volume_signal,
+        volumeRatio: row.volume_ratio,
+        gapOutlook: row.gap_outlook,
+        rsLabel: row.rs_label
+      });
+
+      await updateLabel(row.id, {
+        session_gain_score: result.sessionGainScore,
+        session_gain_label: result.label
+      });
+
+      return { id: row.id, ok: true };
+    },
+    20 // tidak ada fetch eksternal, aman concurrency lebih tinggi dari relabel high/low
+  );
+
+  const ok = results.filter((r) => r && r.ok).length;
+  const failed = results
+    .map((r, i) => (r && r.error ? { id: rows[i].id, error: r.error } : null))
+    .filter(Boolean);
+
+  return res.status(200).json({
+    success: true,
+    processed: ok,
+    failedCount: failed.length,
+    failed: failed.slice(0, 10),
+    remaining: rows.length - ok,
+    hint: rows.length === limit
+      ? "Batch ini penuh sampai limit — mungkin masih ada baris lagi, panggil ulang endpoint ini dengan target=session-gain."
+      : undefined
+  });
+}
+
 export default async function handler(req, res) {
   try {
     if (process.env.CRON_SECRET) {
@@ -85,6 +161,10 @@ export default async function handler(req, res) {
           message: "Unauthorized. Tambahkan ?manual=1 kalau menjalankan manual dari browser."
         });
       }
+    }
+
+    if (req.query.target === "session-gain") {
+      return await handleSessionGainBackfill(req, res);
     }
 
     const singleKode = req.query.kode ? req.query.kode.toUpperCase() : null;
