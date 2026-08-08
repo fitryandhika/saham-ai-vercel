@@ -35,7 +35,8 @@ import {
   calculateScore,
   recommendation,
   isReversalCandidate,
-  isCapitulationBounceCandidate
+  isCapitulationBounceCandidate,
+  hasStrongBuyConfirmation
 } from "./scorer.js";
 
 import {
@@ -263,7 +264,22 @@ export function analyzeStock(data) {
   // dilepas supaya skor konsisten antara batch scan dan analisa manual.
   score = Math.max(0, Math.min(score, 100));
 
-  const signal = recommendation(score);
+  let signal = recommendation(score);
+
+  // Gate STRONG BUY dengan konfirmasi volume+breakout+RSI (7 Agustus 2026)
+  // — lihat catatan lengkap di hasStrongBuyConfirmation() (scorer.js).
+  // Kalau skor tembus ambang STRONG BUY (>=90) tapi konfirmasi pola ini
+  // tidak ada, diturunkan ke BUY biasa DI SINI (sebelum entry/verdict/
+  // warnings/session-gain di bawah dihitung) — supaya semuanya konsisten
+  // dengan signal yang sudah digate, bukan cuma label akhirnya doang yang
+  // beda tapi verdict/entry masih menganggap STRONG BUY. Flag-nya dicatat
+  // terpisah ke scan_history untuk semua signal (bukan cuma STRONG BUY)
+  // supaya bisa dievaluasi lebih lanjut dari data yang terus bertambah.
+  const strongBuyConfirmed = hasStrongBuyConfirmation({ breakout, volume, rsi });
+
+  if (signal === "STRONG BUY" && !strongBuyConfirmed) {
+    signal = "BUY";
+  }
 
   // ==========================
   // Confidence & Reasons
@@ -461,6 +477,7 @@ export function analyzeStock(data) {
     signal: finalSignal,
     reversalCandidate,
     capitulationBounceCandidate,
+    strongBuyConfirmed,
 
     confidence,
     reasons,
