@@ -424,9 +424,11 @@ async function loadSummary() {
 async function loadTable() {
   const kode = document.getElementById("kodeFilter").value.trim();
   const pattern = document.getElementById("patternFilter")?.value || "";
+  const date = document.getElementById("dateFilter")?.value || "";
   const params = new URLSearchParams({ view: "table", limit: "100" });
   if (kode) params.set("kode", kode);
   if (pattern) params.set("pattern", pattern);
+  if (date) params.set("date", date);
 
   const el = document.getElementById("historyTableWrap");
   el.innerHTML = `<div class="empty-state">Memuat…</div>`;
@@ -453,6 +455,7 @@ function exportCsv() {
 }
 
 document.getElementById("patternFilter")?.addEventListener("change", loadTable);
+document.getElementById("dateFilter")?.addEventListener("change", loadTable);
 document.getElementById("btnRefresh").addEventListener("click", loadSummary);
 document.getElementById("btnLoadTable").addEventListener("click", loadTable);
 document.getElementById("btnExportCsv").addEventListener("click", exportCsv);
