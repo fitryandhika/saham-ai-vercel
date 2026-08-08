@@ -95,17 +95,29 @@
     <div class="riwayat-filter-row">
       <span class="filter-label">Filter kode &amp; tanggal</span>
     </div>
-    <div class="input-row">
-      <input id="kodeFilter" type="text" placeholder="Filter kode, contoh: BBCA" autocomplete="off">
-      <select id="patternFilter">
-        <option value="">Semua Pola</option>
-        <option value="reversal">🔄 Reversal Candidate</option>
-        <option value="capitulation">⚡ Capitulation Bounce</option>
-      </select>
-      <button class="btn-secondary" id="btnLoadTable">Lihat Tabel Riwayat</button>
+    <div class="filter-grid">
+      <div class="field">
+        <label class="field-label" for="kodeFilter">Kode saham</label>
+        <input id="kodeFilter" type="text" placeholder="Contoh: BBCA" autocomplete="off">
+      </div>
+      <div class="field">
+        <label class="field-label" for="patternFilter">Pola</label>
+        <select id="patternFilter">
+          <option value="">Semua Pola</option>
+          <option value="reversal">🔄 Reversal Candidate</option>
+          <option value="capitulation">⚡ Capitulation Bounce</option>
+        </select>
+      </div>
+      <div class="field">
+        <label class="field-label" for="dateFilter">Tanggal scan</label>
+        <input id="dateFilter" type="date" autocomplete="off">
+      </div>
+      <div class="field field-actions">
+        <span class="field-label field-label-ghost">&nbsp;</span>
+        <button class="btn-secondary" id="btnLoadTable">Lihat Tabel Riwayat</button>
+      </div>
     </div>
-    <div class="input-row">
-      <input id="dateFilter" type="date" autocomplete="off">
+    <div class="filter-export-row">
       <button class="btn-ghost" id="btnExportCsv">⬇ Export CSV</button>
     </div>
     <p class="hint-text">Export mengikuti filter kode/tanggal di atas (kosongkan untuk semua data, maksimal 5000 baris terbaru).</p>
