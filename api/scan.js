@@ -289,6 +289,7 @@ export default async function handler(req, res) {
       score_adjusted: d.scoreAdjusted ?? null,
       reversal_candidate: d.reversalCandidate ?? false,
       capitulation_bounce_candidate: d.capitulationBounceCandidate ?? false,
+      strong_buy_confirmed: d.strongBuyConfirmed ?? false,
 
       exhaustion_score: d.exhaustion?.exhaustionScore ?? null,
       exhaustion_label: d.exhaustion?.label ?? null,
