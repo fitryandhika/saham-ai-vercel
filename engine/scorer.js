@@ -186,6 +186,46 @@ export function isCapitulationBounceCandidate(data) {
   );
 }
 
+// Konfirmasi Volume + Breakout untuk STRONG BUY — ditambahkan 7 Agustus
+// 2026, dari analisis balik export scan_history 15 Jul-7 Agt 2026 (2.150
+// baris berlabel max_gain_from_open_pct, dari total 5.692 baris).
+//
+// Temuan intinya: skor AI (`score`) yang dipakai sekarang TIDAK
+// diskriminatif untuk metrik "potensi naik hari itu" (max_gain_from_open_pct)
+// — dari skor 55 sampai 95 peluang naik >=3% nyaris flat di 17-20%. Yang
+// jauh lebih diskriminatif justru dua hal ini:
+//   1. Volume relatif (volume_ratio/volume_signal) — makin tinggi makin
+//      besar potensi naik, monoton, robust di sample besar (n=200-1000+).
+//   2. RSI — 80+ (overbought ekstrem) adalah bucket TERBURUK (cuma 8.6%
+//      peluang naik >=3%, vs baseline 16.2%), bukan bucket terbaik.
+// Kombinasi breakout (STRONG_BREAKOUT/BREAKOUT) + volume EXPLOSIVE/HIGH +
+// RSI<80 terbukti n=46, 26.1% peluang naik >=3% & 17.4% peluang naik >=5%
+// (vs baseline 16.2%/7.7%) — hampir 2x lift untuk kenaikan besar.
+//
+// Dipakai sebagai GATE untuk signal STRONG BUY (di analyzer.js), BUKAN
+// cuma bonus skor tambahan seperti isReversalCandidate/
+// isCapitulationBounceCandidate — karena skor >=90 sendirian sudah
+// kebanyakan diraih akibat saturasi cap 100 (34-42% emiten per hari dapat
+// STRONG BUY per 4-7 Agustus 2026, padahal win rate-nya cuma 9%, hampir
+// sama dengan HOLD/BUY biasa). Nambah bonus lagi ke skor cuma akan
+// memperparah kerumunan di angka 100, BUKAN bikin lebih selektif — jadi
+// dipakai sebagai syarat lolos, bukan poin tambahan.
+//
+// CATATAN JUJUR: sample dasar rule gabungan ini baru 46 kejadian (3
+// minggu data). Flag-nya (strongBuyConfirmed) dicatat ke scan_history
+// untuk SEMUA sinyal (bukan cuma STRONG BUY) supaya bisa dievaluasi lebih
+// lanjut dari data yang terus bertambah, dan syarat gate ini bisa
+// dikencangkan/dilonggarkan kalau perlu.
+export function hasStrongBuyConfirmation(data) {
+  return Boolean(
+    data.breakout &&
+    (data.breakout.level === "STRONG_BREAKOUT" || data.breakout.level === "BREAKOUT") &&
+    data.volume &&
+    (data.volume.signal === "EXPLOSIVE" || data.volume.signal === "HIGH") &&
+    typeof data.rsi === "number" && data.rsi < 80
+  );
+}
+
 export function recommendation(score) {
 
   if (score >= 90) return "STRONG BUY";
