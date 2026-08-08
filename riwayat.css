@@ -268,6 +268,15 @@ select option{
   color:var(--text);
 }
 
+/* #historyTableWrap & #summaryOverall pakai class .results (grid multi-
+   kolom dari style.css, untuk kartu-kartu kecil). Tabel riwayat & ringkasan
+   overall cuma 1 elemen tunggal di dalamnya — tanpa ini dia cuma menempati
+   1 dari 2-3 kolom grid di layar tablet/desktop dan sisanya kosong. */
+#historyTableWrap > *,
+#summaryOverall > *{
+  grid-column:1/-1;
+}
+
 /* ----- Tabel riwayat mentah ----- */
 
 .history-table-scroll{
