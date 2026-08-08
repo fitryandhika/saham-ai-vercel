@@ -155,6 +155,60 @@
   width:100%;
 }
 
+/* ----- Date & select inputs — minimalist, dark theme (no default browser chrome) ----- */
+
+input[type="date"],
+select{
+  width:100%;
+  padding:12px 14px;
+  font-size:14px;
+  font-family:var(--font-mono);
+  background:var(--surface-2);
+  border:1px solid var(--border);
+  border-radius:10px;
+  color:var(--text);
+  appearance:none;
+  -webkit-appearance:none;
+  -moz-appearance:none;
+  color-scheme:dark;
+}
+
+input[type="date"]:focus,
+select:focus{
+  outline:2px solid var(--amber);
+  outline-offset:1px;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator{
+  filter:invert(60%) sepia(20%) saturate(400%) hue-rotate(360deg);
+  cursor:pointer;
+  opacity:.85;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator:hover{
+  opacity:1;
+}
+
+select{
+  padding-right:36px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238494A3' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;
+  background-position:right 14px center;
+  cursor:pointer;
+}
+
+select:hover{border-color:var(--amber);}
+
+select option{
+  background:var(--surface-2);
+  color:var(--text);
+}
+
+@media (min-width:640px){
+  .input-row input[type="date"],
+  .input-row select{flex:1;}
+}
+
 /* ----- Tabel riwayat mentah ----- */
 
 .history-table-scroll{
