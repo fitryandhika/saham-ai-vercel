@@ -338,14 +338,6 @@ export function analyzeStock(data) {
     distribution
   });
 
-  const verdict = getFinalVerdict({
-    score,
-    signal,
-    confidence,
-    entry,
-    riskLevel
-  });
-
   const rating = getRating(score);
 
   const probability = getProbability({
@@ -361,6 +353,19 @@ export function analyzeStock(data) {
     rsi,
     macd,
     volume
+  });
+
+  const verdict = getFinalVerdict({
+    score,
+    signal: finalSignal,
+    confidence,
+    marketTrend,
+    momentum,
+    volume,
+    breakout,
+    relativeStrength,
+    rsi,
+    macd
   });
 
   const gap = getGapProbability({
@@ -504,6 +509,7 @@ export function analyzeStock(data) {
     riskLevel,
     entry,
     verdict,
+    verdictHorizon: "MULTI_DAY",
 
     rating,
     probability,
