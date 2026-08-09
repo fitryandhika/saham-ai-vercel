@@ -426,7 +426,7 @@ function renderNextDayOpportunity(d) {
       <div class="nextday-note">
         <strong>Aturan screener:</strong>
         Opportunity HIGH + Eligible adalah kandidat utama untuk strategi beli sore.
-        Score/Signal lama tidak boleh menjadi satu-satunya alasan entry.
+        Outlook multi-hari dan Next-Day Opportunity menjawab pertanyaan berbeda; jangan samakan outlook beberapa hari dengan prediksi besok.
         Ini adalah probabilistic screening, bukan jaminan harga naik besok.
       </div>
     </div>
@@ -476,7 +476,7 @@ function renderCard(d) {
         <span class="badge ${tClass}">${d.marketTrend}</span>
         <span class="badge sideways">Risiko ${d.riskLevel}</span>
         <span class="badge ${n.label === "HIGH" && n.eligible ? "bullish" : "sideways"}">Next-Day ${n.label}</span>
-        <span class="badge sideways">AI lama · Entry ${d.entry}</span>
+        <span class="badge sideways">Timing teknikal · ${d.entry}</span>
         ${d.breakout && d.breakout.isBreakout ? `<span class="badge bullish">🚀 ${d.breakout.level === "STRONG_BREAKOUT" ? "Strong Breakout" : "Breakout"}</span>` : ""}
         ${d.relativeStrength && (d.relativeStrength.label === "OUTPERFORM" || d.relativeStrength.label === "JAUH OUTPERFORM") ? `<span class="badge bullish">RS ${d.relativeStrength.label}</span>` : ""}
         ${d.relativeStrength && (d.relativeStrength.label === "UNDERPERFORM" || d.relativeStrength.label === "JAUH UNDERPERFORM") ? `<span class="badge bearish">RS ${d.relativeStrength.label}</span>` : ""}
@@ -493,10 +493,10 @@ function renderCard(d) {
         <div class="verdict-note">${nextDayDecision.note}</div>
       </div>
 
-      <div class="legacy-verdict">
-        <span>AI lama · Verdict:</span>
+      <div class="legacy-verdict multi-day-outlook">
+        <span>OUTLOOK MULTI-HARI · indikator teknikal</span>
         <strong>${d.verdict}</strong>
-        <small>Informasi pendukung saja — bukan penentu entry.</small>
+        <small>Menilai kecenderungan beberapa hari berdasarkan tren, MA/EMA, MACD, RSI, momentum, volume, breakout dan relative strength. Bukan prediksi khusus besok dan bukan sinyal entry H+1.</small>
       </div>
 
       <div class="stat-grid">
