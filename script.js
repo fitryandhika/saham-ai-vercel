@@ -238,6 +238,168 @@ function renderAraArb(close) {
   `;
 }
 
+
+function getNextDayOpportunityMeta(d) {
+  const n = d?.nextDayOpportunity;
+  if (!n || typeof n !== "object") {
+    return {
+      score: null,
+      label: "UNAVAILABLE",
+      expectedMoveBand: "UNAVAILABLE",
+      setup: "NONE",
+      eligible: false,
+      blockers: [],
+      volumeAcceleration: null,
+      volumeRatio: null,
+      breakoutDistance: null,
+      rsLabel: null
+    };
+  }
+
+  return {
+    score: Number.isFinite(Number(n.opportunityScore))
+      ? Number(n.opportunityScore)
+      : null,
+    label: String(n.opportunityLabel || "WATCH").toUpperCase(),
+    expectedMoveBand: String(n.expectedMoveBand || n.opportunityLabel || "WATCH").toUpperCase(),
+    setup: String(n.coreSetup || "NONE").replaceAll("_", " "),
+    eligible: n.eligible === true,
+    blockers: Array.isArray(n.blockers) ? n.blockers : [],
+    volumeAcceleration: Number.isFinite(Number(n.inputs?.volumeAccelerationPercent))
+      ? Number(n.inputs.volumeAccelerationPercent)
+      : null,
+    volumeRatio: Number.isFinite(Number(n.inputs?.volumeRatio))
+      ? Number(n.inputs.volumeRatio)
+      : null,
+    breakoutDistance: Number.isFinite(Number(n.inputs?.breakoutDistancePercent))
+      ? Number(n.inputs.breakoutDistancePercent)
+      : null,
+    rsLabel: n.inputs?.relativeStrengthLabel || null
+  };
+}
+
+function nextDayOpportunityClass(label) {
+  if (label === "HIGH") return "high";
+  if (label === "MODERATE") return "moderate";
+  if (label === "WATCH") return "watch";
+  if (label === "LOW" || label === "AVOID") return "low";
+  return "unavailable";
+}
+
+function renderNextDayOpportunity(d) {
+  const n = getNextDayOpportunityMeta(d);
+  const cls = nextDayOpportunityClass(n.label);
+
+  if (n.score === null) {
+    return `
+      <div class="nextday-box unavailable">
+        <div class="nextday-head">
+          <div>
+            <div class="nextday-kicker">Next-Day Opportunity</div>
+            <div class="nextday-title">Data belum tersedia</div>
+          </div>
+          <span class="nextday-score">—</span>
+        </div>
+        <div class="nextday-warning">
+          Jangan mengambil keputusan beli dari Score/Signal lama saja.
+        </div>
+      </div>
+    `;
+  }
+
+  const decision = n.eligible && n.label === "HIGH"
+    ? "PRIORITAS — setup H+1 kuat"
+    : n.eligible
+      ? "BOLEH DIPANTAU — belum prioritas HIGH"
+      : "JANGAN PRIORITASKAN UNTUK BUY SORE";
+
+  const decisionIcon = n.eligible && n.label === "HIGH"
+    ? "🟢"
+    : n.eligible
+      ? "🟡"
+      : "🔴";
+
+  const blockers = n.blockers.length
+    ? `<div class="nextday-blockers"><strong>Penghambat:</strong> ${n.blockers.join(", ")}</div>`
+    : "";
+
+  const setup = n.setup === "NONE" ? "Belum ada setup inti" : n.setup;
+
+  const fmt = (v, suffix = "") =>
+    v === null ? "—" : `${v > 0 ? "+" : ""}${v.toFixed(1)}${suffix}`;
+
+  return `
+    <div class="nextday-box ${cls}">
+      <div class="nextday-head">
+        <div>
+          <div class="nextday-kicker">Next-Day Opportunity · Close H → H+1</div>
+          <div class="nextday-title">${decisionIcon} ${decision}</div>
+        </div>
+        <div class="nextday-score-wrap">
+          <span class="nextday-score">${n.score}</span>
+          <span class="nextday-label">${n.label}</span>
+        </div>
+      </div>
+
+      <div class="nextday-grid">
+        <div>
+          <span>Expected Band</span>
+          <strong>${n.expectedMoveBand}</strong>
+        </div>
+        <div>
+          <span>Setup</span>
+          <strong>${setup}</strong>
+        </div>
+        <div>
+          <span>Vol. Acceleration</span>
+          <strong>${fmt(n.volumeAcceleration, "%")}</strong>
+        </div>
+        <div>
+          <span>Volume Ratio</span>
+          <strong>${n.volumeRatio === null ? "—" : `${n.volumeRatio.toFixed(2)}×`}</strong>
+        </div>
+        <div>
+          <span>Jarak Resistance</span>
+          <strong>${fmt(n.breakoutDistance, "%")}</strong>
+        </div>
+        <div>
+          <span>Relative Strength</span>
+          <strong>${n.rsLabel || "—"}</strong>
+        </div>
+      </div>
+
+      ${blockers}
+
+      <div class="nextday-note">
+        <strong>Aturan screener:</strong>
+        Opportunity HIGH + Eligible adalah kandidat utama untuk strategi beli sore.
+        Score/Signal lama tidak boleh menjadi satu-satunya alasan entry.
+        Ini adalah probabilistic screening, bukan jaminan harga naik besok.
+      </div>
+    </div>
+  `;
+}
+
+function renderNextDaySummary(json) {
+  const s = json?.nextDayOpportunityStats;
+  if (!s) return "";
+
+  return `
+    <div class="nextday-summary">
+      <div class="nextday-summary-title">🎯 Next-Day Screener · Fokus Close H → High/Close H+1</div>
+      <div class="nextday-summary-grid">
+        <div class="summary-high"><strong>${s.high ?? 0}</strong><span>HIGH</span></div>
+        <div class="summary-moderate"><strong>${s.moderate ?? 0}</strong><span>MODERATE</span></div>
+        <div class="summary-watch"><strong>${s.low ?? 0}</strong><span>LOW</span></div>
+        <div class="summary-eligible"><strong>${s.eligible ?? 0}</strong><span>ELIGIBLE</span></div>
+      </div>
+      <div class="nextday-summary-note">
+        Tampilkan HIGH di urutan teratas. Kandidat non-eligible diberi peringatan agar tidak terbeli hanya karena Signal/Score lama.
+      </div>
+    </div>
+  `;
+}
+
 function renderCard(d) {
   const vClass = verdictClass(d.verdict);
   const tClass = trendClass(d.marketTrend);
@@ -267,6 +429,8 @@ function renderCard(d) {
         ${d.reversalCandidate ? `<span class="badge reversal">🔄 Reversal Candidate</span>` : ""}
         ${d.capitulationBounceCandidate ? `<span class="badge reversal">⚡ Capitulation Bounce</span>` : ""}
       </div>
+
+      ${renderNextDayOpportunity(d)}
 
       <div class="verdict-box ${vClass}">
         <div class="verdict-label">Verdict — Beli Sore / Jual Pagi</div>
@@ -454,6 +618,10 @@ async function fetchScan(params = {}) {
   const res = await fetch("/api/scan" + (qs ? `?${qs}` : ""));
   const json = await res.json();
 
+  if (json.skipped) {
+    return json;
+  }
+
   if (!json.success) {
     console.error("Scan error detail:", json.error, json.stack);
     throw new Error(json.error || json.message || "Batch scan gagal.");
@@ -470,10 +638,13 @@ function renderScanSummary(json, label) {
     ? ` ${json.excludedFromUniverse} kode lain di watchlist manual tidak ikut di-scan sama sekali (gugur di filter likuiditas mingguan sebelum sempat dicek skornya).`
     : "";
 
-  return `<div class="loading">
-    ${label}: ${json.data.length} dari ${json.scanned} saham lolos filter.
-    ${json.breakoutCount} kode breakout terdeteksi.${gagal}${universeNote}
-  </div>`;
+  return `
+    ${renderNextDaySummary(json)}
+    <div class="loading">
+      ${label}: ${json.data.length} dari ${json.scanned} saham lolos filter.
+      ${json.breakoutCount} kode breakout terdeteksi.${gagal}${universeNote}
+    </div>
+  `;
 }
 
 async function batchScanSemua() {
@@ -495,6 +666,19 @@ async function batchScanSemua() {
 
     btn.disabled = false;
 
+    if (json.skipped) {
+      hasilEl.innerHTML = `
+        <div class="nextday-summary">
+          <div class="nextday-summary-title">⏸️ Screener belum dijalankan</div>
+          <div class="nextday-summary-note">
+            ${json.message || "Hari ini bukan hari bursa."}
+            Gunakan screener pada hari perdagangan agar data Close H benar-benar merepresentasikan penutupan terakhir.
+          </div>
+        </div>
+      `;
+      return;
+    }
+
     if (!json.data.length) {
       const universeNote = json.excludedFromUniverse
         ? ` (${json.excludedFromUniverse} kode lain sempat dicek tapi sudah gugur di tahap universe/likuiditas mingguan sebelum sampai ke filter skor — lihat log kalau mau tahu kode apa saja.)`
@@ -503,9 +687,24 @@ async function batchScanSemua() {
       return;
     }
 
+    const rankedForNextDay = [...json.data].sort((a, b) => {
+      const aN = getNextDayOpportunityMeta(a);
+      const bN = getNextDayOpportunityMeta(b);
+
+      if (aN.eligible !== bN.eligible) {
+        return Number(bN.eligible) - Number(aN.eligible);
+      }
+
+      if ((aN.score ?? -1) !== (bN.score ?? -1)) {
+        return (bN.score ?? -1) - (aN.score ?? -1);
+      }
+
+      return (b.score ?? -1) - (a.score ?? -1);
+    });
+
     hasilEl.innerHTML =
-      renderScanSummary(json, `High Conviction Scan (<${HARGA_MURAH_MAX})`) +
-      json.data.map(renderCard).join("");
+      renderScanSummary(json, `Next-Day Scan (<${HARGA_MURAH_MAX}, Score ≥${SKOR_MIN})`) +
+      rankedForNextDay.map(renderCard).join("");
 
   } catch (e) {
     btn.disabled = false;
