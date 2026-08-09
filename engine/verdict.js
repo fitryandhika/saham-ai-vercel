@@ -93,39 +93,69 @@ export function getFinalVerdict({
   score,
   signal,
   confidence,
-  entry,
-  riskLevel
+  marketTrend,
+  momentum,
+  volume,
+  breakout,
+  relativeStrength,
+  rsi,
+  macd
 }) {
+  // Verdict lama sekarang dipakai sebagai OUTLOOK MULTI-HARI.
+  // Tujuannya menjawab: "apakah struktur teknikal saat ini cenderung
+  // bullish/bearish untuk beberapa hari ke depan?" BUKAN memprediksi
+  // apakah saham pasti naik besok. Timing H+1 ditangani separately oleh
+  // nextDayOpportunity.
+  const scoreNum = Number(score) || 0;
+  const confidenceNum = Number(confidence) || 0;
+  const rsiNum = Number(rsi);
+  const momentumScore = Number(momentum?.score) || 0;
+  const volumeRatio = Number(volume?.ratio) || 0;
+  const macdValue = Number(macd?.macd);
+  const rsLabel = String(relativeStrength?.label || "").toUpperCase();
+  const breakoutConfirmed = Boolean(breakout?.isBreakout);
 
-  // STRONG BUY — syarat penuh
-  if (
-    signal === "STRONG BUY" &&
-    score >= 85 &&
-    confidence >= 65 &&
-    entry === "NOW" &&
-    riskLevel !== "HIGH"
-  ) {
-    return "Layak dibeli sekarang.";
+  const bullishSignals = [
+    marketTrend === "BULLISH",
+    scoreNum >= 70,
+    confidenceNum >= 60,
+    momentumScore >= 50,
+    Number.isFinite(macdValue) && macdValue > 0,
+    volumeRatio >= 1,
+    breakoutConfirmed,
+    rsLabel === "OUTPERFORM" || rsLabel === "JAUH OUTPERFORM"
+  ].filter(Boolean).length;
+
+  const bearishSignals = [
+    marketTrend === "BEARISH",
+    scoreNum < 50,
+    momentumScore < 35,
+    Number.isFinite(macdValue) && macdValue < 0,
+    rsLabel === "UNDERPERFORM" || rsLabel === "JAUH UNDERPERFORM"
+  ].filter(Boolean).length;
+
+  if (bullishSignals >= 7 || (marketTrend === "BULLISH" && scoreNum >= 85 && confidenceNum >= 65)) {
+    return "Bullish kuat — berpotensi melanjutkan kenaikan dalam beberapa hari.";
   }
 
-  // BUY — juga jadi fallback untuk STRONG BUY yang gagal
-  // di gate confidence/entry/riskLevel di atas, supaya signal
-  // dan verdict tidak saling bertentangan (mis. signal STRONG BUY
-  // tapi verdict "belum layak" hanya gara-gara confidence kurang
-  // beberapa poin dari ambang STRONG BUY).
-  if (
-    (signal === "BUY" || signal === "STRONG BUY") &&
-    score >= 70 &&
-    confidence >= 60 &&
-    entry !== "AVOID"
-  ) {
-    return "Menarik untuk dipertimbangkan.";
+  if (bullishSignals >= 4 || (marketTrend === "BULLISH" && scoreNum >= 70)) {
+    return "Bullish — struktur teknikal mendukung potensi kenaikan dalam beberapa hari.";
   }
 
-  // HOLD
+  if (bearishSignals >= 3 || marketTrend === "BEARISH") {
+    return "Bearish — tekanan turun masih dominan dalam beberapa hari ke depan.";
+  }
+
+  if (signal === "BUY" || signal === "STRONG BUY") {
+    if (Number.isFinite(rsiNum) && rsiNum >= 70) {
+      return "Bullish tetapi mulai jenuh — potensi kenaikan masih ada, namun perlu waspada pullback.";
+    }
+    return "Bullish awal — ada potensi kenaikan, tetapi tren belum terkonfirmasi penuh.";
+  }
+
   if (signal === "HOLD") {
-    return "Tunggu konfirmasi atau koreksi harga.";
+    return "Netral — tunggu konfirmasi arah tren sebelum menarik kesimpulan.";
   }
 
-  return "Belum layak untuk dibeli.";
+  return "Netral — sinyal teknikal belum cukup kuat untuk outlook beberapa hari.";
 }
