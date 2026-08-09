@@ -39,9 +39,11 @@
   background:var(--amber-dim);
 }
 
-.office-sub-fields{margin-top:4px;}
+.office-sub-fields{margin-top:4px;margin-bottom:18px;}
 
 .office-sub-fields .chips{margin-top:10px;}
+
+#btnKonsultasi{margin-top:6px;}
 
 #officeJumlah{
   width:100%;
