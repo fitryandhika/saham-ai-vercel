@@ -617,6 +617,38 @@ button{
 
 .verdict-box.buy{border-left-color:var(--green);}
 .verdict-box.avoid{border-left-color:var(--red);}
+.verdict-box.monitor{border-left-color:var(--amber);}
+
+.verdict-note{
+  margin-top:6px;
+  color:var(--muted);
+  font-size:10.5px;
+  line-height:1.45;
+}
+
+.legacy-verdict{
+  margin:-8px 0 14px;
+  padding:8px 10px;
+  border-radius:7px;
+  background:rgba(132,148,163,.08);
+  color:var(--muted);
+  font-size:9.5px;
+  line-height:1.4;
+}
+.legacy-verdict span{
+  text-transform:uppercase;
+  letter-spacing:.04em;
+}
+.legacy-verdict strong{
+  color:var(--text);
+  font-family:var(--font-mono);
+  font-weight:600;
+}
+.legacy-verdict small{
+  display:block;
+  margin-top:2px;
+  color:var(--muted);
+}
 
 .stat-grid{
   display:grid;
@@ -1017,3 +1049,8 @@ button{
 .summary-eligible strong{color:var(--violet);}
 .nextday-summary-note{margin-top:9px;color:var(--muted);font-size:10.5px;line-height:1.45;}
 @media (max-width:420px){.nextday-summary-grid{grid-template-columns:repeat(2,1fr);}}
+
+/* Next-Day decision clarity */
+.nextday-grid > div:last-child strong{
+  color:var(--text);
+}
