@@ -355,6 +355,10 @@ export function analyzeStock(data) {
     volume
   });
 
+  // Final signal is needed by the multi-day verdict calculation.
+  // Define it BEFORE getFinalVerdict() to avoid temporal-dead-zone errors.
+  const finalSignal = liquidity.illiquid ? "TIDAK LIKUID" : signal;
+
   const verdict = getFinalVerdict({
     score,
     signal: finalSignal,
@@ -419,10 +423,8 @@ export function analyzeStock(data) {
   // Saham beku/tidak likuid: signal & session-gain internal (dihitung
   // dari `signal`/`score` di atas) tidak boleh ditampilkan apa adanya,
   // karena tidak ada transaksi wajar untuk disimpulkan arahnya — lihat
-  // engine/liquidity.js. Override HANYA di sini (output), supaya semua
-  // fungsi internal di atas (verdict, warnings, gap, entry) tetap
-  // konsisten secara matematis dan tidak perlu logic khusus.
-  const finalSignal = liquidity.illiquid ? "TIDAK LIKUID" : signal;
+  // engine/liquidity.js. `finalSignal` sudah ditentukan sebelum verdict
+  // agar tidak terjadi ReferenceError / temporal-dead-zone.
   const finalSessionGain = liquidity.illiquid
     ? {
         sessionGainScore: 0,
