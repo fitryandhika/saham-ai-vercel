@@ -517,22 +517,23 @@ button{
 }
 
 /* ==========================================================
-   Grid hasil — 1 kolom di HP, multi-kolom di laptop supaya
-   layar lebar tidak sia-sia jadi 1 kartu sempit di tengah.
+   Grid hasil — 1 kolom di HP, auto-fit di laptop/desktop supaya
+   layar lebar tidak sia-sia. Dengan auto-fit: 1 kartu hasil analisa
+   melebar mengisi ruang (dibatasi max-width & di-center), sementara
+   banyak kartu (watchlist/screener) otomatis tersusun multi-kolom.
    ========================================================== */
 
 .results{
   display:grid;
   grid-template-columns:1fr;
   gap:14px;
+  align-items:start;
 }
 
-@media (min-width:760px){
-  .results{grid-template-columns:repeat(2,1fr);}
-}
-
-@media (min-width:1180px){
-  .results{grid-template-columns:repeat(3,1fr);}
+@media (min-width:640px){
+  .results{
+    grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
+  }
 }
 
 .loading, .error{
@@ -550,6 +551,21 @@ button{
   padding:16px;
   display:flex;
   flex-direction:column;
+  width:100%;
+}
+
+@media (min-width:640px){
+  .card{
+    max-width:640px;
+    margin:0 auto;
+  }
+}
+
+@media (min-width:861px){
+  .card{padding:20px 22px;}
+  .card-kode{font-size:23px;}
+  .verdict-text{font-size:17px;}
+  .nextday-score{font-size:26px;}
 }
 
 .card-head{
