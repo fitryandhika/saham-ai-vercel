@@ -974,3 +974,46 @@ button{
 @media (prefers-reduced-motion:reduce){
   *{transition:none !important;}
 }
+
+/* ==========================================================
+   Next-Day Opportunity — fokus strategi Beli Sore / Jual Pagi
+   ========================================================== */
+
+.nextday-box{
+  margin:0 0 14px;
+  padding:13px;
+  border:1px solid var(--border);
+  border-radius:12px;
+  background:var(--surface-2);
+}
+.nextday-box.high{border-color:rgba(34,197,94,.55);box-shadow:0 0 0 1px rgba(34,197,94,.08);}
+.nextday-box.moderate{border-color:rgba(227,162,61,.55);}
+.nextday-box.watch,.nextday-box.low,.nextday-box.unavailable{border-color:rgba(132,148,163,.35);}
+.nextday-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}
+.nextday-kicker{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;}
+.nextday-title{font-family:var(--font-display);font-weight:700;font-size:14px;line-height:1.3;}
+.nextday-score-wrap{min-width:58px;text-align:right;}
+.nextday-score{display:block;font-family:var(--font-mono);font-size:24px;line-height:1;font-weight:700;}
+.nextday-box.high .nextday-score{color:var(--green);}
+.nextday-box.moderate .nextday-score{color:var(--amber);}
+.nextday-box.watch .nextday-score,.nextday-box.low .nextday-score,.nextday-box.unavailable .nextday-score{color:var(--muted);}
+.nextday-label{display:block;margin-top:4px;font-family:var(--font-mono);font-size:9px;font-weight:700;color:var(--muted);}
+.nextday-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:12px;}
+.nextday-grid > div{padding:7px 8px;border-radius:7px;background:var(--surface);min-width:0;}
+.nextday-grid span{display:block;color:var(--muted);font-size:9.5px;margin-bottom:2px;}
+.nextday-grid strong{display:block;font-family:var(--font-mono);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.nextday-blockers{margin-top:9px;padding:7px 8px;border-radius:7px;background:var(--red-dim);color:var(--red);font-size:10.5px;line-height:1.4;}
+.nextday-note{margin-top:9px;color:var(--muted);font-size:10.5px;line-height:1.45;}
+.nextday-warning{margin-top:9px;color:var(--amber);font-size:10.5px;line-height:1.4;}
+.nextday-summary{grid-column:1/-1;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px;}
+.nextday-summary-title{font-family:var(--font-display);font-weight:700;font-size:14px;margin-bottom:10px;}
+.nextday-summary-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;}
+.nextday-summary-grid > div{background:var(--surface-2);border-radius:8px;padding:8px 5px;text-align:center;}
+.nextday-summary-grid strong{display:block;font-family:var(--font-mono);font-size:18px;}
+.nextday-summary-grid span{display:block;margin-top:2px;color:var(--muted);font-size:9px;font-weight:700;}
+.summary-high strong{color:var(--green);}
+.summary-moderate strong{color:var(--amber);}
+.summary-watch strong{color:var(--muted);}
+.summary-eligible strong{color:var(--violet);}
+.nextday-summary-note{margin-top:9px;color:var(--muted);font-size:10.5px;line-height:1.45;}
+@media (max-width:420px){.nextday-summary-grid{grid-template-columns:repeat(2,1fr);}}
