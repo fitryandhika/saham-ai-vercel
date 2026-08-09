@@ -1,3 +1,4 @@
+import { calculateNextDayOpportunity } from "./nextDayOpportunity.js";
 import { getGapProbability } from "./gap.js";
 
 import { getMomentum } from "./momentum.js";
@@ -393,6 +394,23 @@ export function analyzeStock(data) {
     rsLabel: relativeStrength?.label
   });
 
+  // ==========================
+  // Next-Day Opportunity Engine (shadow)
+  // Fokus: Close H -> High/Close H+1, bukan gap/open.
+  // Tidak mengubah signal/verdict lama.
+  // ==========================
+  const nextDayOpportunity = calculateNextDayOpportunity({
+    score,
+    volume,
+    volumeAcceleration,
+    breakout,
+    relativeStrength,
+    exhaustion,
+    distribution,
+    liquidity,
+    riskReward
+  });
+
   // Saham beku/tidak likuid: signal & session-gain internal (dihitung
   // dari `signal`/`score` di atas) tidak boleh ditampilkan apa adanya,
   // karena tidak ada transaksi wajar untuk disimpulkan arahnya — lihat
@@ -510,6 +528,8 @@ export function analyzeStock(data) {
     gap,
 
     sessionGain: finalSessionGain,
+
+    nextDayOpportunity,
 
     liquidity,
 
