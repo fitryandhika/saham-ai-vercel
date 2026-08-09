@@ -1,0 +1,275 @@
+/* ==========================================================
+   Kantor Virtual — floor plan ala denah kantor (terinspirasi
+   dari referensi "unified workflow floor"), tapi dijaga tetap
+   satu tema dengan terminal trading SahamAI: gelap, aksen amber/
+   violet, angka tabular. Tiap "ruangan" = satu tahap dari alur
+   analisa (briefing -> riset makro -> analis -> risiko -> keputusan).
+   ========================================================== */
+
+.office-field-label{
+  display:block;
+  font-size:12px;
+  font-weight:600;
+  color:var(--muted);
+  margin:14px 0 6px;
+}
+
+.office-field-label:first-of-type{margin-top:0;}
+
+.office-mode-row{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+  margin-top:14px;
+}
+
+.office-mode-btn{
+  padding:12px 8px;
+  background:var(--surface-2);
+  border:1px solid var(--border);
+  border-radius:10px;
+  color:var(--muted);
+  font-size:13px;
+  font-weight:600;
+}
+
+.office-mode-btn.active{
+  border-color:var(--amber);
+  color:var(--text);
+  background:var(--amber-dim);
+}
+
+.office-sub-fields{margin-top:4px;}
+
+.office-sub-fields .chips{margin-top:10px;}
+
+#officeJumlah{
+  width:100%;
+  padding:12px 14px;
+  font-size:15px;
+  font-family:var(--font-body);
+  background:var(--surface-2);
+  border:1px solid var(--border);
+  border-radius:10px;
+  color:var(--text);
+}
+
+.office-checkbox-row{
+  display:flex;
+  align-items:flex-start;
+  gap:8px;
+  margin-top:12px;
+  font-size:12.5px;
+  color:var(--muted);
+  line-height:1.4;
+}
+
+.office-checkbox-row input{margin-top:3px;}
+
+/* ==========================================================
+   Denah kantor — grid ruangan
+   ========================================================== */
+
+.office-floor{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:12px;
+  margin-top:18px;
+}
+
+@media (min-width:640px){
+  .office-floor{grid-template-columns:repeat(2,1fr);}
+}
+
+@media (min-width:1180px){
+  .office-floor{grid-template-columns:repeat(3,1fr);}
+}
+
+.office-room{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--radius-lg);
+  padding:14px;
+  opacity:.5;
+  transition:opacity .3s ease, border-color .3s ease, box-shadow .3s ease;
+}
+
+.office-room.active{
+  opacity:1;
+  border-color:var(--amber);
+  box-shadow:0 0 0 1px rgba(227,162,61,.15);
+}
+
+.office-room.done{
+  opacity:1;
+  border-color:var(--border);
+}
+
+.office-room-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  margin-bottom:8px;
+}
+
+.office-room-title{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-family:var(--font-display);
+  font-weight:700;
+  font-size:13.5px;
+}
+
+.office-room-number{
+  font-family:var(--font-mono);
+  font-size:11px;
+  color:var(--muted-2);
+}
+
+.office-room-status{
+  font-size:9.5px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.04em;
+  padding:2px 8px;
+  border-radius:999px;
+  background:rgba(132,148,163,.15);
+  color:var(--muted);
+}
+
+.office-room.active .office-room-status{
+  background:var(--amber-dim);
+  color:var(--amber);
+}
+
+.office-room.done .office-room-status{
+  background:var(--green-dim);
+  color:var(--green);
+}
+
+.office-room-role{
+  font-size:11px;
+  color:var(--muted);
+  margin-bottom:10px;
+}
+
+.office-room-log{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+
+.office-log-line{
+  font-size:12.5px;
+  line-height:1.5;
+  color:var(--text);
+  padding-left:12px;
+  border-left:2px solid var(--border-soft);
+}
+
+.office-log-line.warn{
+  color:var(--amber);
+  border-left-color:var(--amber);
+}
+
+.office-log-line.bad{
+  color:var(--red);
+  border-left-color:var(--red);
+}
+
+.office-log-line.good{
+  color:var(--green);
+  border-left-color:var(--green);
+}
+
+.office-room-empty{
+  font-size:12px;
+  color:var(--muted-2);
+  font-style:italic;
+}
+
+/* ==========================================================
+   Panel laporan akhir — hasil dari Ruang Keputusan
+   ========================================================== */
+
+.office-report-panel{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--radius-lg);
+  padding:18px;
+  margin-top:16px;
+  border-top:3px solid var(--amber);
+}
+
+.office-report-title{
+  font-family:var(--font-display);
+  font-weight:700;
+  font-size:16px;
+  margin-bottom:4px;
+}
+
+.office-report-sub{
+  font-size:12px;
+  color:var(--muted);
+  margin-bottom:14px;
+}
+
+.office-report-stats{
+  display:grid;
+  grid-template-columns:repeat(2,1fr);
+  gap:10px;
+  margin-bottom:16px;
+}
+
+@media (min-width:640px){
+  .office-report-stats{grid-template-columns:repeat(4,1fr);}
+}
+
+.office-report-stats .stat{background:var(--surface-2);}
+
+.office-alloc-table{
+  width:100%;
+  border-collapse:collapse;
+  font-size:12.5px;
+}
+
+.office-alloc-table th{
+  text-align:left;
+  font-size:10px;
+  text-transform:uppercase;
+  letter-spacing:.04em;
+  color:var(--muted);
+  padding:6px 8px;
+  border-bottom:1px solid var(--border);
+}
+
+.office-alloc-table td{
+  padding:8px;
+  border-bottom:1px solid var(--border-soft);
+  font-family:var(--font-mono);
+}
+
+.office-alloc-table td:first-child,
+.office-alloc-table th:first-child{
+  font-family:var(--font-display);
+  font-weight:700;
+}
+
+.office-alloc-wrap{
+  overflow-x:auto;
+  margin:0 -4px;
+}
+
+.office-verdict-line{
+  margin-top:14px;
+  padding:12px 14px;
+  border-radius:8px;
+  background:var(--surface-2);
+  border-left:3px solid var(--amber);
+  font-size:13px;
+  line-height:1.5;
+}
+
+.office-verdict-line.avoid{border-left-color:var(--red);color:var(--red);}
+.office-verdict-line.buy{border-left-color:var(--green);}
