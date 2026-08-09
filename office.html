@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kantor Virtual — SahamAI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="office.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">◆</span>
+    <span class="brand-name">SahamAI</span>
+  </div>
+  <div class="clock" id="clock">--:--</div>
+</header>
+
+<div id="tickerBar" class="ticker-bar">
+  <div class="ticker-track">
+    <span class="ticker-item ticker-ihsg" id="tickerIhsg">IHSG —</span>
+    <span class="ticker-sep">·</span>
+    <span class="ticker-item" id="windowLabel">Memuat status market…</span>
+    <span class="ticker-sep">·</span>
+    <span class="ticker-item"><span id="regimeBadge" class="regime-badge neutral">⚪ Memuat regime…</span></span>
+  </div>
+</div>
+
+<nav class="nav-tabs">
+  <a href="dashboard.html" class="nav-tab"><span class="nav-icon">🏠</span><span class="nav-text">Dashboard</span></a>
+  <a href="index.html" class="nav-tab"><span class="nav-icon">📊</span><span class="nav-text">Analisa</span></a>
+  <a href="portfolio.html" class="nav-tab"><span class="nav-icon">💼</span><span class="nav-text">Portofolio</span></a>
+  <a href="riwayat.html" class="nav-tab"><span class="nav-icon">📈</span><span class="nav-text">Riwayat AI</span></a>
+  <a href="office.html" class="nav-tab active"><span class="nav-icon">🏢</span><span class="nav-text">Kantor</span></a>
+</nav>
+
+<main class="container">
+
+  <section class="page-hero">
+    <span class="page-hero-eyebrow">Kantor Virtual</span>
+    <h1 class="page-hero-title">Tim Fund Manager AI</h1>
+    <p class="page-hero-sub">Ceritakan dana yang kamu punya, lalu biarkan permintaanmu "berjalan" lewat 5 ruangan — Briefing, Riset Makro, Meja Analis, Manajemen Risiko, sampai Ruang Keputusan — sebelum keluar rekomendasi akhir.</p>
+  </section>
+
+  <section class="widget-card">
+    <div class="widget-head">
+      <span class="widget-title">💰 Ajukan Permintaan ke Kantor</span>
+    </div>
+
+    <label class="office-field-label" for="officeDana">Dana yang mau diinvestasikan (Rp)</label>
+    <div class="input-row">
+      <input id="officeDana" type="text" inputmode="numeric" placeholder="Contoh: 15.000.000" autocomplete="off">
+    </div>
+
+    <div class="office-mode-row">
+      <button type="button" class="office-mode-btn active" id="modeSingleBtn" data-mode="single">🎯 1 Saham Spesifik</button>
+      <button type="button" class="office-mode-btn" id="modePortfolioBtn" data-mode="portfolio">📦 Susun Portofolio</button>
+    </div>
+
+    <div id="modeSingleFields" class="office-sub-fields">
+      <label class="office-field-label" for="officeKode">Kode saham</label>
+      <div class="input-row">
+        <input id="officeKode" type="text" placeholder="Contoh: BBCA" value="BBCA" autocomplete="off">
+      </div>
+      <div class="chips" id="officeWatchlistChips"></div>
+    </div>
+
+    <div id="modePortfolioFields" class="office-sub-fields" style="display:none;">
+      <label class="office-field-label" for="officeJumlah">Target jumlah saham di portofolio</label>
+      <select id="officeJumlah">
+        <option value="3">3 saham</option>
+        <option value="5" selected>5 saham</option>
+        <option value="8">8 saham</option>
+      </select>
+      <label class="office-checkbox-row">
+        <input type="checkbox" id="officeMurahOnly" checked>
+        <span>Hanya saham murah (&lt;Rp300) — sumber kandidat dari Next-Day Screener</span>
+      </label>
+    </div>
+
+    <button class="btn-primary" id="btnKonsultasi">Konsultasi ke Kantor</button>
+  </section>
+
+  <section class="office-floor" id="officeFloor"></section>
+
+  <section id="officeReport"></section>
+
+  <p class="disclaimer">
+    Kantor virtual ini murni menyusun ulang & menampilkan hasil dari engine SahamAI (scan, next-day opportunity, fundamental, macro regime) dalam format "tim fund manager" — bukan rekomendasi finansial sungguhan, bukan lembaga keuangan berizin, dan sizing yang ditampilkan adalah simulasi berdasarkan aturan risiko sederhana. Selalu cek ulang sebelum entry.
+  </p>
+
+</main>
+
+<script src="office.js"></script>
+</body>
+</html>
