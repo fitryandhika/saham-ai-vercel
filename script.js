@@ -184,6 +184,55 @@ function verdictClass(verdict) {
   return "";
 }
 
+function nextDayDecisionMeta(d) {
+  const n = getNextDayOpportunityMeta(d);
+
+  if (n.score === null) {
+    return {
+      className: "avoid",
+      label: "Verdict Next-Day",
+      text: "Data Next-Day belum tersedia.",
+      note: "Jangan gunakan Signal/Score lama sebagai alasan entry."
+    };
+  }
+
+  if (n.label === "HIGH" && n.eligible) {
+    return {
+      className: "buy",
+      label: "Verdict Next-Day · Strategi Beli Sore / Jual Pagi",
+      text: "🟢 PRIORITAS — kandidat utama H+1",
+      note: "Fokus Close H → peluang High/Close H+1. Ini prioritas screener, bukan jaminan harga naik."
+    };
+  }
+
+  if (n.label === "MODERATE" && n.eligible) {
+    return {
+      className: "monitor",
+      label: "Verdict Next-Day · Strategi Beli Sore / Jual Pagi",
+      text: "🟡 PANTAU — belum prioritas HIGH",
+      note: "Ada peluang H+1, tetapi belum sekuat kandidat HIGH."
+    };
+  }
+
+  if (n.label === "HIGH" && !n.eligible) {
+    return {
+      className: "avoid",
+      label: "Verdict Next-Day · Strategi Beli Sore / Jual Pagi",
+      text: "🔴 HIGH TAPI TIDAK ELIGIBLE — JANGAN ENTRY",
+      note: n.blockers.length
+        ? `Ada penghambat: ${n.blockers.join(", ")}.`
+        : "Label HIGH saja tidak cukup tanpa status Eligible."
+    };
+  }
+
+  return {
+    className: "avoid",
+    label: "Verdict Next-Day · Strategi Beli Sore / Jual Pagi",
+    text: "🔴 JANGAN PRIORITASKAN UNTUK BUY SORE",
+    note: "Next-Day Opportunity belum memenuhi syarat kandidat utama."
+  };
+}
+
 function trendClass(trend) {
   if (trend === "BULLISH") return "bullish";
   if (trend === "BEARISH") return "bearish";
@@ -366,6 +415,10 @@ function renderNextDayOpportunity(d) {
           <span>Relative Strength</span>
           <strong>${n.rsLabel || "—"}</strong>
         </div>
+        <div>
+          <span>Status Eligible</span>
+          <strong>${n.eligible ? "YES — PRIORITAS" : "NO — JANGAN ENTRY"}</strong>
+        </div>
       </div>
 
       ${blockers}
@@ -401,7 +454,8 @@ function renderNextDaySummary(json) {
 }
 
 function renderCard(d) {
-  const vClass = verdictClass(d.verdict);
+  const n = getNextDayOpportunityMeta(d);
+  const nextDayDecision = nextDayDecisionMeta(d);
   const tClass = trendClass(d.marketTrend);
 
   const warningsHtml = (d.warnings && d.warnings.length)
@@ -421,7 +475,8 @@ function renderCard(d) {
       <div class="badge-row">
         <span class="badge ${tClass}">${d.marketTrend}</span>
         <span class="badge sideways">Risiko ${d.riskLevel}</span>
-        <span class="badge sideways">Entry ${d.entry}</span>
+        <span class="badge ${n.label === "HIGH" && n.eligible ? "bullish" : "sideways"}">Next-Day ${n.label}</span>
+        <span class="badge sideways">AI lama · Entry ${d.entry}</span>
         ${d.breakout && d.breakout.isBreakout ? `<span class="badge bullish">🚀 ${d.breakout.level === "STRONG_BREAKOUT" ? "Strong Breakout" : "Breakout"}</span>` : ""}
         ${d.relativeStrength && (d.relativeStrength.label === "OUTPERFORM" || d.relativeStrength.label === "JAUH OUTPERFORM") ? `<span class="badge bullish">RS ${d.relativeStrength.label}</span>` : ""}
         ${d.relativeStrength && (d.relativeStrength.label === "UNDERPERFORM" || d.relativeStrength.label === "JAUH UNDERPERFORM") ? `<span class="badge bearish">RS ${d.relativeStrength.label}</span>` : ""}
@@ -432,9 +487,16 @@ function renderCard(d) {
 
       ${renderNextDayOpportunity(d)}
 
-      <div class="verdict-box ${vClass}">
-        <div class="verdict-label">Verdict — Beli Sore / Jual Pagi</div>
-        <div class="verdict-text">${d.verdict}</div>
+      <div class="verdict-box ${nextDayDecision.className}">
+        <div class="verdict-label">${nextDayDecision.label}</div>
+        <div class="verdict-text">${nextDayDecision.text}</div>
+        <div class="verdict-note">${nextDayDecision.note}</div>
+      </div>
+
+      <div class="legacy-verdict">
+        <span>AI lama · Verdict:</span>
+        <strong>${d.verdict}</strong>
+        <small>Informasi pendukung saja — bukan penentu entry.</small>
       </div>
 
       <div class="stat-grid">
