@@ -335,6 +335,8 @@ function renderHistoryTable(rows) {
         <td>${r.score ?? "–"}</td>
         <td>${r.close ?? "–"}</td>
         <td>${r.actual_next_open ?? "–"}</td>
+        <td>${r.actual_next_high ?? "–"}</td>
+        <td class="${retClass(r.max_gain_from_open_pct)}">${fmtPct(r.max_gain_from_open_pct)}</td>
         <td class="${retClass(r.next_day_return_pct)}">${fmtPct(r.next_day_return_pct)}</td>
         <td>${regimeBadge(r.market_regime)}</td>
         <td>${patternBadges(r)}</td>
@@ -349,7 +351,7 @@ function renderHistoryTable(rows) {
         <thead>
           <tr>
             <th>Tanggal</th><th>Kode</th><th>Signal</th><th>Score</th>
-            <th>Close</th><th>Next Open</th><th>Return</th><th>Regime</th><th>Pola</th><th>Hasil</th>
+            <th>Close</th><th>Next Open</th><th>High</th><th>Max Gain%</th><th>Return</th><th>Regime</th><th>Pola</th><th>Hasil</th>
           </tr>
         </thead>
         <tbody>${body}</tbody>
