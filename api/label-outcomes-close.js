@@ -129,6 +129,51 @@ export default async function handler(req, res) {
           (((nextHigh - refOpen) / refOpen) * 100).toFixed(2)
         );
 
+        // ============================================================
+        // V2 TARGET — khusus strategi beli sore
+        // Reference price = CLOSE H (row.close), BUKAN OPEN H+1.
+        //
+        // maxGainFromClosePct:
+        //   peluang terbaik menjual kapan pun pada H+1 dibanding harga
+        //   close H. Ini menangkap kenaikan sesi 1 maupun sesi 2.
+        //
+        // closeReturnFromClosePct:
+        //   hasil jika posisi tetap ditahan sampai close H+1.
+        //
+        // "success" V2:
+        //   max gain >= 3% ATAU close H+1 >= +2%.
+        // Ambang ini dibuat eksplisit dan tersimpan supaya nanti dapat
+        // dikalibrasi ulang tanpa mengubah arti kolom lama.
+        // ============================================================
+        const refClose = Number(row.close);
+
+        const nextDayCloseReturnFromClosePct =
+          Number.isFinite(refClose) && refClose > 0
+            ? Number((((nextClose - refClose) / refClose) * 100).toFixed(2))
+            : null;
+
+        const nextDayMaxGainFromClosePct =
+          Number.isFinite(refClose) && refClose > 0
+            ? Number((((nextHigh - refClose) / refClose) * 100).toFixed(2))
+            : null;
+
+        const nextDayMaxLossFromClosePct =
+          Number.isFinite(refClose) && refClose > 0
+            ? Number((((nextLow - refClose) / refClose) * 100).toFixed(2))
+            : null;
+
+        const nextDayHigh3PctRealized =
+          nextDayMaxGainFromClosePct !== null &&
+          nextDayMaxGainFromClosePct >= 3;
+
+        const nextDayClose2PctRealized =
+          nextDayCloseReturnFromClosePct !== null &&
+          nextDayCloseReturnFromClosePct >= 2;
+
+        const nextDaySuccess =
+          nextDayHigh3PctRealized ||
+          nextDayClose2PctRealized;
+
         // Peak time: best-effort, cuma tersedia kalau Yahoo masih punya
         // data intraday untuk tanggal itu (biasanya <= ~60 hari). Kalau
         // tidak ketemu (null), tetap lanjut label close/high/low seperti
@@ -140,6 +185,21 @@ export default async function handler(req, res) {
           actual_next_high: nextHigh,
           actual_next_low: nextLow,
           max_gain_from_open_pct: maxGainFromOpenPct,
+
+          // V2 — target dari CLOSE H
+          next_day_close_return_from_close_pct:
+            nextDayCloseReturnFromClosePct,
+          next_day_max_gain_from_close_pct:
+            nextDayMaxGainFromClosePct,
+          next_day_max_loss_from_close_pct:
+            nextDayMaxLossFromClosePct,
+          next_day_high_3pct_realized:
+            nextDayHigh3PctRealized,
+          next_day_close_2pct_realized:
+            nextDayClose2PctRealized,
+          next_day_success:
+            nextDaySuccess,
+
           peak_time_wib: peak?.peakTimeWIB ?? null,
           peak_session_phase: peak?.peakSessionPhase ?? null,
           close_labeled_at: new Date().toISOString()
@@ -149,6 +209,10 @@ export default async function handler(req, res) {
           kode: row.kode,
           status: "OK",
           maxGainFromOpenPct,
+          nextDayCloseReturnFromClosePct,
+          nextDayMaxGainFromClosePct,
+          nextDayMaxLossFromClosePct,
+          nextDaySuccess,
           peakTimeWIB: peak?.peakTimeWIB ?? null,
           peakSessionPhase: peak?.peakSessionPhase ?? null
         };
