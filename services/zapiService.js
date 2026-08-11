@@ -225,3 +225,51 @@ export async function getZapiIntradayPeakToday(kode) {
     source: "ZAPI_STOCKBIT_INTRADAY"
   };
 }
+// ==========================
+// First Intraday Price — HARI INI
+// ==========================
+
+export async function getZapiFirstPriceToday(kode) {
+  const json = await tryFetchJson(
+    `/finance:stockbit/chart?symbol=${encodeURIComponent(kode)}` +
+      `&market=indonesia&timeframe=today&interval=intraday`
+  );
+
+  const items = json?.data?.items;
+
+  if (!Array.isArray(items) || items.length === 0) {
+    return null;
+  }
+
+  const validItems = items
+    .map(item => ({
+      price: Number(item.price),
+      time: item.time
+    }))
+    .filter(item =>
+      Number.isFinite(item.price) &&
+      item.time
+    )
+    .sort((a, b) => {
+      const timeA = new Date(String(a.time).replace(" ", "T")).getTime();
+      const timeB = new Date(String(b.time).replace(" ", "T")).getTime();
+
+      return timeA - timeB;
+    });
+
+  if (validItems.length === 0) {
+    return null;
+  }
+
+  const first = validItems[0];
+
+  const match = String(first.time).match(/(\d{2}):(\d{2})/);
+
+  return {
+    firstPrice: first.price,
+    firstTimeWIB: match
+      ? `${match[1]}:${match[2]}`
+      : null,
+    source: "ZAPI_STOCKBIT_FIRST_INTRADAY"
+  };
+}
