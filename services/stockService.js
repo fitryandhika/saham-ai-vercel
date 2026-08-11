@@ -64,7 +64,7 @@ export async function getStockData(kode, range = "6mo") {
   // dibanding hanya andalin Yahoo yang delay/estimasi.
   let priceSource = "YAHOO";
 
-  if (range === "6mo") {
+  if (range === "6mo" || range === "3mo") {
     try {
       const official = await getOfficialTodayData(kode);
 
