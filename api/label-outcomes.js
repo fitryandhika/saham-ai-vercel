@@ -13,28 +13,27 @@
 // diubah setelah mulai training, atau dataset jadi tidak sebanding
 // lintas periode.
 //
-// PENTING (diperbaiki 24 Juli 2026): dulu file ini JUGA mengisi
-// actual_next_close/high/low/max_gain_from_open_pct — padahal cron-nya
-// jalan jam 09:15 WIB, cuma ~15 menit setelah bursa buka. Di jam segitu
-// "candle hari ini" dari Yahoo/IDX masih SETENGAH JALAN (bursa baru
-// buka sampai 15:00-15:15 WIB), jadi close/high/low yang kesimpan
-// systematically KEPOTONG — bukan harga penutupan/tertinggi hari itu
-// yang sebenarnya. idxService.js sendiri sudah punya catatan soal ini
-// ("IDX belum publish data hari ini sebelum market close ~16:00 WIB")
-// tapi belum diterapkan konsisten di sini.
+// PENTING:
+// File ini hanya mengisi OPEN H+1.
+// Close/high/low tetap ditangani oleh:
+//   api/label-outcomes-close.js
 //
-// Sekarang dipecah jadi 2 tahap:
-//   TAHAP 1 (file ini, jalan ~09:15 WIB)  -> open, gap_up_realized
-//   TAHAP 2 (api/label-outcomes-close.js, jalan ~16:00 WIB, SETELAH
-//            market close) -> close, high, low, max_gain_from_open_pct,
-//            + peak_time_wib / peak_session_phase (jam berapa harga
-//            tertinggi hari itu tercapai — butuh data intraday, cuma
-//            reliable diambil setelah hari itu selesai).
-// Open aman diambil pagi karena harga open = harga fixing lelang
-// pembukaan, sudah final begitu sesi dibuka — beda dengan close/high/low
-// yang baru final di akhir hari.
+// PERBAIKAN:
+// Jangan lagi memakai candles.at(-1) secara membabi buta.
+// Untuk backlog seperti:
+//
+//   2026-08-10 -> harus mencari candle 2026-08-11
+//
+// kita memilih candle perdagangan PERTAMA setelah scan_date.
+// Ini juga otomatis melewati Sabtu/Minggu/libur bursa.
+//
 
-import { getUnlabeledSnapshots, updateLabel, getOldestUnlabeledDate } from "../services/dataLogService.js";
+import {
+  getUnlabeledSnapshots,
+  updateLabel,
+  getOldestUnlabeledDate
+} from "../services/dataLogService.js";
+
 import { getStockData } from "../services/stockService.js";
 
 export const config = {
@@ -51,140 +50,297 @@ async function runPool(items, worker, concurrency) {
   async function next() {
     while (cursor < items.length) {
       const i = cursor++;
+
       try {
         results[i] = await worker(items[i], i);
       } catch (e) {
-        results[i] = { error: e.message };
+        results[i] = {
+          error: e?.message || String(e)
+        };
       }
     }
   }
 
   await Promise.all(
-    Array.from({ length: Math.min(concurrency, items.length) }, next)
+    Array.from(
+      {
+        length: Math.min(concurrency, items.length)
+      },
+      next
+    )
   );
 
   return results;
 }
 
-// Dulu pakai "hari kalender - 1" (lihat git history). Bug: cron cuma
-// jalan Senin-Jumat, jadi cron Senin pagi menghitung "kemarin" =
-// Minggu (tidak ada scan-nya) — bukan Jumat, yang scan-nya justru
-// belum dilabel. Akibatnya snapshot Jumat kelewat permanen, tidak
-// pernah dicoba lagi oleh cron manapun. Diganti: selalu ambil
-// scan_date PALING LAMA yang masih belum dilabel, supaya backlog
-// otomatis terkejar tiap kali cron jalan, apapun urutan hari liburnya.
+
+// ============================================================
+// Helper: tanggal UTC YYYY-MM-DD
+// ============================================================
+
 function todayUTC() {
   return new Date().toISOString().slice(0, 10);
 }
 
+
+// ============================================================
+// Helper: normalisasi tanggal candle
+//
+// Mendukung beberapa kemungkinan format:
+//   "2026-08-11"
+//   "2026-08-11T00:00:00.000Z"
+//   Date object
+//   timestamp detik
+//   timestamp milidetik
+// ============================================================
+
+function toDateOnly(value) {
+  if (value == null) {
+    return null;
+  }
+
+  // String
+  if (typeof value === "string") {
+    const match = value.match(/^(\d{4}-\d{2}-\d{2})/);
+
+    if (match) {
+      return match[1];
+    }
+
+    const parsed = new Date(value);
+
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString().slice(0, 10);
+    }
+
+    return null;
+  }
+
+  // Date object
+  if (value instanceof Date) {
+    if (!Number.isNaN(value.getTime())) {
+      return value.toISOString().slice(0, 10);
+    }
+
+    return null;
+  }
+
+  // Unix timestamp
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const milliseconds =
+      value < 1e12
+        ? value * 1000
+        : value;
+
+    const parsed = new Date(milliseconds);
+
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString().slice(0, 10);
+    }
+  }
+
+  return null;
+}
+
+
+// ============================================================
+// Helper: ambil tanggal candle dari berbagai kemungkinan field
+// ============================================================
+
+function getCandleDate(candle) {
+  if (!candle || typeof candle !== "object") {
+    return null;
+  }
+
+  return toDateOnly(
+    candle.date ??
+    candle.datetime ??
+    candle.timestamp ??
+    candle.time ??
+    candle.day
+  );
+}
+
+
+// ============================================================
+// Handler
+// ============================================================
+
 export default async function handler(req, res) {
   try {
-    // Vercel otomatis set CRON_SECRET & mengirim header ini saat cron
-    // yang memanggil. Kalau CRON_SECRET sudah di-set di env tapi
-    // request datang tanpa header yang cocok, kemungkinan besar bukan
-    // dari cron — tolak supaya endpoint ini tidak dipicu publik.
+
+    // ========================================================
+    // Authorization
+    // ========================================================
+
     if (process.env.CRON_SECRET) {
       const auth = req.headers.authorization;
+
       if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
-        return res.status(401).json({ success: false, message: "Unauthorized." });
+        return res.status(401).json({
+          success: false,
+          message: "Unauthorized."
+        });
       }
     }
 
-    const thresholdPct = req.query.threshold
-      ? parseFloat(req.query.threshold)
-      : DEFAULT_THRESHOLD_PCT;
 
-    // ?date= tetap didukung buat re-run manual satu tanggal tertentu.
-    // Default: kejar backlog dari scan_date belum dilabel yang paling lama.
-    const scanDate = req.query.date || (await getOldestUnlabeledDate());
+    // ========================================================
+    // Threshold
+    // ========================================================
+
+    const thresholdPct =
+      req.query.threshold != null
+        ? parseFloat(req.query.threshold)
+        : DEFAULT_THRESHOLD_PCT;
+
+    if (!Number.isFinite(thresholdPct)) {
+      return res.status(400).json({
+        success: false,
+        message: "Parameter threshold tidak valid."
+      });
+    }
+
+
+    // ========================================================
+    // Tentukan snapshot H
+    //
+    // ?date= tetap didukung.
+    // Jika tidak ada date, ambil backlog tertua.
+    // ========================================================
+
+    const scanDate =
+      req.query.date ||
+      (await getOldestUnlabeledDate());
+
+
+    // ========================================================
+    // Tidak ada snapshot
+    // ========================================================
 
     if (!scanDate) {
       return res.status(200).json({
         success: true,
         scanDate: null,
-        message: "Tidak ada snapshot yang perlu dilabel — semua sudah dilabel.",
+        message:
+          "Tidak ada snapshot yang perlu dilabel — semua sudah dilabel.",
         labeled: 0
       });
     }
 
-    // Jangan label snapshot hari ini pakai data hari ini juga — open
-    // besok belum ada. Ini cuma bisa kejadian kalau scan_date tertua
-    // yang belum dilabel kebetulan sama dengan hari ini (mis. run
-    // pertama kali setelah scan pagi ini, belum ada histori lain).
+
+    // ========================================================
+    // Jangan label hari ini menggunakan data hari ini
+    // ========================================================
+
     if (scanDate === todayUTC()) {
       return res.status(200).json({
         success: true,
         scanDate,
-        message: "Snapshot tertua yang belum dilabel adalah scan hari ini — tunggu sampai besok (perlu harga open besok).",
+        message:
+          "Snapshot tertua yang belum dilabel adalah scan hari ini — tunggu sampai besok (perlu harga open besok).",
         labeled: 0
       });
     }
 
-    const pending = await getUnlabeledSnapshots(scanDate);
+
+    // ========================================================
+    // Ambil snapshot yang belum dilabel
+    // ========================================================
+
+    const pending =
+      await getUnlabeledSnapshots(scanDate);
+
 
     if (pending.length === 0) {
       return res.status(200).json({
         success: true,
         scanDate,
-        message: "Tidak ada snapshot yang perlu dilabel (sudah dilabel semua, atau belum ada scan di tanggal ini).",
+        message:
+          "Tidak ada snapshot yang perlu dilabel (sudah dilabel semua, atau belum ada scan di tanggal ini).",
         labeled: 0
       });
     }
 
+
+    // ========================================================
+    // Label setiap saham
+    // ========================================================
+
     const results = await runPool(
       pending,
+
       async (row) => {
-        const stockData = await getStockData(row.kode);
 
-        // Candle paling baru sekarang seharusnya candle hari ini
-        // (setelah scan kemarin dijalankan pasca-market-close). Cuma
-        // `open` yang dipakai di tahap ini — open sudah final begitu
-        // sesi dibuka, beda dengan close/high/low yang baru final nanti
-        // sore (lihat api/label-outcomes-close.js untuk tahap 2).
-        const todayCandle = stockData.candles.at(-1);
+        const stockData =
+          await getStockData(row.kode);
 
-        const nextOpen = todayCandle.open;
 
-        const nextDayReturnPct = Number(
-          (((nextOpen - row.close) / row.close) * 100).toFixed(2)
-        );
+        // ====================================================
+        // Validasi data candle
+        // ====================================================
 
-        const gapUpRealized = nextDayReturnPct >= thresholdPct;
+        const candles =
+          Array.isArray(stockData?.candles)
+            ? stockData.candles
+            : [];
 
-        await updateLabel(row.id, {
-          actual_next_open: nextOpen,
-          next_day_return_pct: nextDayReturnPct,
-          gap_up_realized: gapUpRealized,
-          labeled_at: new Date().toISOString()
-        });
 
-        return { kode: row.kode, nextDayReturnPct, gapUpRealized };
-      },
-      CONCURRENCY
-    );
+        if (candles.length === 0) {
+          throw new Error(
+            `Tidak ada candle tersedia untuk ${row.kode}.`
+          );
+        }
 
-    const ok = results.filter((r) => r && !r.error);
-    const failed = results
-      .map((r, i) => (r && r.error ? pending[i].kode : null))
-      .filter(Boolean);
 
-    return res.status(200).json({
-      success: true,
-      scanDate,
-      thresholdPct,
-      labeled: ok.length,
-      failed: failed.length,
-      failedCodes: failed,
-      gapUpCount: ok.filter((r) => r.gapUpRealized).length
-    });
+        // ====================================================
+        // Cari candle perdagangan pertama SETELAH scan_date
+        //
+        // Contoh:
+        //
+        // H:
+        // 2026-08-10
+        //
+        // candle tersedia:
+        // 2026-08-10
+        // 2026-08-11
+        // 2026-08-12
+        //
+        // yang dipilih:
+        // 2026-08-11
+        //
+        // Kalau Jumat:
+        // 2026-08-07
+        // -> 2026-08-10 Senin
+        // ====================================================
 
-  } catch (error) {
-    console.error(error);
+        const datedCandles = candles
+          .map((candle) => ({
+            candle,
+            date: getCandleDate(candle)
+          }))
+          .filter(
+            (item) =>
+              item.date &&
+              item.date > scanDate
+          )
+          .sort(
+            (a, b) =>
+              a.date.localeCompare(b.date)
+          );
 
-    return res.status(500).json({
-      success: false,
-      message: "Labeling gagal.",
-      error: error.message
-    });
-  }
-}
+
+        const nextDayItem =
+          datedCandles[0];
+
+
+        // ====================================================
+        // H+1 belum tersedia
+        //
+        // Jangan pakai candle terakhir.
+        // Jangan melabel dengan data yang salah.
+        // ====================================================
+
+        if (!nextDayItem) {
+          throw new Error(
+            `C
