@@ -343,4 +343,196 @@ export default async function handler(req, res) {
 
         if (!nextDayItem) {
           throw new Error(
-            `C
+            `Candle H+1 belum tersedia untuk ${row.kode} setelah ${scanDate}. Snapshot belum dilabel.`
+          );
+        }
+
+
+        const nextDayCandle =
+          nextDayItem.candle;
+
+
+        // ====================================================
+        // Ambil OPEN H+1
+        // ====================================================
+
+        const nextOpen =
+          Number(nextDayCandle?.open);
+
+
+        if (
+          !Number.isFinite(nextOpen) ||
+          nextOpen <= 0
+        ) {
+          throw new Error(
+            `Harga OPEN H+1 tidak valid untuk ${row.kode} pada ${nextDayItem.date}.`
+          );
+        }
+
+
+        // ====================================================
+        // Validasi CLOSE H
+        // ====================================================
+
+        const previousClose =
+          Number(row.close);
+
+
+        if (
+          !Number.isFinite(previousClose) ||
+          previousClose <= 0
+        ) {
+          throw new Error(
+            `Close snapshot ${scanDate} tidak valid untuk ${row.kode}.`
+          );
+        }
+
+
+        // ====================================================
+        // Hitung return:
+        //
+        // CLOSE H -> OPEN H+1
+        // ====================================================
+
+        const nextDayReturnPct =
+          Number(
+            (
+              (
+                (nextOpen - previousClose) /
+                previousClose
+              ) * 100
+            ).toFixed(2)
+          );
+
+
+        // ====================================================
+        // Gap +2%
+        // ====================================================
+
+        const gapUpRealized =
+          nextDayReturnPct >= thresholdPct;
+
+
+        // ====================================================
+        // Simpan label ke record H
+        // ====================================================
+
+        await updateLabel(row.id, {
+
+          actual_next_open:
+            nextOpen,
+
+          next_day_return_pct:
+            nextDayReturnPct,
+
+          gap_up_realized:
+            gapUpRealized,
+
+          labeled_at:
+            new Date().toISOString()
+
+        });
+
+
+        // ====================================================
+        // Return hasil untuk audit
+        // ====================================================
+
+        return {
+          kode: row.kode,
+
+          scanDate,
+
+          nextDate:
+            nextDayItem.date,
+
+          previousClose,
+
+          nextOpen,
+
+          nextDayReturnPct,
+
+          gapUpRealized
+        };
+      },
+
+      CONCURRENCY
+    );
+
+
+    // ========================================================
+    // Pisahkan berhasil / gagal
+    // ========================================================
+
+    const ok =
+      results.filter(
+        (r) => r && !r.error
+      );
+
+
+    const failed =
+      results
+        .map(
+          (r, i) =>
+            r && r.error
+              ? {
+                  kode:
+                    pending[i].kode,
+                  error:
+                    r.error
+                }
+              : null
+        )
+        .filter(Boolean);
+
+
+    // ========================================================
+    // Response
+    // ========================================================
+
+    return res.status(200).json({
+
+      success: true,
+
+      scanDate,
+
+      thresholdPct,
+
+      pending: pending.length,
+
+      labeled: ok.length,
+
+      failed: failed.length,
+
+      gapUpCount:
+        ok.filter(
+          (r) => r.gapUpRealized
+        ).length,
+
+      results: ok,
+
+      failedCodes: failed
+
+    });
+
+  } catch (error) {
+
+    console.error(
+      "Labeling error:",
+      error
+    );
+
+    return res.status(500).json({
+
+      success: false,
+
+      message:
+        "Labeling gagal.",
+
+      error:
+        error?.message ||
+        String(error)
+
+    });
+  }
+}
