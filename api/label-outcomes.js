@@ -1,32 +1,35 @@
 // ==========================
-// Label Outcomes — TAHAP 1: open pagi ini (gap vs snapshot kemarin)
+// Label Outcomes — TAHAP 1: open pagi ini
 // ==========================
 //
-// Dijalankan besok pagi (lewat cron di vercel.json, atau manual) untuk
-// melabeli snapshot KEMARIN dengan harga OPEN hari ini. Tanpa ini,
-// scan_history cuma berisi fitur tanpa label — tidak bisa dipakai
-// training model apa pun.
+// Dijalankan besok pagi untuk melabeli snapshot KEMARIN.
 //
-// Definisi label: gap_up_realized = true kalau open hari ini >= +2%
-// dari close snapshot kemarin (ambang bisa diubah lewat ?threshold=).
-// Ini definisi yang harus KONSISTEN dari waktu ke waktu — jangan
-// diubah setelah mulai training, atau dataset jadi tidak sebanding
-// lintas periode.
+// Prioritas sumber harga H+1:
+//   1. Candle harian Yahoo/IDX jika sudah tersedia
+//   2. ZAPI first intraday price sebagai FALLBACK jika candle H+1
+//      belum tersedia dan targetnya adalah hari berjalan.
 //
-// PENTING:
-// File ini hanya mengisi OPEN H+1.
-// Close/high/low tetap ditangani oleh:
-//   api/label-outcomes-close.js
+// CATATAN PENTING:
+// ZAPI firstPrice = harga intraday pertama yang tersedia dari ZAPI.
+// Ini BUKAN klaim bahwa field tersebut adalah official opening price IDX.
+// Karena itu ZAPI hanya digunakan sebagai fallback.
 //
-// PERBAIKAN:
-// Jangan lagi memakai candles.at(-1) secara membabi buta.
-// Untuk backlog seperti:
+// Definisi label:
+// gap_up_realized = true kalau harga H+1 >= +2%
+// dari close snapshot H.
 //
-//   2026-08-10 -> harus mencari candle 2026-08-11
+// TAHAP 2:
+// api/label-outcomes-close.js tetap bertugas mengambil:
+//   - actual_next_close
+//   - actual_next_high
+//   - actual_next_low
+//   - max_gain_from_open_pct
+//   - next_day_max_gain_from_close_pct
+//   - next_day_close_return_from_close_pct
+//   - peak_time_wib
+//   - peak_session_phase
 //
-// kita memilih candle perdagangan PERTAMA setelah scan_date.
-// Ini juga otomatis melewati Sabtu/Minggu/libur bursa.
-//
+// ==========================
 
 import {
   getUnlabeledSnapshots,
@@ -34,7 +37,13 @@ import {
   getOldestUnlabeledDate
 } from "../services/dataLogService.js";
 
-import { getStockData } from "../services/stockService.js";
+import {
+  getStockData
+} from "../services/stockService.js";
+
+import {
+  getZapiFirstPriceToday
+} from "../services/zapiService.js";
 
 export const config = {
   maxDuration: 60
@@ -43,8 +52,31 @@ export const config = {
 const CONCURRENCY = 12;
 const DEFAULT_THRESHOLD_PCT = 2;
 
+// ==========================
+// Helper: WIB date
+// ==========================
+//
+// Jangan menggunakan UTC date untuk menentukan "hari ini" karena
+// server Vercel biasanya berjalan dalam UTC.
+// Indonesia = UTC+7.
+
+function todayWIB() {
+  const now = new Date();
+
+  const wib = new Date(
+    now.getTime() + 7 * 60 * 60 * 1000
+  );
+
+  return wib.toISOString().slice(0, 10);
+}
+
+// ==========================
+// Helper: run concurrency pool
+// ==========================
+
 async function runPool(items, worker, concurrency) {
   const results = new Array(items.length);
+
   let cursor = 0;
 
   async function next() {
@@ -55,7 +87,7 @@ async function runPool(items, worker, concurrency) {
         results[i] = await worker(items[i], i);
       } catch (e) {
         results[i] = {
-          error: e?.message || String(e)
+          error: e.message
         };
       }
     }
@@ -73,105 +105,16 @@ async function runPool(items, worker, concurrency) {
   return results;
 }
 
-
-// ============================================================
-// Helper: tanggal UTC YYYY-MM-DD
-// ============================================================
-
-function todayUTC() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-
-// ============================================================
-// Helper: normalisasi tanggal candle
-//
-// Mendukung beberapa kemungkinan format:
-//   "2026-08-11"
-//   "2026-08-11T00:00:00.000Z"
-//   Date object
-//   timestamp detik
-//   timestamp milidetik
-// ============================================================
-
-function toDateOnly(value) {
-  if (value == null) {
-    return null;
-  }
-
-  // String
-  if (typeof value === "string") {
-    const match = value.match(/^(\d{4}-\d{2}-\d{2})/);
-
-    if (match) {
-      return match[1];
-    }
-
-    const parsed = new Date(value);
-
-    if (!Number.isNaN(parsed.getTime())) {
-      return parsed.toISOString().slice(0, 10);
-    }
-
-    return null;
-  }
-
-  // Date object
-  if (value instanceof Date) {
-    if (!Number.isNaN(value.getTime())) {
-      return value.toISOString().slice(0, 10);
-    }
-
-    return null;
-  }
-
-  // Unix timestamp
-  if (typeof value === "number" && Number.isFinite(value)) {
-    const milliseconds =
-      value < 1e12
-        ? value * 1000
-        : value;
-
-    const parsed = new Date(milliseconds);
-
-    if (!Number.isNaN(parsed.getTime())) {
-      return parsed.toISOString().slice(0, 10);
-    }
-  }
-
-  return null;
-}
-
-
-// ============================================================
-// Helper: ambil tanggal candle dari berbagai kemungkinan field
-// ============================================================
-
-function getCandleDate(candle) {
-  if (!candle || typeof candle !== "object") {
-    return null;
-  }
-
-  return toDateOnly(
-    candle.date ??
-    candle.datetime ??
-    candle.timestamp ??
-    candle.time ??
-    candle.day
-  );
-}
-
-
-// ============================================================
+// ==========================
 // Handler
-// ============================================================
+// ==========================
 
 export default async function handler(req, res) {
   try {
 
-    // ========================================================
-    // Authorization
-    // ========================================================
+    // ==========================
+    // CRON AUTH
+    // ==========================
 
     if (process.env.CRON_SECRET) {
       const auth = req.headers.authorization;
@@ -184,15 +127,13 @@ export default async function handler(req, res) {
       }
     }
 
+    // ==========================
+    // THRESHOLD
+    // ==========================
 
-    // ========================================================
-    // Threshold
-    // ========================================================
-
-    const thresholdPct =
-      req.query.threshold != null
-        ? parseFloat(req.query.threshold)
-        : DEFAULT_THRESHOLD_PCT;
+    const thresholdPct = req.query.threshold
+      ? parseFloat(req.query.threshold)
+      : DEFAULT_THRESHOLD_PCT;
 
     if (!Number.isFinite(thresholdPct)) {
       return res.status(400).json({
@@ -201,22 +142,25 @@ export default async function handler(req, res) {
       });
     }
 
-
-    // ========================================================
-    // Tentukan snapshot H
+    // ==========================
+    // TENTUKAN SCAN DATE
+    // ==========================
     //
-    // ?date= tetap didukung.
-    // Jika tidak ada date, ambil backlog tertua.
-    // ========================================================
+    // Jika ?date= diberikan:
+    // gunakan tanggal tersebut.
+    //
+    // Jika tidak:
+    // ambil snapshot paling lama yang belum dilabel.
+    //
+    // Ini penting untuk mengejar backlog seperti:
+    //
+    // Jumat → Senin
+    //
+    // tanpa salah menganggap Minggu sebagai hari berikutnya.
 
     const scanDate =
       req.query.date ||
       (await getOldestUnlabeledDate());
-
-
-    // ========================================================
-    // Tidak ada snapshot
-    // ========================================================
 
     if (!scanDate) {
       return res.status(200).json({
@@ -228,194 +172,244 @@ export default async function handler(req, res) {
       });
     }
 
+    // ==========================
+    // JANGAN LABEL HARI INI
+    // ==========================
+    //
+    // Snapshot hari ini membutuhkan data H+1.
+    //
+    // Walaupun ZAPI punya intraday hari ini, snapshot hari ini
+    // belum mempunyai "besok", sehingga tidak boleh dilabel.
 
-    // ========================================================
-    // Jangan label hari ini menggunakan data hari ini
-    // ========================================================
-
-    if (scanDate === todayUTC()) {
+    if (scanDate === todayWIB()) {
       return res.status(200).json({
         success: true,
         scanDate,
         message:
-          "Snapshot tertua yang belum dilabel adalah scan hari ini — tunggu sampai besok (perlu harga open besok).",
+          "Snapshot tertua yang belum dilabel adalah scan hari ini — tunggu sampai besok.",
         labeled: 0
       });
     }
 
-
-    // ========================================================
-    // Ambil snapshot yang belum dilabel
-    // ========================================================
+    // ==========================
+    // AMBIL SNAPSHOT PENDING
+    // ==========================
 
     const pending =
       await getUnlabeledSnapshots(scanDate);
-
 
     if (pending.length === 0) {
       return res.status(200).json({
         success: true,
         scanDate,
         message:
-          "Tidak ada snapshot yang perlu dilabel (sudah dilabel semua, atau belum ada scan di tanggal ini).",
+          "Tidak ada snapshot yang perlu dilabel.",
         labeled: 0
       });
     }
 
-
-    // ========================================================
-    // Label setiap saham
-    // ========================================================
+    // ==========================
+    // LABELING
+    // ==========================
 
     const results = await runPool(
       pending,
-
       async (row) => {
 
-        const stockData =
-          await getStockData(row.kode);
+        // ============================================================
+        // 1. COBA DATA DAILY TERLEBIH DAHULU
+        // ============================================================
 
+        let stockData = null;
 
-        // ====================================================
-        // Validasi data candle
-        // ====================================================
-
-        const candles =
-          Array.isArray(stockData?.candles)
-            ? stockData.candles
-            : [];
-
-
-        if (candles.length === 0) {
-          throw new Error(
-            `Tidak ada candle tersedia untuk ${row.kode}.`
+        try {
+          stockData = await getStockData(row.kode);
+        } catch (e) {
+          console.error(
+            `getStockData(${row.kode}) gagal:`,
+            e.message
           );
         }
 
+        let nextOpen = null;
+        let nextOpenSource = null;
+        let nextOpenDate = null;
 
-        // ====================================================
-        // Cari candle perdagangan pertama SETELAH scan_date
+        // ============================================================
+        // 2. CARI CANDLE H+1
+        // ============================================================
+
+        if (stockData?.candles?.length) {
+
+          for (const candle of stockData.candles) {
+
+            const candleDate =
+              candle.date.slice(0, 10);
+
+            if (candleDate > scanDate) {
+
+              nextOpen = Number(candle.open);
+
+              if (Number.isFinite(nextOpen)) {
+                nextOpenSource =
+                  stockData.priceSource === "IDX_OFFICIAL"
+                    ? "IDX_OFFICIAL"
+                    : "YAHOO";
+
+                nextOpenDate = candleDate;
+              }
+
+              break;
+            }
+          }
+        }
+
+        // ============================================================
+        // 3. FALLBACK ZAPI
+        // ============================================================
+        //
+        // ZAPI timeframe=today hanya menyediakan hari berjalan.
+        //
+        // Karena itu ZAPI HANYA boleh digunakan jika:
+        //
+        // scanDate < todayWIB()
+        //
+        // dan target H+1 memang adalah hari ini.
         //
         // Contoh:
         //
-        // H:
-        // 2026-08-10
+        // scanDate = 2026-08-10
+        // today    = 2026-08-11
         //
-        // candle tersedia:
-        // 2026-08-10
-        // 2026-08-11
-        // 2026-08-12
+        // → BOLEH menggunakan ZAPI.
         //
-        // yang dipilih:
-        // 2026-08-11
+        // Tetapi:
         //
-        // Kalau Jumat:
-        // 2026-08-07
-        // -> 2026-08-10 Senin
-        // ====================================================
-
-        const datedCandles = candles
-          .map((candle) => ({
-            candle,
-            date: getCandleDate(candle)
-          }))
-          .filter(
-            (item) =>
-              item.date &&
-              item.date > scanDate
-          )
-          .sort(
-            (a, b) =>
-              a.date.localeCompare(b.date)
-          );
-
-
-        const nextDayItem =
-          datedCandles[0];
-
-
-        // ====================================================
-        // H+1 belum tersedia
+        // scanDate = 2026-08-08
+        // today    = 2026-08-11
         //
-        // Jangan pakai candle terakhir.
-        // Jangan melabel dengan data yang salah.
-        // ====================================================
+        // → TIDAK boleh menggunakan ZAPI untuk mencari H+1
+        //    karena target sebenarnya adalah 2026-08-09.
 
-        if (!nextDayItem) {
-          throw new Error(
-            `Candle H+1 belum tersedia untuk ${row.kode} setelah ${scanDate}. Snapshot belum dilabel.`
-          );
-        }
+        const currentDateWIB = todayWIB();
 
-
-        const nextDayCandle =
-          nextDayItem.candle;
-
-
-        // ====================================================
-        // Ambil OPEN H+1
-        // ====================================================
-
-        const nextOpen =
-          Number(nextDayCandle?.open);
-
+        const isTargetToday =
+          scanDate < currentDateWIB;
 
         if (
-          !Number.isFinite(nextOpen) ||
-          nextOpen <= 0
+          nextOpen === null &&
+          isTargetToday
         ) {
-          throw new Error(
-            `Harga OPEN H+1 tidak valid untuk ${row.kode} pada ${nextDayItem.date}.`
-          );
+
+          try {
+
+            const zapi =
+              await getZapiFirstPriceToday(row.kode);
+
+            if (zapi?.firstPrice != null) {
+
+              const firstPrice =
+                Number(zapi.firstPrice);
+
+              if (
+                Number.isFinite(firstPrice) &&
+                firstPrice > 0
+              ) {
+
+                nextOpen = firstPrice;
+
+                nextOpenSource =
+                  "ZAPI_STOCKBIT_FIRST_INTRADAY";
+
+                nextOpenDate =
+                  currentDateWIB;
+              }
+            }
+
+          } catch (e) {
+
+            console.error(
+              `ZAPI fallback ${row.kode} gagal:`,
+              e.message
+            );
+          }
         }
 
+        // ============================================================
+        // 4. JIKA H+1 MASIH TIDAK TERSEDIA
+        // ============================================================
+        //
+        // Jangan pernah memakai candle H atau tanggal lain sebagai H+1.
+        //
+        // Lebih baik record belum dilabel daripada memasukkan label salah
+        // ke dataset training SahamAI.
 
-        // ====================================================
-        // Validasi CLOSE H
-        // ====================================================
+        if (
+          nextOpen === null ||
+          !Number.isFinite(nextOpen)
+        ) {
+
+          return {
+            kode: row.kode,
+            status: "NOT_FOUND",
+            error:
+              `Candle H+1 belum tersedia untuk ${row.kode} setelah ${scanDate}. Snapshot belum dilabel.`
+          };
+        }
+
+        // ============================================================
+        // 5. VALIDASI CLOSE SNAPSHOT
+        // ============================================================
 
         const previousClose =
           Number(row.close);
-
 
         if (
           !Number.isFinite(previousClose) ||
           previousClose <= 0
         ) {
-          throw new Error(
-            `Close snapshot ${scanDate} tidak valid untuk ${row.kode}.`
-          );
+
+          return {
+            kode: row.kode,
+            status: "INVALID_REFERENCE_CLOSE",
+            error:
+              `Close snapshot ${row.kode} tidak valid: ${row.close}`
+          };
         }
 
-
-        // ====================================================
-        // Hitung return:
-        //
-        // CLOSE H -> OPEN H+1
-        // ====================================================
+        // ============================================================
+        // 6. HITUNG RETURN H+1
+        // ============================================================
 
         const nextDayReturnPct =
           Number(
             (
-              (
-                (nextOpen - previousClose) /
-                previousClose
-              ) * 100
+              ((nextOpen - previousClose) /
+                previousClose) *
+              100
             ).toFixed(2)
           );
 
-
-        // ====================================================
-        // Gap +2%
-        // ====================================================
+        // ============================================================
+        // 7. GAP UP REALIZED
+        // ============================================================
 
         const gapUpRealized =
           nextDayReturnPct >= thresholdPct;
 
-
-        // ====================================================
-        // Simpan label ke record H
-        // ====================================================
+        // ============================================================
+        // 8. SIMPAN LABEL
+        // ============================================================
+        //
+        // Kolom lama tetap dipertahankan supaya kompatibel dengan
+        // dataset SahamAI yang sudah ada.
+        //
+        // actual_next_open:
+        //   - IDX_OFFICIAL / Yahoo jika tersedia
+        //   - ZAPI first intraday jika fallback
+        //
+        // labeled_at:
+        //   menandakan Tahap 1 sudah selesai.
 
         await updateLabel(row.id, {
 
@@ -430,65 +424,95 @@ export default async function handler(req, res) {
 
           labeled_at:
             new Date().toISOString()
-
         });
 
-
-        // ====================================================
-        // Return hasil untuk audit
-        // ====================================================
+        // ============================================================
+        // 9. RETURN HASIL
+        // ============================================================
 
         return {
           kode: row.kode,
-
-          scanDate,
-
-          nextDate:
-            nextDayItem.date,
-
-          previousClose,
+          status: "OK",
 
           nextOpen,
+          nextOpenDate,
+          nextOpenSource,
 
           nextDayReturnPct,
-
           gapUpRealized
         };
       },
-
       CONCURRENCY
     );
 
+    // ==========================
+    // SUMMARY
+    // ==========================
 
-    // ========================================================
-    // Pisahkan berhasil / gagal
-    // ========================================================
-
-    const ok =
+    const successful =
       results.filter(
-        (r) => r && !r.error
+        (r) =>
+          r &&
+          r.status === "OK"
       );
 
+    const notFound =
+      results.filter(
+        (r) =>
+          r &&
+          r.status === "NOT_FOUND"
+      );
+
+    const invalidReference =
+      results.filter(
+        (r) =>
+          r &&
+          r.status === "INVALID_REFERENCE_CLOSE"
+      );
 
     const failed =
       results
-        .map(
-          (r, i) =>
-            r && r.error
-              ? {
-                  kode:
-                    pending[i].kode,
-                  error:
-                    r.error
-                }
-              : null
-        )
+        .map((r, i) => {
+
+          if (!r) return null;
+
+          if (r.error) {
+            return {
+              kode: pending[i].kode,
+              error: r.error,
+              status: r.status
+            };
+          }
+
+          return null;
+
+        })
         .filter(Boolean);
 
+    // ==========================
+    // SUMBER DATA
+    // ==========================
 
-    // ========================================================
-    // Response
-    // ========================================================
+    const sourceStats = {
+      IDX_OFFICIAL: successful.filter(
+        r => r.nextOpenSource === "IDX_OFFICIAL"
+      ).length,
+
+      YAHOO: successful.filter(
+        r => r.nextOpenSource === "YAHOO"
+      ).length,
+
+      ZAPI_STOCKBIT_FIRST_INTRADAY:
+        successful.filter(
+          r =>
+            r.nextOpenSource ===
+            "ZAPI_STOCKBIT_FIRST_INTRADAY"
+        ).length
+    };
+
+    // ==========================
+    // RESPONSE
+    // ==========================
 
     return res.status(200).json({
 
@@ -496,20 +520,29 @@ export default async function handler(req, res) {
 
       scanDate,
 
+      todayWIB: todayWIB(),
+
       thresholdPct,
 
       pending: pending.length,
 
-      labeled: ok.length,
+      labeled: successful.length,
 
       failed: failed.length,
 
+      notFound: notFound.length,
+
+      invalidReference:
+        invalidReference.length,
+
       gapUpCount:
-        ok.filter(
-          (r) => r.gapUpRealized
+        successful.filter(
+          r => r.gapUpRealized
         ).length,
 
-      results: ok,
+      sourceStats,
+
+      results: successful,
 
       failedCodes: failed
 
@@ -518,7 +551,7 @@ export default async function handler(req, res) {
   } catch (error) {
 
     console.error(
-      "Labeling error:",
+      "label-outcomes error:",
       error
     );
 
@@ -530,8 +563,10 @@ export default async function handler(req, res) {
         "Labeling gagal.",
 
       error:
-        error?.message ||
-        String(error)
+        error.message,
+
+      stack:
+        error.stack
 
     });
   }
