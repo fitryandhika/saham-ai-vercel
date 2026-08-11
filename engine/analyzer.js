@@ -417,7 +417,11 @@ export function analyzeStock(data) {
     exhaustion,
     distribution,
     liquidity,
-    riskReward
+    riskReward,
+    closingStrength,
+    marketTrend,
+    rsi,
+    macd
   });
 
   // Saham beku/tidak likuid: signal & session-gain internal (dihitung
