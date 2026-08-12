@@ -5,30 +5,23 @@
 // PRIORITAS SUMBER DATA
 //
 // DAILY / HISTORICAL
-//   1. IDX Official
-//   2. Yahoo Finance
+//   1. IDX Official untuk candle terbaru jika tersedia
+//   2. Yahoo Finance untuk historical daily
 //
-// HARI BERJALAN / REALTIME
-//   1. ZAPI
-//   2. IDX Official
-//   3. Yahoo Finance
-//
-// INTRADAY
+// REALTIME / INTRADAY HARI BERJALAN
 //   1. ZAPI Stockbit
-//   2. Yahoo Finance 15m
+//   2. Yahoo Finance 15m fallback
 //
-// Tujuan utama:
-//   - strategi BUY SORE -> SELL PAGI
-//   - menjaga historical candle tetap tersedia
-//   - menghindari ketergantungan penuh pada Yahoo
-//   - mengetahui sumber setiap candle
+// PENTING:
+// ZAPI yang tersedia saat ini melalui zapiService.js adalah
+// getZapiIntradayPeakToday(), yaitu data intraday hari berjalan.
+// Jangan menggunakan data peak ZAPI untuk membuat daily OHLCV,
+// karena peak saja tidak cukup untuk membentuk open/close/volume.
 //
-// CATATAN:
-// ZAPI intraday yang tersedia saat ini hanya menyediakan data
-// hari berjalan. Karena itu ZAPI TIDAK digunakan untuk menggantikan
-// historical daily candle.
+// Strategi:
+//   BUY SORE -> SELL PAGI
 //
-// ==========================
+// ============================================================
 
 import { getOfficialTodayData } from "./idxService.js";
 
@@ -71,6 +64,7 @@ async function fetchJsonWithTimeout(
 
   try {
     const response = await fetch(url, {
+      method: "GET",
       headers,
       signal: controller.signal
     });
@@ -100,11 +94,15 @@ function dateOnly(value) {
 }
 
 function isValidDateString(value) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+  if (
+    typeof value !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(value)
+  ) {
     return false;
   }
 
-  const d = new Date(`${value}T00:00:00Z`);
+  const d =
+    new Date(`${value}T00:00:00Z`);
 
   return (
     !Number.isNaN(d.getTime()) &&
@@ -157,12 +155,15 @@ function normalizeCandle({
 }) {
   const candle = {
     date: dateOnly(date),
+
     open: toNumber(open),
     high: toNumber(high),
     low: toNumber(low),
     close: toNumber(close),
     volume: toNumber(volume),
-    source: source || "UNKNOWN"
+
+    source:
+      source || "UNKNOWN"
   };
 
   if (
@@ -180,23 +181,20 @@ function normalizeCandle({
 }
 
 // ============================================================
-// SORT + DEDUPLICATE CANDLES
+// SOURCE PRIORITY
 // ============================================================
 //
-// Kalau IDX dan Yahoo sama-sama punya tanggal yang sama,
-// sumber yang diprioritaskan akan tetap menang.
+// Untuk daily candle:
 //
-// sourcePriority:
-//   ZAPI = 3
-//   IDX  = 2
-//   YAHOO = 1
+// IDX_OFFICIAL > YAHOO
 //
+// ZAPI intraday TIDAK dimasukkan ke merge daily,
+// karena struktur datanya berbeda.
+//
+// ============================================================
 
 function sourcePriority(source) {
   switch (source) {
-    case "ZAPI_STOCKBIT":
-    case "ZAPI_STOCKBIT_INTRADAY":
-      return 3;
 
     case "IDX_OFFICIAL":
       return 2;
@@ -209,37 +207,63 @@ function sourcePriority(source) {
   }
 }
 
+// ============================================================
+// MERGE CANDLES
+// ============================================================
+
 function mergeCandles(...arrays) {
+
   const map = new Map();
 
   for (const arr of arrays) {
-    if (!Array.isArray(arr)) continue;
+
+    if (!Array.isArray(arr)) {
+      continue;
+    }
 
     for (const candle of arr) {
-      if (!candle) continue;
+
+      if (!candle) {
+        continue;
+      }
 
       const existing =
         map.get(candle.date);
 
       if (!existing) {
-        map.set(candle.date, candle);
+
+        map.set(
+          candle.date,
+          candle
+        );
+
         continue;
       }
 
       if (
-        sourcePriority(candle.source) >
-        sourcePriority(existing.source)
+        sourcePriority(
+          candle.source
+        ) >
+        sourcePriority(
+          existing.source
+        )
       ) {
-        map.set(candle.date, candle);
+        map.set(
+          candle.date,
+          candle
+        );
       }
     }
   }
 
-  return Array.from(map.values())
-    .sort(
-      (a, b) =>
-        a.date.localeCompare(b.date)
-    );
+  return Array.from(
+    map.values()
+  ).sort(
+    (a, b) =>
+      a.date.localeCompare(
+        b.date
+      )
+  );
 }
 
 // ============================================================
@@ -250,6 +274,7 @@ async function getYahooDailyCandles(
   kode,
   range = "6mo"
 ) {
+
   const symbol =
     `${kode.toUpperCase()}.JK`;
 
@@ -261,27 +286,38 @@ async function getYahooDailyCandles(
     `&includeAdjustedClose=true`;
 
   const json =
-    await fetchJsonWithTimeout(url, {
-      timeout: YAHOO_TIMEOUT_MS,
-      headers: {
-        Accept: "application/json"
+    await fetchJsonWithTimeout(
+      url,
+      {
+        timeout:
+          YAHOO_TIMEOUT_MS,
+
+        headers: {
+          Accept:
+            "application/json"
+        }
       }
-    });
+    );
 
   const result =
     json?.chart?.result?.[0];
 
   if (!result) {
-    throw new Error(
-      `Data Yahoo ${kode} tidak ditemukan.`
-    );
+
+    const message =
+      json?.chart?.error?.description ||
+      `Data Yahoo ${kode} tidak ditemukan.`;
+
+    throw new Error(message);
   }
 
   const timestamps =
     result.timestamp || [];
 
   const quote =
-    result.indicators?.quote?.[0];
+    result
+      .indicators
+      ?.quote?.[0];
 
   if (
     !Array.isArray(timestamps) ||
@@ -299,22 +335,51 @@ async function getYahooDailyCandles(
     i < timestamps.length;
     i++
   ) {
+
+    const timestamp =
+      Number(
+        timestamps[i]
+      );
+
+    if (
+      !Number.isFinite(timestamp)
+    ) {
+      continue;
+    }
+
+    // Yahoo daily timestamp adalah UTC.
+    // Untuk daily IDX, penggunaan UTC date aman
+    // karena timestamp candle harian tidak melewati
+    // batas tanggal WIB secara problematis.
     const date =
       new Date(
-        timestamps[i] * 1000
+        timestamp * 1000
       )
         .toISOString()
         .slice(0, 10);
 
     const candle =
       normalizeCandle({
+
         date,
-        open: quote.open?.[i],
-        high: quote.high?.[i],
-        low: quote.low?.[i],
-        close: quote.close?.[i],
-        volume: quote.volume?.[i],
-        source: "YAHOO"
+
+        open:
+          quote.open?.[i],
+
+        high:
+          quote.high?.[i],
+
+        low:
+          quote.low?.[i],
+
+        close:
+          quote.close?.[i],
+
+        volume:
+          quote.volume?.[i],
+
+        source:
+          "YAHOO"
       });
 
     if (candle) {
@@ -322,7 +387,9 @@ async function getYahooDailyCandles(
     }
   }
 
-  if (candles.length === 0) {
+  if (
+    candles.length === 0
+  ) {
     throw new Error(
       `Yahoo tidak memiliki candle valid untuk ${kode}.`
     );
@@ -332,36 +399,42 @@ async function getYahooDailyCandles(
 }
 
 // ============================================================
-// IDX OFFICIAL CANDLE
+// IDX OFFICIAL LATEST CANDLE
 // ============================================================
 //
-// getOfficialTodayData() saat ini mengembalikan satu candle
-// terbaru yang tersedia dari IDX.
+// getOfficialTodayData() saat ini digunakan sebagai
+// sumber candle terbaru jika tersedia.
 //
-// Kita tidak menggunakan IDX sebagai historical provider,
-// karena service IDX Anda saat ini memang didesain untuk
-// data terbaru yang tersedia.
+// Tidak dipakai sebagai historical provider.
 //
+// ============================================================
 
 async function getIdxOfficialLatestCandle(
   kode
 ) {
+
   try {
+
     const official =
       await Promise.race([
-        getOfficialTodayData(kode),
 
-        new Promise((_, reject) =>
-          setTimeout(
-            () =>
-              reject(
-                new Error(
-                  "IDX timeout"
-                )
-              ),
-            IDX_TIMEOUT_MS
-          )
+        getOfficialTodayData(
+          kode
+        ),
+
+        new Promise(
+          (_, reject) =>
+            setTimeout(
+              () =>
+                reject(
+                  new Error(
+                    "IDX timeout"
+                  )
+                ),
+              IDX_TIMEOUT_MS
+            )
         )
+
       ]);
 
     if (!official) {
@@ -369,20 +442,35 @@ async function getIdxOfficialLatestCandle(
     }
 
     return normalizeCandle({
-      date: official.date,
-      open: official.open,
-      high: official.high,
-      low: official.low,
-      close: official.close,
-      volume: official.volume,
-      source: "IDX_OFFICIAL"
+
+      date:
+        official.date,
+
+      open:
+        official.open,
+
+      high:
+        official.high,
+
+      low:
+        official.low,
+
+      close:
+        official.close,
+
+      volume:
+        official.volume,
+
+      source:
+        "IDX_OFFICIAL"
     });
 
   } catch (e) {
 
     console.error(
       `IDX official ${kode} gagal:`,
-      e.message
+      e?.message ||
+        String(e)
     );
 
     return null;
@@ -393,25 +481,17 @@ async function getIdxOfficialLatestCandle(
 // GET STOCK DATA
 // ============================================================
 //
-// Ini fungsi utama yang dipakai analyzer / labeling.
+// Fungsi utama untuk analyzer dan labeling.
 //
-// PRIORITAS:
+// Daily candle:
+//   Yahoo historical
+//   + IDX latest jika tersedia
 //
-// Historical:
-//   Yahoo menyediakan seluruh history.
-//   IDX hanya dipakai untuk mengganti/menambahkan candle
-//   terbaru.
+// Intraday:
+//   tidak dicampurkan ke candles daily.
 //
-// Hari berjalan:
-//   IDX Official dipakai jika tersedia.
-//
-// ZAPI:
-//   ZAPI intraday TIDAK digunakan untuk membuat daily candle
-//   karena endpoint yang tersedia hanya intraday hari ini.
-//
-// Jadi:
-//   daily candle = IDX + Yahoo
-//   realtime intraday = ZAPI
+// Ini penting supaya analyzer tidak mendapatkan candle
+// dengan timeframe campuran.
 //
 // ============================================================
 
@@ -419,6 +499,7 @@ export async function getStockData(
   kode,
   range = "6mo"
 ) {
+
   if (!kode) {
     throw new Error(
       "Kode saham wajib diisi."
@@ -430,9 +511,15 @@ export async function getStockData(
       .trim()
       .toUpperCase();
 
-  // ----------------------------------------------------------
-  // YAHOO
-  // ----------------------------------------------------------
+  if (!normalizedKode) {
+    throw new Error(
+      "Kode saham tidak valid."
+    );
+  }
+
+  // ==========================================================
+  // YAHOO DAILY
+  // ==========================================================
 
   let yahooCandles = [];
 
@@ -448,75 +535,83 @@ export async function getStockData(
 
     console.error(
       `Yahoo ${normalizedKode} gagal:`,
-      e.message
+      e?.message ||
+        String(e)
     );
   }
 
-  // ----------------------------------------------------------
-  // IDX OFFICIAL
-  // ----------------------------------------------------------
+  // ==========================================================
+  // IDX LATEST
+  // ==========================================================
 
   let idxCandle = null;
 
-  //
-  // IDX dipanggil untuk range daily yang umum.
-  //
   if (
     range === "6mo" ||
     range === "3mo" ||
     range === "1mo" ||
-    range === "1y"
+    range === "1y" ||
+    range === "max"
   ) {
+
     idxCandle =
       await getIdxOfficialLatestCandle(
         normalizedKode
       );
   }
 
-  // ----------------------------------------------------------
+  // ==========================================================
   // MERGE
-  // ----------------------------------------------------------
+  // ==========================================================
 
   const candles =
     mergeCandles(
+
       yahooCandles,
+
       idxCandle
         ? [idxCandle]
         : []
+
     );
 
-  if (candles.length === 0) {
+  // ==========================================================
+  // NO DATA
+  // ==========================================================
+
+  if (
+    candles.length === 0
+  ) {
+
     throw new Error(
       `Tidak ada data candle valid untuk ${normalizedKode}.`
     );
   }
 
-  // ----------------------------------------------------------
-  // PRICE SOURCE
-  // ----------------------------------------------------------
-
-  let priceSource =
-    "YAHOO";
-
-  if (idxCandle) {
-    priceSource =
-      "IDX_OFFICIAL";
-  }
-
-  // ----------------------------------------------------------
-  // LATEST CANDLE SOURCE
-  // ----------------------------------------------------------
+  // ==========================================================
+  // SOURCE
+  // ==========================================================
 
   const latestCandle =
-    candles[candles.length - 1];
+    candles[
+      candles.length - 1
+    ];
 
   const latestSource =
     latestCandle?.source ||
-    priceSource;
+    "UNKNOWN";
+
+  // Historical data source tetap
+  // mengikuti candle terbaru yang
+  // benar-benar digunakan.
+
+  const priceSource =
+    latestSource;
 
   return {
 
-    kode: normalizedKode,
+    kode:
+      normalizedKode,
 
     candles,
 
@@ -541,13 +636,17 @@ export async function getStockData(
 }
 
 // ============================================================
-// FIND TRADING DAY AFTER
+// FIND TRADING DAY CANDLE AFTER
 // ============================================================
 //
-// Jangan pernah menggunakan:
-// candles.at(-1)
+// Mencari candle trading pertama
+// setelah scanDate.
 //
-// karena candle terakhir belum tentu H+1.
+// TIDAK PERNAH menggunakan:
+//   candles.at(-1)
+//
+// karena candle terakhir bisa merupakan
+// tanggal yang jauh lebih baru.
 //
 // ============================================================
 
@@ -555,6 +654,7 @@ export function findTradingDayCandleAfter(
   candles,
   scanDate
 ) {
+
   if (
     !Array.isArray(candles) ||
     candles.length === 0
@@ -569,20 +669,29 @@ export function findTradingDayCandleAfter(
   const targetDate =
     dateOnly(scanDate);
 
-  if (!targetDate) {
+  if (
+    !targetDate ||
+    !isValidDateString(
+      targetDate
+    )
+  ) {
     return null;
   }
 
   const sorted =
     [...candles]
+
       .filter(
-        c =>
-          c &&
-          c.date &&
+        candle =>
+          candle &&
+          candle.date &&
           isValidDateString(
-            dateOnly(c.date)
+            dateOnly(
+              candle.date
+            )
           )
       )
+
       .sort(
         (a, b) =>
           dateOnly(a.date)
@@ -591,14 +700,20 @@ export function findTradingDayCandleAfter(
             )
       );
 
-  for (const candle of sorted) {
+  for (
+    const candle of sorted
+  ) {
 
     const candleDate =
-      dateOnly(candle.date);
+      dateOnly(
+        candle.date
+      );
 
     if (
-      candleDate > targetDate
+      candleDate >
+      targetDate
     ) {
+
       return candle;
     }
   }
@@ -607,13 +722,239 @@ export function findTradingDayCandleAfter(
 }
 
 // ============================================================
+// GET ZAPI INTRADAY PEAK
+// ============================================================
+//
+// ZAPI adalah PRIORITAS untuk:
+//
+//   targetDateWIB === hari ini
+//
+// Jika ZAPI berhasil:
+//   return ZAPI
+//
+// Jika ZAPI gagal:
+//   lanjut Yahoo 15m
+//
+// ============================================================
+
+async function getZapiPeakWithTimeout(
+  kode
+) {
+
+  return Promise.race([
+
+    getZapiIntradayPeakToday(
+      kode
+    ),
+
+    new Promise(
+      (_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                "ZAPI timeout"
+              )
+            ),
+          ZAPI_TIMEOUT_MS
+        )
+    )
+
+  ]);
+}
+
+// ============================================================
+// GET YAHOO INTRADAY PEAK
+// ============================================================
+
+async function getYahooIntradayPeak(
+  kode,
+  targetDateWIB,
+  {
+    range = "5d",
+    interval = "15m"
+  } = {}
+) {
+
+  const symbol =
+    `${kode.toUpperCase()}.JK`;
+
+  const url =
+    `${YAHOO_BASE_URL}/${encodeURIComponent(symbol)}` +
+    `?range=${encodeURIComponent(range)}` +
+    `&interval=${encodeURIComponent(interval)}`;
+
+  const json =
+    await fetchJsonWithTimeout(
+      url,
+      {
+        timeout:
+          YAHOO_TIMEOUT_MS,
+
+        headers: {
+          Accept:
+            "application/json"
+        }
+      }
+    );
+
+  const result =
+    json?.chart?.result?.[0];
+
+  if (!result) {
+    return null;
+  }
+
+  const timestamps =
+    result.timestamp || [];
+
+  const quote =
+    result
+      .indicators
+      ?.quote?.[0];
+
+  if (
+    !Array.isArray(
+      timestamps
+    ) ||
+    !quote
+  ) {
+    return null;
+  }
+
+  let peakHigh = null;
+  let peakTs = null;
+
+  for (
+    let i = 0;
+    i < timestamps.length;
+    i++
+  ) {
+
+    const timestamp =
+      Number(
+        timestamps[i]
+      );
+
+    if (
+      !Number.isFinite(
+        timestamp
+      )
+    ) {
+      continue;
+    }
+
+    const high =
+      Number(
+        quote.high?.[i]
+      );
+
+    if (
+      !Number.isFinite(
+        high
+      )
+    ) {
+      continue;
+    }
+
+    // Yahoo timestamp = UTC.
+    // Tambahkan 7 jam untuk WIB.
+    const wib =
+      new Date(
+        (
+          timestamp +
+          7 * 3600
+        ) * 1000
+      );
+
+    const dateWIB =
+      wib
+        .toISOString()
+        .slice(0, 10);
+
+    if (
+      dateWIB !==
+      targetDateWIB
+    ) {
+      continue;
+    }
+
+    if (
+      peakHigh === null ||
+      high > peakHigh
+    ) {
+
+      peakHigh =
+        high;
+
+      peakTs =
+        timestamp;
+    }
+  }
+
+  if (
+    peakTs === null
+  ) {
+    return null;
+  }
+
+  const wib =
+    new Date(
+      (
+        peakTs +
+        7 * 3600
+      ) * 1000
+    );
+
+  const hh =
+    String(
+      wib.getUTCHours()
+    ).padStart(
+      2,
+      "0"
+    );
+
+  const mm =
+    String(
+      wib.getUTCMinutes()
+    ).padStart(
+      2,
+      "0"
+    );
+
+  const peakTimeWIB =
+    `${hh}:${mm}`;
+
+  return {
+
+    peakTimeWIB,
+
+    peakHigh,
+
+    peakSessionPhase:
+      classifySessionPhase(
+        peakTimeWIB
+      ),
+
+    source:
+      "YAHOO_INTRADAY_15M"
+  };
+}
+
+// ============================================================
 // GET INTRADAY PEAK TIME
 // ============================================================
 //
 // PRIORITAS:
 //
-// 1. ZAPI — jika target adalah hari ini
-// 2. Yahoo 15m — fallback / historical
+// 1. ZAPI jika target = hari ini
+// 2. Yahoo 15m fallback
+//
+// Untuk tanggal historis:
+//   langsung Yahoo.
+//
+// Ini penting karena ZAPI yang tersedia
+// sekarang hanya endpoint hari berjalan.
 //
 // ============================================================
 
@@ -626,223 +967,111 @@ export async function getIntradayPeakTime(
   } = {}
 ) {
 
-  // ----------------------------------------------------------
-  // VALIDASI
-  // ----------------------------------------------------------
-
-  if (!kode || !targetDateWIB) {
+  if (
+    !kode ||
+    !targetDateWIB
+  ) {
     return null;
   }
 
-  // ----------------------------------------------------------
-  // ZAPI — HARI INI
-  // ----------------------------------------------------------
+  const normalizedKode =
+    String(kode)
+      .trim()
+      .toUpperCase();
+
+  // ==========================================================
+  // ZAPI — PRIORITAS
+  // ==========================================================
 
   if (
-    targetDateWIB === todayWIB()
+    targetDateWIB ===
+    todayWIB()
   ) {
 
     try {
 
       const zapiPeak =
-        await Promise.race([
-          getZapiIntradayPeakToday(
-            kode
-          ),
+        await getZapiPeakWithTimeout(
+          normalizedKode
+        );
 
-          new Promise(
-            (_, reject) =>
-              setTimeout(
-                () =>
-                  reject(
-                    new Error(
-                      "ZAPI timeout"
-                    )
-                  ),
-                ZAPI_TIMEOUT_MS
-              )
+      if (
+        zapiPeak
+      ) {
+
+        const peakTime =
+          zapiPeak.peakTimeWIB ||
+          zapiPeak.time ||
+          null;
+
+        const peakHigh =
+          toNumber(
+            zapiPeak.peakHigh ??
+            zapiPeak.price ??
+            null
+          );
+
+        if (
+          peakTime &&
+          Number.isFinite(
+            peakHigh
           )
-        ]);
+        ) {
 
-      if (zapiPeak) {
+          return {
 
-        return {
+            peakTimeWIB:
+              peakTime,
 
-          peakTimeWIB:
-            zapiPeak.peakTimeWIB,
+            peakHigh,
 
-          peakHigh:
-            zapiPeak.peakHigh,
+            peakSessionPhase:
+              classifySessionPhase(
+                peakTime
+              ),
 
-          peakSessionPhase:
-            classifySessionPhase(
-              zapiPeak.peakTimeWIB
-            ),
+            source:
+              zapiPeak.source ||
+              "ZAPI_STOCKBIT_INTRADAY"
+          };
+        }
 
-          source:
-            zapiPeak.source ||
-            "ZAPI_STOCKBIT_INTRADAY"
-
-        };
+        console.warn(
+          `ZAPI ${normalizedKode} response tidak lengkap, fallback Yahoo.`
+        );
       }
 
     } catch (e) {
 
       console.error(
-        `ZAPI intraday ${kode} gagal, fallback Yahoo:`,
-        e.message
+        `ZAPI intraday ${normalizedKode} gagal, fallback Yahoo:`,
+        e?.message ||
+          String(e)
       );
     }
   }
 
-  // ----------------------------------------------------------
-  // YAHOO 15 MINUTE
-  // ----------------------------------------------------------
+  // ==========================================================
+  // YAHOO FALLBACK
+  // ==========================================================
 
   try {
 
-    const symbol =
-      `${kode.toUpperCase()}.JK`;
-
-    const url =
-      `${YAHOO_BASE_URL}/${encodeURIComponent(symbol)}` +
-      `?range=${encodeURIComponent(range)}` +
-      `&interval=${encodeURIComponent(interval)}`;
-
-    const json =
-      await fetchJsonWithTimeout(
-        url,
-        {
-          timeout:
-            YAHOO_TIMEOUT_MS,
-
-          headers: {
-            Accept:
-              "application/json"
-          }
-        }
-      );
-
-    const result =
-      json?.chart?.result?.[0];
-
-    if (!result) {
-      return null;
-    }
-
-    const timestamps =
-      result.timestamp || [];
-
-    const quote =
-      result.indicators
-        ?.quote?.[0];
-
-    if (
-      !Array.isArray(timestamps) ||
-      !quote
-    ) {
-      return null;
-    }
-
-    let peakHigh = null;
-    let peakTs = null;
-
-    for (
-      let i = 0;
-      i < timestamps.length;
-      i++
-    ) {
-
-      const high =
-        Number(
-          quote.high?.[i]
-        );
-
-      if (
-        !Number.isFinite(high)
-      ) {
-        continue;
+    return await getYahooIntradayPeak(
+      normalizedKode,
+      targetDateWIB,
+      {
+        range,
+        interval
       }
-
-      // Yahoo timestamp UTC.
-      // Tambahkan 7 jam untuk membaca WIB.
-      const wib =
-        new Date(
-          (timestamps[i] +
-            7 * 3600) *
-            1000
-        );
-
-      const dateWIB =
-        wib
-          .toISOString()
-          .slice(0, 10);
-
-      if (
-        dateWIB !==
-        targetDateWIB
-      ) {
-        continue;
-      }
-
-      if (
-        peakHigh === null ||
-        high > peakHigh
-      ) {
-
-        peakHigh = high;
-        peakTs =
-          timestamps[i];
-      }
-    }
-
-    if (
-      peakTs === null
-    ) {
-      return null;
-    }
-
-    const wib =
-      new Date(
-        (peakTs +
-          7 * 3600) *
-          1000
-      );
-
-    const hh =
-      String(
-        wib.getUTCHours()
-      ).padStart(2, "0");
-
-    const mm =
-      String(
-        wib.getUTCMinutes()
-      ).padStart(2, "0");
-
-    const peakTimeWIB =
-      `${hh}:${mm}`;
-
-    return {
-
-      peakTimeWIB,
-
-      peakHigh,
-
-      peakSessionPhase:
-        classifySessionPhase(
-          peakTimeWIB
-        ),
-
-      source:
-        "YAHOO_INTRADAY_15M"
-
-    };
+    );
 
   } catch (e) {
 
     console.error(
-      `getIntradayPeakTime(${kode}) gagal:`,
-      e.message
+      `Yahoo intraday ${normalizedKode} gagal:`,
+      e?.message ||
+        String(e)
     );
 
     return null;
@@ -862,7 +1091,8 @@ export function classifySessionPhase(
 ) {
 
   if (
-    typeof hhmm !== "string"
+    typeof hhmm !==
+    "string"
   ) {
     return "UNKNOWN";
   }
@@ -880,13 +1110,27 @@ export function classifySessionPhase(
     return "UNKNOWN";
   }
 
-  const [
-    h,
-    m
-  ] = parts;
+  const h =
+    parts[0];
+
+  const m =
+    parts[1];
+
+  if (
+    h < 0 ||
+    h > 23 ||
+    m < 0 ||
+    m > 59
+  ) {
+    return "UNKNOWN";
+  }
 
   const minutes =
     h * 60 + m;
+
+  // ----------------------------------------------------------
+  // SEBELUM PASAR
+  // ----------------------------------------------------------
 
   if (
     minutes < 9 * 60
@@ -894,11 +1138,19 @@ export function classifySessionPhase(
     return "SEBELUM_BUKA";
   }
 
+  // ----------------------------------------------------------
+  // SESI 1 AWAL
+  // ----------------------------------------------------------
+
   if (
     minutes < 10 * 60
   ) {
     return "SESI1_AWAL";
   }
+
+  // ----------------------------------------------------------
+  // SESI 1 AKHIR
+  // ----------------------------------------------------------
 
   if (
     minutes < 11 * 60 + 30
@@ -906,17 +1158,29 @@ export function classifySessionPhase(
     return "SESI1_AKHIR";
   }
 
+  // ----------------------------------------------------------
+  // ISTIRAHAT
+  // ----------------------------------------------------------
+
   if (
     minutes < 13 * 60 + 30
   ) {
     return "ISTIRAHAT";
   }
 
+  // ----------------------------------------------------------
+  // SESI 2 AWAL
+  // ----------------------------------------------------------
+
   if (
     minutes < 14 * 60 + 30
   ) {
     return "SESI2_AWAL";
   }
+
+  // ----------------------------------------------------------
+  // SESI 2 AKHIR
+  // ----------------------------------------------------------
 
   if (
     minutes <= 15 * 60 + 15
@@ -928,17 +1192,17 @@ export function classifySessionPhase(
 }
 
 // ============================================================
-// OPTIONAL: GET TODAY INTRADAY PEAK DIRECTLY
+// GET TODAY INTRADAY PEAK
 // ============================================================
 //
-// Helper tambahan supaya caller tidak perlu tahu detail
-// implementasi ZAPI/Yahoo.
+// Helper langsung untuk hari berjalan.
 //
 // ============================================================
 
 export async function getTodayIntradayPeak(
   kode
 ) {
+
   return getIntradayPeakTime(
     kode,
     todayWIB(),
