@@ -1,49 +1,83 @@
 // ==========================
-// Label Outcomes — TAHAP 1: OPEN H+1
+// Label Outcomes — TAHAP 2: CLOSE / HIGH / LOW H+1
 // ==========================
 //
-// Tujuan:
-// Melabeli snapshot H menggunakan harga OPEN pada hari trading berikutnya.
+// Tahap 2 berjalan setelah Tahap 1 berhasil.
 //
-// Contoh:
-// scan_date  : 2026-08-10
-// close H    : 198
-// trading day berikutnya: 2026-08-11
-// open H+1   : 194
+// Mengisi:
+//
+//   actual_next_close
+//   actual_next_high
+//   actual_next_low
+//   next_day_close_return_from_close_pct
+//   next_day_max_gain_from_close_pct
+//   next_day_max_loss_from_close_pct
+//   next_day_high_3pct_realized
+//   next_day_close_2pct_realized
+//   next_day_success
+//   close_labeled_at
+//
+// Selain daily OHLC, fungsi ini juga mencoba mengambil:
+//
+//   peakTimeWIB
+//   peakHigh
+//   peakSessionPhase
+//   peak_source
+//
+// Untuk peak intraday:
+//
+//   ZAPI Stockbit -> Yahoo 15m fallback
 //
 // IMPORTANT:
-// Jangan menggunakan candles.at(-1) karena candle terakhir dari data provider
-// belum tentu merupakan candle H+1 yang kita cari.
+// Daily OHLC tetap menggunakan getStockData().
+// ZAPI intraday hanya digunakan untuk peak time.
 //
-// Kita wajib mencari candle trading pertama SETELAH scan_date.
-//
-// TAHAP 1:
-//   actual_next_open
-//   next_day_return_pct
-//   gap_up_realized
-//
-// TAHAP 2:
-//   api/label-outcomes-close.js
-//   mengisi close/high/low/max gain dan success setelah market tutup.
-//
+// Jangan menggunakan candles.at(-1).
+// Selalu cari candle trading pertama SETELAH scan_date.
 
 import {
-  getUnlabeledSnapshots,
+  getPendingCloseSnapshots,
   updateLabel,
-  getOldestUnlabeledDate
+  getOldestOpenLabeledDate
 } from "../services/dataLogService.js";
 
 import {
   getStockData,
-  findTradingDayCandleAfter
+  findTradingDayCandleAfter,
+  getIntradayPeakTime
 } from "../services/stockService.js";
+
+import { todayWIB } from "../config/tradingCalendar.js";
 
 export const config = {
   maxDuration: 60
 };
 
-const CONCURRENCY = 12;
-const DEFAULT_THRESHOLD_PCT = 2;
+const CONCURRENCY = 8;
+
+// ============================================================
+// THRESHOLD
+// ============================================================
+
+const HIGH_TARGET_PCT = 3;
+const CLOSE_TARGET_PCT = 2;
+
+// ============================================================
+// MARKET CLOSE
+// ============================================================
+//
+// Jangan melabel candle hari berjalan sebelum market selesai.
+// Dipakai hanya kalau H+1 ternyata adalah hari ini.
+//
+// 16:00 WIB dipakai sebagai buffer setelah sesi reguler selesai.
+// ============================================================
+
+const MARKET_CLOSE_HOUR = 16;
+const MARKET_CLOSE_MINUTE = 0;
+
+// ============================================================
+// CONCURRENCY POOL
+// ============================================================
 
 async function runPool(items, worker, concurrency) {
   const results = new Array(items.length);
@@ -54,10 +88,13 @@ async function runPool(items, worker, concurrency) {
       const i = cursor++;
 
       try {
-        results[i] = await worker(items[i], i);
+        results[i] =
+          await worker(items[i], i);
       } catch (e) {
         results[i] = {
-          error: e?.message || String(e)
+          error:
+            e?.message ||
+            String(e)
         };
       }
     }
@@ -65,7 +102,13 @@ async function runPool(items, worker, concurrency) {
 
   await Promise.all(
     Array.from(
-      { length: Math.min(concurrency, items.length) },
+      {
+        length:
+          Math.min(
+            concurrency,
+            items.length
+          )
+      },
       next
     )
   );
@@ -73,20 +116,62 @@ async function runPool(items, worker, concurrency) {
   return results;
 }
 
-function todayUTC() {
-  return new Date().toISOString().slice(0, 10);
+// ============================================================
+// CEK MARKET SUDAH CLOSE
+// ============================================================
+
+function isAfterMarketCloseWIB() {
+  const now = new Date();
+
+  const utcMinutes =
+    now.getUTCHours() * 60 +
+    now.getUTCMinutes();
+
+  // UTC + 7
+  const wibMinutes =
+    utcMinutes + 7 * 60;
+
+  const normalized =
+    wibMinutes % (24 * 60);
+
+  const hour =
+    Math.floor(
+      normalized / 60
+    );
+
+  const minute =
+    normalized % 60;
+
+  return (
+    hour > MARKET_CLOSE_HOUR ||
+    (
+      hour === MARKET_CLOSE_HOUR &&
+      minute >= MARKET_CLOSE_MINUTE
+    )
+  );
 }
 
+// ============================================================
+// HANDLER
+// ============================================================
+
 export default async function handler(req, res) {
+
   try {
+
     // ============================================================
     // SECURITY
     // ============================================================
 
     if (process.env.CRON_SECRET) {
-      const auth = req.headers.authorization;
 
-      if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
+      const auth =
+        req.headers.authorization;
+
+      if (
+        auth !==
+        `Bearer ${process.env.CRON_SECRET}`
+      ) {
         return res.status(401).json({
           success: false,
           message: "Unauthorized."
@@ -95,241 +180,535 @@ export default async function handler(req, res) {
     }
 
     // ============================================================
-    // THRESHOLD
+    // TARGET DATE
     // ============================================================
-
-    const thresholdPct =
-      req.query.threshold != null
-        ? parseFloat(req.query.threshold)
-        : DEFAULT_THRESHOLD_PCT;
-
-    if (!Number.isFinite(thresholdPct)) {
-      return res.status(400).json({
-        success: false,
-        message: "Parameter threshold tidak valid."
-      });
-    }
-
-    // ============================================================
-    // TENTUKAN SCAN DATE
-    // ============================================================
-    //
-    // ?date=2026-08-10
-    // bisa digunakan untuk re-run tanggal tertentu.
-    //
-    // Kalau tidak diberikan:
-    // ambil tanggal paling lama yang belum dilabel.
-    //
 
     const scanDate =
       req.query.date ||
-      (await getOldestUnlabeledDate());
+      await getOldestOpenLabeledDate();
+
+    // ============================================================
+    // TIDAK ADA BACKLOG
+    // ============================================================
 
     if (!scanDate) {
+
       return res.status(200).json({
         success: true,
         scanDate: null,
         message:
-          "Tidak ada snapshot yang perlu dilabel — semua sudah dilabel.",
+          "Tidak ada snapshot yang menunggu labeling close.",
         labeled: 0
       });
     }
 
     // ============================================================
-    // JANGAN LABEL HARI INI
+    // JANGAN PROSES SCAN HARI INI
     // ============================================================
 
-    if (scanDate === todayUTC()) {
+    if (scanDate === todayWIB()) {
+
       return res.status(200).json({
         success: true,
         scanDate,
         message:
-          "Snapshot adalah scan hari ini. Tunggu sampai tersedia candle trading berikutnya.",
+          "Scan hari ini belum mempunyai candle H+1.",
         labeled: 0
       });
     }
 
     // ============================================================
-    // AMBIL SNAPSHOT YANG BELUM DILABEL
+    // AMBIL SNAPSHOT YANG SUDAH OPEN LABELED
+    // TAPI CLOSE BELUM
     // ============================================================
 
     const pending =
-      await getUnlabeledSnapshots(scanDate);
+      await getPendingCloseSnapshots(
+        scanDate
+      );
 
-    if (pending.length === 0) {
+    if (
+      !pending ||
+      pending.length === 0
+    ) {
+
       return res.status(200).json({
         success: true,
         scanDate,
         message:
-          "Tidak ada snapshot yang perlu dilabel pada tanggal ini.",
+          "Tidak ada snapshot yang menunggu labeling close pada tanggal ini.",
         labeled: 0
       });
     }
 
     // ============================================================
-    // LABEL SETIAP SAHAM
+    // LABEL
     // ============================================================
 
-    const results = await runPool(
-      pending,
-      async (row) => {
+    const results =
+      await runPool(
+        pending,
+        async (row) => {
 
-        // ========================================================
-        // PENTING:
-        // Gunakan range yang cukup panjang supaya backlog hari
-        // libur/weekend tetap bisa menemukan candle trading berikutnya.
-        // ========================================================
+          // ======================================================
+          // AMBIL DAILY DATA
+          // ======================================================
 
-        const stockData =
-          await getStockData(row.kode, "3mo");
+          const stockData =
+            await getStockData(
+              row.kode,
+              "3mo"
+            );
 
-        if (
-          !stockData ||
-          !Array.isArray(stockData.candles) ||
-          stockData.candles.length === 0
-        ) {
-          return {
-            kode: row.kode,
-            status: "NO_DATA"
+          if (
+            !stockData ||
+            !Array.isArray(
+              stockData.candles
+            ) ||
+            stockData.candles.length === 0
+          ) {
+
+            return {
+              kode: row.kode,
+              status: "NO_DATA"
+            };
+          }
+
+          // ======================================================
+          // CARI H+1
+          // ======================================================
+
+          const nextCandle =
+            findTradingDayCandleAfter(
+              stockData.candles,
+              row.scan_date
+            );
+
+          if (!nextCandle) {
+
+            return {
+              kode: row.kode,
+              status:
+                "NEXT_CANDLE_NOT_FOUND",
+              scanDate:
+                row.scan_date
+            };
+          }
+
+          // ======================================================
+          // TANGGAL H+1
+          // ======================================================
+
+          const nextDate =
+            nextCandle.date?.slice(
+              0,
+              10
+            );
+
+          if (
+            !nextDate ||
+            nextDate <=
+              row.scan_date
+          ) {
+
+            return {
+              kode: row.kode,
+              status:
+                "INVALID_CANDLE_DATE",
+              scanDate:
+                row.scan_date,
+              foundDate:
+                nextDate
+            };
+          }
+
+          // ======================================================
+          // JIKA H+1 ADALAH HARI INI,
+          // JANGAN LABEL SEBELUM MARKET CLOSE
+          // ======================================================
+
+          if (
+            nextDate ===
+              todayWIB() &&
+            !isAfterMarketCloseWIB()
+          ) {
+
+            return {
+              kode: row.kode,
+              status:
+                "WAIT_MARKET_CLOSE",
+              nextDate
+            };
+          }
+
+          // ======================================================
+          // AMBIL OHLC
+          // ======================================================
+
+          const nextOpen =
+            Number(
+              nextCandle.open
+            );
+
+          const nextHigh =
+            Number(
+              nextCandle.high
+            );
+
+          const nextLow =
+            Number(
+              nextCandle.low
+            );
+
+          const nextClose =
+            Number(
+              nextCandle.close
+            );
+
+          const previousClose =
+            Number(row.close);
+
+          // ======================================================
+          // VALIDASI
+          // ======================================================
+
+          if (
+            !Number.isFinite(
+              previousClose
+            ) ||
+            previousClose <= 0
+          ) {
+
+            return {
+              kode: row.kode,
+              status:
+                "INVALID_PREVIOUS_CLOSE",
+              previousClose:
+                row.close
+            };
+          }
+
+          if (
+            !Number.isFinite(
+              nextOpen
+            ) ||
+            nextOpen <= 0
+          ) {
+
+            return {
+              kode: row.kode,
+              status:
+                "INVALID_NEXT_OPEN",
+              nextDate,
+              nextOpen:
+                nextCandle.open
+            };
+          }
+
+          if (
+            !Number.isFinite(
+              nextHigh
+            ) ||
+            nextHigh <= 0
+          ) {
+
+            return {
+              kode: row.kode,
+              status:
+                "INVALID_NEXT_HIGH",
+              nextDate,
+              nextHigh:
+                nextCandle.high
+            };
+          }
+
+          if (
+            !Number.isFinite(
+              nextLow
+            ) ||
+            nextLow <= 0
+          ) {
+
+            return {
+              kode: row.kode,
+              status:
+                "INVALID_NEXT_LOW",
+              nextDate,
+              nextLow:
+                nextCandle.low
+            };
+          }
+
+          if (
+            !Number.isFinite(
+              nextClose
+            ) ||
+            nextClose <= 0
+          ) {
+
+            return {
+              kode: row.kode,
+              status:
+                "INVALID_NEXT_CLOSE",
+              nextDate,
+              nextClose:
+                nextCandle.close
+            };
+          }
+
+          // ======================================================
+          // RETURN CLOSE H+1 VS CLOSE H
+          // ======================================================
+
+          const closeReturnPct =
+            Number(
+              (
+                (
+                  (nextClose -
+                    previousClose) /
+                  previousClose
+                ) *
+                100
+              ).toFixed(2)
+            );
+
+          // ======================================================
+          // MAX GAIN DARI CLOSE H
+          //
+          // Mengukur seberapa tinggi harga H+1
+          // dibanding close saat snapshot.
+          // ======================================================
+
+          const maxGainFromClosePct =
+            Number(
+              (
+                (
+                  (nextHigh -
+                    previousClose) /
+                  previousClose
+                ) *
+                100
+              ).toFixed(2)
+            );
+
+          // ======================================================
+          // MAX LOSS DARI CLOSE H
+          // ======================================================
+
+          const maxLossFromClosePct =
+            Number(
+              (
+                (
+                  (nextLow -
+                    previousClose) /
+                  previousClose
+                ) *
+                100
+              ).toFixed(2)
+            );
+
+          // ======================================================
+          // HIGH +3%
+          // ======================================================
+
+          const high3PctRealized =
+            maxGainFromClosePct >=
+            HIGH_TARGET_PCT;
+
+          // ======================================================
+          // CLOSE +2%
+          // ======================================================
+
+          const close2PctRealized =
+            closeReturnPct >=
+            CLOSE_TARGET_PCT;
+
+          // ======================================================
+          // SUCCESS
+          //
+          // Success utama:
+          // harga H+1 sempat mencapai +3%
+          // ATAU close H+1 minimal +2%.
+          //
+          // Ini menangkap strategi:
+          // beli sore -> jual pagi.
+          // ======================================================
+
+          const nextDaySuccess =
+            high3PctRealized ||
+            close2PctRealized;
+
+          // ======================================================
+          // INTRADAY PEAK
+          //
+          // ZAPI Stockbit:
+          // hanya untuk hari berjalan.
+          //
+          // Kalau tidak tersedia:
+          // Yahoo 15m menjadi fallback.
+          //
+          // Kalau data historis sudah tidak tersedia:
+          // hasil tetap dilabel tanpa peak time.
+          // ======================================================
+
+          let peak = null;
+
+          try {
+
+            peak =
+              await getIntradayPeakTime(
+                row.kode,
+                nextDate,
+                {
+                  range: "5d",
+                  interval: "15m"
+                }
+              );
+
+          } catch (e) {
+
+            console.error(
+              `Peak ${row.kode} gagal:`,
+              e.message
+            );
+
+            peak = null;
+          }
+
+          // ======================================================
+          // PATCH DATABASE
+          // ======================================================
+
+          const patch = {
+
+            actual_next_close:
+              nextClose,
+
+            actual_next_high:
+              nextHigh,
+
+            actual_next_low:
+              nextLow,
+
+            next_day_close_return_from_close_pct:
+              closeReturnPct,
+
+            next_day_max_gain_from_close_pct:
+              maxGainFromClosePct,
+
+            next_day_max_loss_from_close_pct:
+              maxLossFromClosePct,
+
+            next_day_high_3pct_realized:
+              high3PctRealized,
+
+            next_day_close_2pct_realized:
+              close2PctRealized,
+
+            next_day_success:
+              nextDaySuccess,
+
+            close_labeled_at:
+              new Date().toISOString()
           };
-        }
 
-        // ========================================================
-        // CARI CANDLE TRADING PERTAMA SETELAH SCAN DATE
-        // ========================================================
-        //
-        // CONTOH:
-        //
-        // scan_date = 2026-08-10
-        //
-        // candles:
-        // 2026-08-08
-        // 2026-08-09
-        // 2026-08-10
-        // 2026-08-11  <-- YANG DICARI
-        //
-        // Tidak lagi memakai candles.at(-1).
-        // ========================================================
+          // ======================================================
+          // SIMPAN PEAK KALAU TERSEDIA
+          // ======================================================
 
-        const nextCandle =
-          findTradingDayCandleAfter(
-            stockData.candles,
-            row.scan_date
+          if (peak) {
+
+            patch.peak_time_wib =
+              peak.peakTimeWIB ??
+              null;
+
+            patch.peak_high =
+              Number.isFinite(
+                Number(
+                  peak.peakHigh
+                )
+              )
+                ? Number(
+                    peak.peakHigh
+                  )
+                : null;
+
+            patch.peak_session_phase =
+              peak.peakSessionPhase ??
+              null;
+
+            patch.peak_source =
+              peak.source ??
+              null;
+          }
+
+          // ======================================================
+          // UPDATE
+          // ======================================================
+
+          await updateLabel(
+            row.id,
+            patch
           );
 
-        if (!nextCandle) {
+          // ======================================================
+          // RESPONSE PER SAHAM
+          // ======================================================
+
           return {
-            kode: row.kode,
-            status: "NEXT_CANDLE_NOT_FOUND",
-            scanDate: row.scan_date
-          };
-        }
 
-        // ========================================================
-        // VALIDASI DATA CANDLE
-        // ========================================================
+            kode:
+              row.kode,
 
-        const nextDate =
-          nextCandle.date?.slice(0, 10);
+            scanDate:
+              row.scan_date,
 
-        const nextOpen =
-          Number(nextCandle.open);
-
-        const previousClose =
-          Number(row.close);
-
-        if (
-          !Number.isFinite(nextOpen) ||
-          nextOpen <= 0
-        ) {
-          return {
-            kode: row.kode,
-            status: "INVALID_NEXT_OPEN",
             nextDate,
-            nextOpen: nextCandle.open
+
+            previousClose,
+
+            nextOpen,
+
+            nextHigh,
+
+            nextLow,
+
+            nextClose,
+
+            closeReturnPct,
+
+            maxGainFromClosePct,
+
+            maxLossFromClosePct,
+
+            high3PctRealized,
+
+            close2PctRealized,
+
+            nextDaySuccess,
+
+            peakTimeWIB:
+              peak?.peakTimeWIB ??
+              null,
+
+            peakHigh:
+              peak?.peakHigh ??
+              null,
+
+            peakSessionPhase:
+              peak?.peakSessionPhase ??
+              null,
+
+            peakSource:
+              peak?.source ??
+              null,
+
+            status:
+              "OK"
           };
-        }
-
-        if (
-          !Number.isFinite(previousClose) ||
-          previousClose <= 0
-        ) {
-          return {
-            kode: row.kode,
-            status: "INVALID_PREVIOUS_CLOSE",
-            previousClose: row.close
-          };
-        }
-
-        // ========================================================
-        // PASTIKAN CANDLE BENAR-BENAR H+1
-        // ========================================================
-
-        if (!nextDate || nextDate <= row.scan_date) {
-          return {
-            kode: row.kode,
-            status: "INVALID_CANDLE_DATE",
-            scanDate: row.scan_date,
-            foundDate: nextDate
-          };
-        }
-
-        // ========================================================
-        // HITUNG RETURN OPEN H+1 VS CLOSE H
-        // ========================================================
-
-        const nextDayReturnPct = Number(
-          (
-            ((nextOpen - previousClose) /
-              previousClose) *
-            100
-          ).toFixed(2)
-        );
-
-        // ========================================================
-        // GAP UP REALIZED
-        // ========================================================
-
-        const gapUpRealized =
-          nextDayReturnPct >= thresholdPct;
-
-        // ========================================================
-        // SIMPAN LABEL
-        // ========================================================
-
-        await updateLabel(row.id, {
-
-          actual_next_open: nextOpen,
-
-          next_day_return_pct:
-            nextDayReturnPct,
-
-          gap_up_realized:
-            gapUpRealized,
-
-          labeled_at:
-            new Date().toISOString()
-
-        });
-
-        return {
-          kode: row.kode,
-          scanDate: row.scan_date,
-          nextDate,
-
-          previousClose,
-
-          nextOpen,
-
-          nextDayReturnPct,
-
-          gapUpRealized,
-
-          status: "OK"
-        };
-      },
-      CONCURRENCY
-    );
+        },
+        CONCURRENCY
+      );
 
     // ============================================================
     // HASIL
@@ -337,7 +716,7 @@ export default async function handler(req, res) {
 
     const ok =
       results.filter(
-        (r) =>
+        r =>
           r &&
           r.status === "OK"
       );
@@ -346,22 +725,41 @@ export default async function handler(req, res) {
       results
         .map((r, i) => {
 
-          if (
-            r &&
-            r.status !== "OK"
-          ) {
+          if (!r) {
+
             return {
-              kode: pending[i].kode,
-              status: r.status,
-              detail: r
+              kode:
+                pending[i].kode,
+              status:
+                "ERROR",
+              error:
+                "Worker tidak menghasilkan result."
             };
           }
 
-          if (r?.error) {
+          if (r.error) {
+
             return {
-              kode: pending[i].kode,
-              status: "ERROR",
-              error: r.error
+              kode:
+                pending[i].kode,
+              status:
+                "ERROR",
+              error:
+                r.error
+            };
+          }
+
+          if (
+            r.status !== "OK"
+          ) {
+
+            return {
+              kode:
+                pending[i].kode,
+              status:
+                r.status,
+              detail:
+                r
             };
           }
 
@@ -370,10 +768,62 @@ export default async function handler(req, res) {
         })
         .filter(Boolean);
 
-    const gapUpCount =
+    // ============================================================
+    // STATISTIK
+    // ============================================================
+
+    const successCount =
       ok.filter(
-        (r) => r.gapUpRealized
+        r =>
+          r.nextDaySuccess
       ).length;
+
+    const high3PctCount =
+      ok.filter(
+        r =>
+          r.high3PctRealized
+      ).length;
+
+    const close2PctCount =
+      ok.filter(
+        r =>
+          r.close2PctRealized
+      ).length;
+
+    // ============================================================
+    // PEAK SOURCE STATISTICS
+    // ============================================================
+
+    const peakSourceStats = {
+      ZAPI_STOCKBIT_INTRADAY: 0,
+      YAHOO_15M: 0,
+      NONE: 0
+    };
+
+    for (const r of ok) {
+
+      if (
+        r.peakSource ===
+        "ZAPI_STOCKBIT_INTRADAY"
+      ) {
+
+        peakSourceStats
+          .ZAPI_STOCKBIT_INTRADAY++;
+
+      } else if (
+        r.peakSource
+          ?.toUpperCase()
+          .includes("YAHOO")
+      ) {
+
+        peakSourceStats
+          .YAHOO_15M++;
+
+      } else {
+
+        peakSourceStats.NONE++;
+      }
+    }
 
     // ============================================================
     // RESPONSE
@@ -385,8 +835,6 @@ export default async function handler(req, res) {
 
       scanDate,
 
-      thresholdPct,
-
       totalPending:
         pending.length,
 
@@ -396,7 +844,13 @@ export default async function handler(req, res) {
       failed:
         failed.length,
 
-      gapUpCount,
+      successCount,
+
+      high3PctCount,
+
+      close2PctCount,
+
+      peakSourceStats,
 
       failedDetail:
         failed.slice(0, 20),
@@ -409,7 +863,7 @@ export default async function handler(req, res) {
   } catch (error) {
 
     console.error(
-      "Label outcomes error:",
+      "Label outcomes close error:",
       error
     );
 
@@ -418,7 +872,7 @@ export default async function handler(req, res) {
       success: false,
 
       message:
-        "Labeling gagal.",
+        "Close labeling gagal.",
 
       error:
         error?.message ||
