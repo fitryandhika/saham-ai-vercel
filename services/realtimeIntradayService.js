@@ -286,6 +286,79 @@ async function getYahooRealtimeOHLCV(kode) {
 }
 
 // ============================================================
+// FRESHNESS / LAG CHECK
+// ============================================================
+//
+// Mengukur seberapa "basi" candle terakhir dibanding waktu
+// sekarang (WIB). Ini yang dipakai untuk menjawab pertanyaan
+// "datanya beneran realtime atau delay?" — bukan tebak-tebakan,
+// tapi angka aktual tiap kali endpoint dipanggil.
+// ============================================================
+
+function nowWIBHHMM() {
+
+  const now = new Date();
+
+  const utcMinutes =
+    now.getUTCHours() * 60 +
+    now.getUTCMinutes();
+
+  const wibMinutes =
+    (utcMinutes + 7 * 60) % (24 * 60);
+
+  const hh =
+    String(Math.floor(wibMinutes / 60))
+      .padStart(2, "0");
+
+  const mm =
+    String(wibMinutes % 60)
+      .padStart(2, "0");
+
+  return `${hh}:${mm}`;
+}
+
+function minutesSinceHHMM(hhmm) {
+
+  const [h, m] = hhmm.split(":").map(Number);
+
+  if (!Number.isFinite(h) || !Number.isFinite(m)) {
+    return null;
+  }
+
+  return h * 60 + m;
+}
+
+function computeFreshness(lastTickWIB) {
+
+  const serverTimeWIB = nowWIBHHMM();
+
+  if (!lastTickWIB) {
+
+    return {
+      lastTickWIB: null,
+      serverTimeWIB,
+      lagMinutes: null
+    };
+
+  }
+
+  const lastMin = minutesSinceHHMM(lastTickWIB);
+  const nowMin = minutesSinceHHMM(serverTimeWIB);
+
+  const lagMinutes =
+    (lastMin !== null && nowMin !== null)
+      ? nowMin - lastMin
+      : null;
+
+  return {
+    lastTickWIB,
+    serverTimeWIB,
+    lagMinutes
+  };
+
+}
+
+// ============================================================
 // MAIN EXPORT
 // ============================================================
 //
@@ -296,8 +369,17 @@ async function getYahooRealtimeOHLCV(kode) {
 //   date: "2026-08-13",
 //   candles: [ { timeWIB, open, high, low, close, volume, source }, ... ],
 //   candleCount: 187,
-//   source: "ZAPI_STOCKBIT_INTRADAY" | "YAHOO_INTRADAY_1M" | "NONE"
+//   source: "ZAPI_STOCKBIT_INTRADAY" | "YAHOO_INTRADAY_1M" | "NONE",
+//   lastTickWIB: "14:09",
+//   serverTimeWIB: "14:12",
+//   lagMinutes: 3
 // }
+//
+// lagMinutes = selisih antara waktu server sekarang dan candle
+// terakhir yang berhasil didapat. Selama jam bursa, angka ini
+// idealnya kecil (0-2 menit-an). Kalau konsisten besar
+// (mis. >5 menit) padahal masih jam bursa, berarti SUMBER
+// datanya yang delay — bukan salah kode di sini.
 // ============================================================
 
 export async function getRealtimeIntradayOHLCV(kode) {
@@ -318,12 +400,16 @@ export async function getRealtimeIntradayOHLCV(kode) {
 
   if (zapiResult && zapiResult.candles.length > 0) {
 
+    const lastTickWIB =
+      zapiResult.candles[zapiResult.candles.length - 1].timeWIB;
+
     return {
       kode: normalizedKode,
       date: todayWIB(),
       candles: zapiResult.candles,
       candleCount: zapiResult.candles.length,
-      source: "ZAPI_STOCKBIT_INTRADAY"
+      source: "ZAPI_STOCKBIT_INTRADAY",
+      ...computeFreshness(lastTickWIB)
     };
 
   }
@@ -339,12 +425,16 @@ export async function getRealtimeIntradayOHLCV(kode) {
 
     if (yahooResult && yahooResult.candles.length > 0) {
 
+      const lastTickWIB =
+        yahooResult.candles[yahooResult.candles.length - 1].timeWIB;
+
       return {
         kode: normalizedKode,
         date: todayWIB(),
         candles: yahooResult.candles,
         candleCount: yahooResult.candles.length,
-        source: "YAHOO_INTRADAY_1M"
+        source: "YAHOO_INTRADAY_1M",
+        ...computeFreshness(lastTickWIB)
       };
 
     }
@@ -367,6 +457,7 @@ export async function getRealtimeIntradayOHLCV(kode) {
     date: todayWIB(),
     candles: [],
     candleCount: 0,
-    source: "NONE"
+    source: "NONE",
+    ...computeFreshness(null)
   };
 }
