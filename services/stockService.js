@@ -948,11 +948,65 @@ async function getZapiPeakWithTimeout(
 // YAHOO INTRADAY PEAK
 // ============================================================
 
+// ------------------------------------------------------------
+// BATAS WIB -> UNIX (UTC) UNTUK period1/period2
+// ------------------------------------------------------------
+//
+// BUG LAMA: fungsi ini sebelumnya memakai parameter Yahoo
+// `range=5d`, yang oleh Yahoo diartikan sebagai "5 hari
+// kalender TERAKHIR DARI SEKARANG" (server time saat request
+// dikirim) — bukan jendela di sekitar targetDateWIB.
+//
+// Akibatnya: untuk backlog/backfill yang tanggalnya lebih dari
+// ~5 hari ke belakang (mis. relabel-high-low.js, atau
+// label-outcomes-close.js yang telat diproses), response Yahoo
+// TIDAK PERNAH berisi candle pada targetDateWIB sama sekali,
+// sehingga peak selalu null — walau Yahoo sendiri sebenarnya
+// masih punya datanya (Yahoo retain candle 15m selama ~60 hari).
+//
+// FIX: minta jendela waktu eksplisit (period1/period2) yang
+// dipusatkan pada targetDateWIB itu sendiri, bukan relatif ke
+// waktu request. Diberi buffer 1 jam di kedua sisi supaya tidak
+// kepotong pembulatan interval di batas hari.
+// ------------------------------------------------------------
+
+function wibDayRangeToUnixSeconds(
+  dateWIB
+) {
+
+  // Tengah malam WIB (00:00) untuk dateWIB, dinyatakan dalam UTC:
+  // dateWIB 00:00 WIB = (dateWIB 00:00 UTC) - 7 jam.
+  const startUtcMs =
+    Date.parse(
+      `${dateWIB}T00:00:00.000Z`
+    ) -
+    7 * 3600 * 1000;
+
+  const bufferMs =
+    1 * 3600 * 1000;
+
+  return {
+    period1:
+      Math.floor(
+        (startUtcMs - bufferMs) /
+        1000
+      ),
+
+    period2:
+      Math.floor(
+        (startUtcMs +
+          24 * 3600 * 1000 +
+          bufferMs) /
+        1000
+      )
+  };
+
+}
+
 async function getYahooIntradayPeak(
   kode,
   targetDateWIB,
   {
-    range = "5d",
     interval = "15m"
   } = {}
 ) {
@@ -961,10 +1015,20 @@ async function getYahooIntradayPeak(
     `${kode.toUpperCase()}.JK`;
 
 
+  const {
+    period1,
+    period2
+  } =
+    wibDayRangeToUnixSeconds(
+      targetDateWIB
+    );
+
+
   const url =
     `${YAHOO_BASE_URL}/` +
     `${encodeURIComponent(symbol)}` +
-    `?range=${encodeURIComponent(range)}` +
+    `?period1=${period1}` +
+    `&period2=${period2}` +
     `&interval=${encodeURIComponent(interval)}`;
 
 
@@ -1167,7 +1231,14 @@ export async function getIntradayPeakTime(
   kode,
   targetDateWIB,
   {
+
+    // `range` sengaja masih diterima supaya caller lama
+    // (mis. { range: "5d", interval: "15m" }) tidak perlu
+    // diubah. Sudah TIDAK dipakai lagi oleh Yahoo fallback —
+    // jendela waktu sekarang selalu dihitung dari
+    // targetDateWIB sendiri lewat wibDayRangeToUnixSeconds().
     range = "5d",
+
     interval = "15m"
   } = {}
 ) {
@@ -1307,7 +1378,6 @@ export async function getIntradayPeakTime(
       normalizedKode,
       targetDate,
       {
-        range,
         interval
       }
     );
