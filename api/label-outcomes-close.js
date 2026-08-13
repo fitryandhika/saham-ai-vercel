@@ -535,6 +535,36 @@ export default async function handler(req, res) {
             );
 
           // ======================================================
+          // MAX GAIN DARI OPEN H+1
+          //
+          // Beda dengan maxGainFromClosePct (basis close H):
+          // ini basis actual_next_open (beli di open H+1,
+          // jual di titik tertinggi hari yang sama).
+          //
+          // FIX (13 Agustus 2026): sebelumnya field ini HANYA
+          // dihitung di api/relabel-high-low.js (backfill manual,
+          // tidak ada di cron). Padahal riwayat.js dan CSV_COLUMNS
+          // di api/history.js membaca max_gain_from_open_pct —
+          // bukan next_day_max_gain_from_close_pct — jadi kolom
+          // "Max Gain%" di tabel Riwayat AI selalu kosong untuk
+          // baris baru. Dihitung juga di sini supaya terisi
+          // otomatis lewat cron harian, konsisten dengan komentar
+          // di db/schema.sql: "(high - open) / open * 100".
+          // ======================================================
+
+          const maxGainFromOpenPct =
+            Number(
+              (
+                (
+                  (nextHigh -
+                    nextOpen) /
+                  nextOpen
+                ) *
+                100
+              ).toFixed(2)
+            );
+
+          // ======================================================
           // HIGH +3%
           // ======================================================
 
@@ -626,6 +656,9 @@ export default async function handler(req, res) {
             next_day_max_loss_from_close_pct:
               maxLossFromClosePct,
 
+            max_gain_from_open_pct:
+              maxGainFromOpenPct,
+
             next_day_high_3pct_realized:
               high3PctRealized,
 
@@ -707,6 +740,8 @@ export default async function handler(req, res) {
             maxGainFromClosePct,
 
             maxLossFromClosePct,
+
+            maxGainFromOpenPct,
 
             high3PctRealized,
 
