@@ -69,11 +69,38 @@ const CLOSE_TARGET_PCT = 2;
 // Jangan melabel candle hari berjalan sebelum market selesai.
 // Dipakai hanya kalau H+1 ternyata adalah hari ini.
 //
-// 16:00 WIB dipakai sebagai buffer setelah sesi reguler selesai.
+// ROOT CAUSE (audit ZAPI-skip):
+// Candle harian dari Yahoo/IDX Official belum tentu SUDAH TERBIT
+// persis jam 16:00:00 WIB — publikasinya punya delay beberapa
+// menit dari jam tutup resmi. Kalau cron jalan tepat jam 16:00
+// dan candle H+1 belum terbit, findTradingDayCandleAfter() tidak
+// menemukan apa-apa (NEXT_CANDLE_NOT_FOUND) untuk hari itu.
+// Baris tersebut baru berhasil dilabel BESOK, dan saat itu
+// targetDate (nextDate) sudah bukan lagi todayWIB() lagi — jadi
+// gate "ZAPI — PRIORITAS" (targetDate === todayWIB()) di
+// getIntradayPeakTime() selalu bernilai false, dan peak SELALU
+// jatuh ke fallback Yahoo. Ini bukan Yahoo yang "lebih baik",
+// tapi ZAPI yang tidak pernah kebagian giliran mencoba.
+//
+// FIX: beri buffer publikasi setelah jam tutup resmi (16:00),
+// supaya saat candle dicek, datanya sudah tersedia PADA HARI
+// YANG SAMA. Dengan begitu targetDate === todayWIB() bisa benar
+// tercapai, dan ZAPI benar-benar dicoba dulu sebagai sumber
+// pertama sesuai desain awal.
+//
+// PENTING — WAJIB DIIKUTI SAAT DEPLOY:
+// Jadwal cron endpoint ini di vercel.json juga harus digeser
+// mundur supaya selaras dengan buffer ini, misalnya dari
+// "0 9 * * 1-5" (= 16:00 WIB) menjadi "20 9 * * 1-5" (= 16:20
+// WIB). Tanpa perubahan itu, cron akan tetap jalan jam 16:00,
+// isAfterMarketCloseWIB() akan selalu false saat itu, dan
+// snapshot hari ini akan selalu berstatus WAIT_MARKET_CLOSE
+// pada satu-satunya kesempatan cron jalan hari itu — sehingga
+// tetap baru kelabel besok (masalah yang sama, tidak terfix).
 // ============================================================
 
 const MARKET_CLOSE_HOUR = 16;
-const MARKET_CLOSE_MINUTE = 0;
+const MARKET_CLOSE_MINUTE = 20;
 
 // ============================================================
 // CONCURRENCY POOL
