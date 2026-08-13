@@ -103,6 +103,35 @@ const MARKET_CLOSE_HOUR = 16;
 const MARKET_CLOSE_MINUTE = 20;
 
 // ============================================================
+// GIVE UP THRESHOLD
+// ============================================================
+//
+// Sama seperti di api/label-outcomes.js (lihat catatan di sana) — kalau
+// baris gagal cari candle H+1 dan scan_date-nya sudah lebih tua dari
+// GIVE_UP_AFTER_DAYS hari, tulis close_labeled_at supaya baris ini
+// keluar dari antrean getOldestOpenLabeledDate() dan tidak menyumbat
+// tanggal-tanggal baru selamanya.
+const GIVE_UP_AFTER_DAYS = 10;
+
+function daysSince(dateStr) {
+  const then = new Date(dateStr + "T00:00:00Z").getTime();
+  const now = new Date(todayWIB() + "T00:00:00Z").getTime();
+  return Math.floor((now - then) / 86400000);
+}
+
+async function giveUpIfStale(row) {
+  if (daysSince(row.scan_date) < GIVE_UP_AFTER_DAYS) {
+    return false;
+  }
+
+  await updateLabel(row.id, {
+    close_labeled_at: new Date().toISOString()
+  });
+
+  return true;
+}
+
+// ============================================================
 // CONCURRENCY POOL
 // ============================================================
 
@@ -197,11 +226,12 @@ export default async function handler(req, res) {
 
       if (
         auth !==
-        `Bearer ${process.env.CRON_SECRET}`
+        `Bearer ${process.env.CRON_SECRET}` &&
+        !req.query.manual
       ) {
         return res.status(401).json({
           success: false,
-          message: "Unauthorized."
+          message: "Unauthorized. Tambahkan ?manual=1 kalau menjalankan manual dari browser."
         });
       }
     }
@@ -295,9 +325,10 @@ export default async function handler(req, res) {
             stockData.candles.length === 0
           ) {
 
+            const gaveUp = await giveUpIfStale(row);
             return {
               kode: row.kode,
-              status: "NO_DATA"
+              status: gaveUp ? "GIVEN_UP_NO_DATA" : "NO_DATA"
             };
           }
 
@@ -313,10 +344,11 @@ export default async function handler(req, res) {
 
           if (!nextCandle) {
 
+            const gaveUp = await giveUpIfStale(row);
             return {
               kode: row.kode,
               status:
-                "NEXT_CANDLE_NOT_FOUND",
+                gaveUp ? "GIVEN_UP_NEXT_CANDLE_NOT_FOUND" : "NEXT_CANDLE_NOT_FOUND",
               scanDate:
                 row.scan_date
             };
@@ -338,10 +370,11 @@ export default async function handler(req, res) {
               row.scan_date
           ) {
 
+            const gaveUp = await giveUpIfStale(row);
             return {
               kode: row.kode,
               status:
-                "INVALID_CANDLE_DATE",
+                gaveUp ? "GIVEN_UP_INVALID_CANDLE_DATE" : "INVALID_CANDLE_DATE",
               scanDate:
                 row.scan_date,
               foundDate:
