@@ -1012,3 +1012,61 @@ export async function getZapiIntradayPeakToday(kode) {
       "ZAPI_STOCKBIT_INTRADAY"
   };
 }
+
+// ============================================================
+// RAW DEBUG — BUKAN UNTUK PRODUKSI
+// ============================================================
+//
+// Dipakai lewat /api/health?debugzapi=KODE untuk melihat JSON
+// mentah dari DUA endpoint ZAPI sekaligus, tanpa diolah:
+//
+//   1. finance:stockbit/chart (timeframe=today)  -> sumber
+//      candle intraday yang dipakai realtimeIntradayService.js
+//      sekarang.
+//   2. finance:stockbit/symbol -> ada field bestBid/bestOffer/
+//      marketStatus; kemungkinan berisi harga live yang lebih
+//      segar daripada chart, tapi belum pernah dicek field
+//      timestamp-nya secara langsung.
+//
+// Tujuannya murni diagnostik: membandingkan "seberapa segar"
+// tiap endpoint, supaya kita tahu apakah perlu pindah sumber
+// untuk data yang benar-benar realtime.
+// ============================================================
+
+export async function getZapiRawDebug(kode) {
+
+  const code =
+    String(kode || "")
+      .trim()
+      .toUpperCase();
+
+  if (!code) {
+    return null;
+  }
+
+  const [chartJson, symbolJson] =
+    await Promise.all([
+
+      tryFetchJson(
+        `/finance:stockbit/chart` +
+        `?symbol=${encodeURIComponent(code)}` +
+        `&market=indonesia` +
+        `&timeframe=today` +
+        `&interval=intraday`
+      ),
+
+      tryFetchJson(
+        `/finance:stockbit/symbol` +
+        `?symbol=${encodeURIComponent(code)}`
+      )
+
+    ]);
+
+  return {
+    kode: code,
+    fetchedAtServerUTC:
+      new Date().toISOString(),
+    chartToday: chartJson,
+    symbol: symbolJson
+  };
+}
