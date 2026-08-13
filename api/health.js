@@ -1,4 +1,5 @@
 import { getRealtimeIntradayOHLCV } from "../services/realtimeIntradayService.js";
+import { getZapiRawDebug } from "../services/zapiService.js";
 
 export default async function handler(req, res) {
 
@@ -33,6 +34,44 @@ export default async function handler(req, res) {
       return res.status(500).json({
         success: false,
         mode: "realtime-intraday-test",
+        message: e?.message || String(e)
+      });
+
+    }
+  }
+
+  // ============================================================
+  // MODE DEBUG — RAW ZAPI (CEK FRESHNESS/LATENCY SUMBER)
+  // ============================================================
+  //
+  // Contoh:
+  //   /api/health?debugzapi=BBCA
+  //
+  // Menampilkan JSON MENTAH dari finance:stockbit/chart (yang
+  // dipakai realtimeIntradayService.js) dan finance:stockbit/
+  // symbol (kemungkinan lebih segar) berdampingan, supaya bisa
+  // dibandingkan field timestamp/harga-nya langsung.
+  // ============================================================
+
+  const debugKode = req.query.debugzapi;
+
+  if (debugKode) {
+
+    try {
+
+      const data = await getZapiRawDebug(debugKode);
+
+      return res.status(200).json({
+        success: true,
+        mode: "debug-zapi-raw",
+        ...data
+      });
+
+    } catch (e) {
+
+      return res.status(500).json({
+        success: false,
+        mode: "debug-zapi-raw",
         message: e?.message || String(e)
       });
 
