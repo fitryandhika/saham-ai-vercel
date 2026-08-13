@@ -44,14 +44,18 @@ export const config = {
 const CONCURRENCY = 6; // lebih rendah dari label-outcomes.js (12) karena range=1y lebih berat
 
 // Toleransi selisih harga open saat mencocokkan candle histori dengan
-// actual_next_open yang sudah tersimpan — untuk mendeteksi kalau ternyata
-// candle yang ketemu SALAH tanggal (misal ada libur bursa/kesalahan data),
-// bukan cuma pembulatan desimal biasa. Dibuat berbasis PERSENTASE (bukan
-// rupiah tetap) karena Yahoo Finance kadang merevisi harga historis
-// beberapa rupiah dari waktu ke waktu — toleransi rupiah tetap yang kecil
-// akan salah tandai hampir semua baris sebagai "mismatched" padahal
-// candle-nya sudah benar.
-const OPEN_MATCH_TOLERANCE_PCT = 3; // maksimal 3% selisih dianggap masih cocok
+// actual_next_open yang sudah tersimpan — HANYA dipakai sebagai PENANDA
+// (bukan penghalang tulis), untuk kasus ekstrem yang di luar batas ARA/ARB
+// wajar (indikasi kemungkinan candle salah tanggal / stock split belum
+// disesuaikan). Sebelumnya di-set 3% dan dipakai untuk SKIP baris — ternyata
+// findNextTradingDayCandle() sudah pasti benar mengambil hari bursa
+// berikutnya (loncat weekend/libur otomatis dari urutan tanggal candle),
+// jadi selisih di bawah batas ARA/ARB itu 99% cuma gap harga wajar
+// (terutama saham recehan di bawah Rp500 yang gampang gap >3% sehari),
+// bukan bug. Menahan tulis di situ menyebabkan banyak baris valid
+// permanen tidak terisi. Sekarang dinaikkan ke 20% dan sifatnya cuma
+// FLAG untuk dicek manual — data tetap ditulis.
+const OPEN_MATCH_TOLERANCE_PCT = 20;
 
 async function runPool(items, worker, concurrency) {
   const results = new Array(items.length);
@@ -214,9 +218,9 @@ export default async function handler(req, res) {
 
         const kodeRows = byKode[kode];
         let labeled = 0;
-        let mismatched = 0;
+        let flagged = 0;
         let notFound = 0;
-        const mismatchExamples = [];
+        const flaggedExamples = [];
 
         for (const row of kodeRows) {
           const candle = findNextTradingDayCandle(candles, row.scan_date);
@@ -228,22 +232,25 @@ export default async function handler(req, res) {
 
           // Sanity check: open candle yang ketemu harus cocok dengan
           // actual_next_open yang sudah tersimpan dari labeling sebelumnya.
-          // Kalau selisihnya besar, kemungkinan salah tanggal (jangan
-          // dipaksa update — lebih baik dilewati & dilaporkan).
-          if (
+          // Bedanya dengan versi lama: sekarang ini CUMA PENANDA (flag),
+          // bukan penghalang — baris tetap dilabel walau selisihnya besar,
+          // supaya data valid tidak nyangkut permanen di antrean. Baris
+          // dengan selisih >20% (di luar batas ARA/ARB wajar) dicatat di
+          // flaggedExamples untuk dicek manual (kemungkinan stock split).
+          const isFlagged =
             row.actual_next_open != null &&
-            Math.abs(candle.open - row.actual_next_open) / row.actual_next_open * 100 > OPEN_MATCH_TOLERANCE_PCT
-          ) {
-            mismatched++;
-            if (mismatchExamples.length < 3) {
-              mismatchExamples.push({
+            Math.abs(candle.open - row.actual_next_open) / row.actual_next_open * 100 > OPEN_MATCH_TOLERANCE_PCT;
+
+          if (isFlagged) {
+            flagged++;
+            if (flaggedExamples.length < 3) {
+              flaggedExamples.push({
                 scan_date: row.scan_date,
                 expected_open: row.actual_next_open,
                 found_open: candle.open,
                 found_date: candle.date.slice(0, 10)
               });
             }
-            continue;
           }
 
           const maxGainFromOpenPct = Number(
@@ -268,7 +275,7 @@ export default async function handler(req, res) {
           labeled++;
         }
 
-        return { kode, totalRows: kodeRows.length, labeled, mismatched, notFound, mismatchExamples };
+        return { kode, totalRows: kodeRows.length, labeled, flagged, notFound, flaggedExamples };
       },
       CONCURRENCY
     );
@@ -279,17 +286,17 @@ export default async function handler(req, res) {
       .filter(Boolean);
 
     const totalLabeled = ok.reduce((sum, r) => sum + r.labeled, 0);
-    const totalMismatched = ok.reduce((sum, r) => sum + r.mismatched, 0);
+    const totalFlagged = ok.reduce((sum, r) => sum + r.flagged, 0);
     const totalNotFound = ok.reduce((sum, r) => sum + r.notFound, 0);
 
     const remainingKode = allKodes.length - kodesToProcess.length;
-    const remainingRows = rows.length - totalLabeled - totalMismatched - totalNotFound;
+    const remainingRows = rows.length - totalLabeled - totalNotFound;
 
     return res.status(200).json({
       success: true,
       processedKode: kodesToProcess.length,
       totalLabeled,
-      totalMismatched, // baris yang dilewati karena open tidak cocok — cek manual
+      totalFlagged,   // baris tetap dilabel, tapi selisih open >20% — cek manual (kemungkinan stock split)
       totalNotFound,   // baris yang dilewati karena tidak ketemu candle setelah scan_date
       remainingKode,   // kalau > 0, panggil ulang endpoint ini lagi (atau naikkan ?maxKode=)
       remainingRows,
