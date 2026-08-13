@@ -38,6 +38,46 @@ const CONCURRENCY = 12;
 const DEFAULT_THRESHOLD_PCT = 2;
 
 // ============================================================
+// GIVE UP THRESHOLD
+// ============================================================
+//
+// BUG (ditemukan 14 Agustus 2026): getOldestUnlabeledDate() ambil SATU
+// scan_date tertua yang punya gap_up_realized masih null, lalu HANYA
+// tanggal itu yang diproses per panggilan. Kalau ada baris yang gagal
+// permanen (kode delisting/suspend lama sehingga candle-nya tidak
+// pernah muncul di Yahoo Finance), baris itu tidak pernah tertulis
+// gap_up_realized-nya — jadi tanggal itu SELAMANYA jadi "tanggal
+// tertua belum dilabel", dan cron macet di situ terus. Semua tanggal
+// setelahnya (termasuk yang baru) numpuk di antrean tapi tidak pernah
+// kesentuh sampai backlog lama ini dibereskan.
+//
+// FIX: kalau scan_date sudah lebih tua dari GIVE_UP_AFTER_DAYS hari
+// kalender dan tetap gagal (NO_DATA / NEXT_CANDLE_NOT_FOUND / dst),
+// tulis label "menyerah" (gap_up_realized = false, actual_next_open
+// tetap null) supaya baris itu keluar dari antrean dan tidak
+// menyumbat tanggal-tanggal baru selamanya.
+const GIVE_UP_AFTER_DAYS = 10;
+
+function daysSince(dateStr) {
+  const then = new Date(dateStr + "T00:00:00Z").getTime();
+  const now = new Date(todayWIB() + "T00:00:00Z").getTime();
+  return Math.floor((now - then) / 86400000);
+}
+
+async function giveUpIfStale(row, status) {
+  if (daysSince(row.scan_date) < GIVE_UP_AFTER_DAYS) {
+    return false;
+  }
+
+  await updateLabel(row.id, {
+    gap_up_realized: false,
+    labeled_at: new Date().toISOString()
+  });
+
+  return true;
+}
+
+// ============================================================
 // CONCURRENCY POOL
 // ============================================================
 
@@ -83,10 +123,10 @@ export default async function handler(req, res) {
     if (process.env.CRON_SECRET) {
       const auth = req.headers.authorization;
 
-      if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
+      if (auth !== `Bearer ${process.env.CRON_SECRET}` && !req.query.manual) {
         return res.status(401).json({
           success: false,
-          message: "Unauthorized."
+          message: "Unauthorized. Tambahkan ?manual=1 kalau menjalankan manual dari browser."
         });
       }
     }
@@ -172,9 +212,10 @@ export default async function handler(req, res) {
           !Array.isArray(stockData.candles) ||
           stockData.candles.length === 0
         ) {
+          const gaveUp = await giveUpIfStale(row, "NO_DATA");
           return {
             kode: row.kode,
-            status: "NO_DATA"
+            status: gaveUp ? "GIVEN_UP_NO_DATA" : "NO_DATA"
           };
         }
 
@@ -189,9 +230,10 @@ export default async function handler(req, res) {
           );
 
         if (!nextCandle) {
+          const gaveUp = await giveUpIfStale(row, "NEXT_CANDLE_NOT_FOUND");
           return {
             kode: row.kode,
-            status: "NEXT_CANDLE_NOT_FOUND",
+            status: gaveUp ? "GIVEN_UP_NEXT_CANDLE_NOT_FOUND" : "NEXT_CANDLE_NOT_FOUND",
             scanDate: row.scan_date
           };
         }
@@ -210,9 +252,10 @@ export default async function handler(req, res) {
           Number(row.close);
 
         if (!nextDate || nextDate <= row.scan_date) {
+          const gaveUp = await giveUpIfStale(row, "INVALID_CANDLE_DATE");
           return {
             kode: row.kode,
-            status: "INVALID_CANDLE_DATE",
+            status: gaveUp ? "GIVEN_UP_INVALID_CANDLE_DATE" : "INVALID_CANDLE_DATE",
             scanDate: row.scan_date,
             foundDate: nextDate
           };
@@ -222,9 +265,10 @@ export default async function handler(req, res) {
           !Number.isFinite(nextOpen) ||
           nextOpen <= 0
         ) {
+          const gaveUp = await giveUpIfStale(row, "INVALID_NEXT_OPEN");
           return {
             kode: row.kode,
-            status: "INVALID_NEXT_OPEN",
+            status: gaveUp ? "GIVEN_UP_INVALID_NEXT_OPEN" : "INVALID_NEXT_OPEN",
             nextDate,
             nextOpen: nextCandle.open
           };
@@ -234,9 +278,10 @@ export default async function handler(req, res) {
           !Number.isFinite(previousClose) ||
           previousClose <= 0
         ) {
+          const gaveUp = await giveUpIfStale(row, "INVALID_PREVIOUS_CLOSE");
           return {
             kode: row.kode,
-            status: "INVALID_PREVIOUS_CLOSE",
+            status: gaveUp ? "GIVEN_UP_INVALID_PREVIOUS_CLOSE" : "INVALID_PREVIOUS_CLOSE",
             previousClose: row.close
           };
         }
