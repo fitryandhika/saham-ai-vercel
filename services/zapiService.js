@@ -824,6 +824,105 @@ export async function getAllIdxStockSummary({
 // peakHigh
 // ============================================================
 
+// ============================================================
+// INTRADAY TICKS — HARI INI (SELURUH SERI, BUKAN CUMA PEAK)
+// ============================================================
+//
+// TAHAP 1 — REALTIME / INTRADAY OHLCV.
+//
+// Dipakai oleh services/realtimeIntradayService.js untuk
+// membangun candle OHLCV 1 menit. Endpoint & parsing sama
+// dengan getZapiIntradayPeakToday() di bawah, tapi fungsi ini
+// mengembalikan SELURUH tick (harga + waktu + volume kalau
+// ada), bukan cuma titik tertinggi.
+// ============================================================
+
+export async function getZapiIntradayTicks(kode) {
+
+  const code =
+    String(kode || "")
+      .trim()
+      .toUpperCase();
+
+  if (!code) {
+    return null;
+  }
+
+  const json =
+    await tryFetchJson(
+      `/finance:stockbit/chart` +
+      `?symbol=${encodeURIComponent(code)}` +
+      `&market=indonesia` +
+      `&timeframe=today` +
+      `&interval=intraday`
+    );
+
+  const items =
+    json?.data?.items;
+
+  if (
+    !Array.isArray(items) ||
+    items.length === 0
+  ) {
+    return null;
+  }
+
+  const ticks = [];
+
+  for (const item of items) {
+
+    const price =
+      Number(item.price);
+
+    if (
+      !Number.isFinite(price)
+    ) {
+      continue;
+    }
+
+    const match =
+      String(item.time || "")
+        .match(/(\d{2}):(\d{2})/);
+
+    if (!match) {
+      continue;
+    }
+
+    const volumeRaw =
+      Number(
+        item.volume ??
+        item.vol ??
+        0
+      );
+
+    ticks.push({
+      timeWIB:
+        `${match[1]}:${match[2]}`,
+      price,
+      volume:
+        Number.isFinite(volumeRaw)
+          ? volumeRaw
+          : 0
+    });
+  }
+
+  if (ticks.length === 0) {
+    return null;
+  }
+
+  ticks.sort(
+    (a, b) =>
+      a.timeWIB.localeCompare(
+        b.timeWIB
+      )
+  );
+
+  return {
+    ticks,
+    source: "ZAPI_STOCKBIT_INTRADAY"
+  };
+}
+
 export async function getZapiIntradayPeakToday(kode) {
 
   const code =
