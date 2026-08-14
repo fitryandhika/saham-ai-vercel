@@ -550,6 +550,16 @@ export default async function handler(req, res) {
             d.strongBuyConfirmed ??
             false,
 
+          // Bonus sinergi volume EXPLOSIVE + rs_label JAUH OUTPERFORM —
+          // ditambahkan 14 Agustus 2026, lihat catatan lengkap di
+          // engine/sessionGainScore.js. Dicatat terpisah (sama seperti
+          // reversal/capitulation/strongBuy di atas) supaya bisa terus
+          // dievaluasi dari next_day_return_pct & max_gain_from_open_pct
+          // sesungguhnya seiring data bertambah.
+          volume_rs_synergy:
+            d.volumeRsSynergy ??
+            false,
+
           // ======================
           // Exhaustion
           // ======================
