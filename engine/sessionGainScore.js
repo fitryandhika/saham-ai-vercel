@@ -75,6 +75,42 @@ const RS_LABEL_POINTS = {
   "TIDAK TERSEDIA": 8
 };
 
+// UPDATE 14 Agustus 2026 - analisa export scan_history_export_2026-08-14.csv
+// (7.221 baris berlabel, ~1 bulan data, 15 Jul-13 Agt 2026). Ditemukan:
+// kombinasi volume_signal EXPLOSIVE + rs_label JAUH OUTPERFORM jauh lebih
+// prediktif SECARA BERSAMA daripada dijumlah dari kontribusi masing-masing
+// komponen di atas (yang murni aditif/independen):
+//   - EXPLOSIVE saja: n=860, avg 3.38%, peluang naik >=5% 19.4%
+//   - JAUH OUTPERFORM saja: n=2189, avg 3.02%, peluang naik >=5% 17.4%
+//   - DUA-DUANYA bareng: n=367, avg 4.45%, peluang naik >=5% 29.2%
+//     (bukan cuma penjumlahan, ada efek sinergi ~1.5-1.7x dari yang
+//     diharapkan kalau independen)
+// Konsisten di semua 22 hari bursa pada data (bukan cuma 1-2 hari
+// beruntung) dan tersebar di 186 kode saham berbeda (bukan didominasi
+// segelintir saham). Puncak kenaikannya mayoritas (65%) terjadi di
+// SESI1_AWAL (lebih awal dari baseline 61%) - jadi sinyal ini soal
+// "spike cepat begitu buka", BUKAN jaminan bertahan sampai close
+// (next_day_return_pct close-to-close cuma avg 0.66%, median 0%).
+//
+// Divalidasi balik ke formula existing: kombinasi ini SUDAH dapat 30/100
+// poin dari VOLUME_SIGNAL_POINTS+RS_LABEL_POINTS (15+15), tapi itu belum
+// cukup mengangkat banyak baris ke bucket TINGGI (skor total >=80) -
+// disimulasikan nambah SYNERGY_BONUS +10 khusus utk kombinasi ini,
+// bucket TINGGI baru jadi n=390 (dari 255), avg naik dari 3.38%->3.64%,
+// peluang >=5% naik dari 19.2%->22.1%. 135 baris yang baru masuk TINGGI
+// karena bonus ini rata-rata malah avg 4.12%/peluang 27.4% - jadi bukan
+// mengencerkan bucket, tapi menambah baris yang justru KUAT.
+//
+// CATATAN JUJUR: masih ~1 bulan data. Terus dievaluasi seiring
+// scan_history bertambah lewat kolom volume_rs_synergy di db.
+const SYNERGY_BONUS_VOLUME_RS = 10;
+
+function volumeRsSynergyPoints(volumeSignal, rsLabel) {
+  return volumeSignal === "EXPLOSIVE" && rsLabel === "JAUH OUTPERFORM"
+    ? SYNERGY_BONUS_VOLUME_RS
+    : 0;
+}
+
 function scoreBucketPoints(score) {
   if (score == null || Number.isNaN(score)) return 0;
   if (score >= 51 && score <= 80) return 15; // rentang paling baik di data
@@ -119,8 +155,12 @@ export function calculateSessionGainScore({
   const volRatioPts = volumeRatioPoints(volumeRatio);
   const gapPts = GAP_OUTLOOK_POINTS[gapOutlook] ?? 8;
   const rsPts = RS_LABEL_POINTS[rsLabel] ?? 8;
+  const synergyPts = volumeRsSynergyPoints(volumeSignal, rsLabel);
 
-  const total = signalPts + scorePts + volAccelPts + volSignalPts + volRatioPts + gapPts + rsPts;
+  const total = Math.min(
+    100,
+    signalPts + scorePts + volAccelPts + volSignalPts + volRatioPts + gapPts + rsPts + synergyPts
+  );
 
   return {
     sessionGainScore: total, // 0-100
@@ -132,7 +172,8 @@ export function calculateSessionGainScore({
       volSignalPts,
       volRatioPts,
       gapPts,
-      rsPts
+      rsPts,
+      synergyPts
     }
   };
 }
