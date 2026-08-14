@@ -507,6 +507,7 @@ export function analyzeStock(data) {
     reversalCandidate,
     capitulationBounceCandidate,
     strongBuyConfirmed,
+    volumeRsSynergy: Boolean(finalSessionGain.breakdown?.synergyPts),
 
     confidence,
     reasons,
