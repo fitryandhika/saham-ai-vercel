@@ -396,6 +396,7 @@ export default async function handler(req, res) {
           score: d.score,
           signal: d.signal,
           entry: d.entry,
+          entryTimingConflict: d.entryTimingConflict,
 
           rsi: d.rsi,
 
@@ -625,6 +626,20 @@ export default async function handler(req, res) {
           next_day_opportunity_eligible:
             opportunity
               ?.eligible ??
+            false,
+
+          // Sudah naik berapa % hari ini vs close kemarin — ditambahkan
+          // 14 Agustus 2026 sebagai info transparansi risiko (BUKAN
+          // penalti skor, sudah diuji ke data & ternyata expected value-
+          // nya tidak negatif — lihat catatan lengkap di
+          // engine/nextDayOpportunity.js). entry_timing_conflict
+          // menandai kapan TIMING TEKNIKAL bilang AVOID tapi Next-Day
+          // Opportunity tetap eligible untuk saham & waktu yang sama.
+          daily_change_pct:
+            safeNumber(d.dailyChangePercent),
+
+          entry_timing_conflict:
+            d.entryTimingConflict ??
             false
         };
       });
