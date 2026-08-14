@@ -46,7 +46,8 @@ export function calculateNextDayOpportunity({
   closingStrength = null,
   marketTrend = null,
   rsi = null,
-  macd = {}
+  macd = {},
+  dailyChangePercent = null
 } = {}) {
   let opportunityScore = 35;
   const breakdown = [];
@@ -305,6 +306,40 @@ export function calculateNextDayOpportunity({
   }
 
   // ------------------------------------------------------------
+  // 11. SUDAH NAIK BERAPA % HARI INI (info risiko, BUKAN penalti skor)
+  //
+  // DITAMBAHKAN 14 Agustus 2026 — respons ke laporan user: VERN (+7.48%
+  // hari itu) dan AHAP tetap muncul PRIORITAS/HIGH di sini padahal
+  // "TIMING TEKNIKAL" (getEntryTiming, verdict.js) untuk saham yang SAMA
+  // sudah bilang AVOID pada waktu yang sama.
+  //
+  // Awalnya ditambahkan sebagai PENALTI skor (asumsi "sudah naik tinggi
+  // hari ini = risiko mengejar harga"). SEBELUM dikirim, diuji dulu ke
+  // scan_history_export_2026-08-14.csv (6.548 baris dengan daily_change
+  // hari-sebelumnya terhitung) — asumsinya TERBUKTI SALAH ARAH sebagian:
+  // saham yang sudah naik >=10% hari itu justru median kenaikan besoknya
+  // LEBIH TINGGI (1.84% vs 0.85% baseline 0-3%), bukan lebih rendah -
+  // kemungkinan pola ARA berantai (limit-up beruntun) yang umum di saham
+  // spekulatif IDX. TAPI peluang close MERAH besok juga naik hampir 2x
+  // lipat (21.9% vs 13.5%) - jadi bukan "lebih buruk", tapi LEBIH
+  // VOLATIL ke dua arah (skewed: sedikit yang lanjut sangat besar,
+  // tapi juga lebih sering kena reversal tajam).
+  //
+  // Karena expected value TIDAK terbukti negatif, TIDAK dijadikan
+  // penalti/blocker skor (itu akan menghukum pola yang justru valid) -
+  // cuma dicatat sebagai info transparansi risiko di breakdown/inputs,
+  // supaya user tahu volatilitasnya lebih tinggi tanpa skornya
+  // "dihukum" berdasarkan asumsi yang belum tervalidasi.
+  // dailyChangePercent tetap dicatat ke scan_history (lihat api/scan.js)
+  // untuk terus dievaluasi seiring data bertambah.
+  // ------------------------------------------------------------
+  const dcp = Number(dailyChangePercent);
+
+  if (Number.isFinite(dcp) && Math.abs(dcp) >= 6) {
+    addBreakdown(breakdown, "ALREADY_MOVED_TODAY_INFO", 0, `${dcp > 0 ? "+" : ""}${dcp}% hari ini — volatilitas historis lebih tinggi ke dua arah, bukan sinyal buruk/baik dengan sendirinya`);
+  }
+
+  // ------------------------------------------------------------
   // HARD ELIGIBILITY
   // ------------------------------------------------------------
   if (liquidity?.illiquid) {
@@ -415,6 +450,15 @@ export function calculateNextDayOpportunity({
     eligible,
     preBreakoutAccumulation: validPreBreakout,
 
+    // Info transparansi risiko — TIDAK mempengaruhi opportunityScore,
+    // lihat catatan panjang di bagian "SUDAH NAIK BERAPA % HARI INI" di
+    // atas. Ditampilkan terpisah supaya user tetap tahu volatilitasnya
+    // lebih tinggi meski skor peluangnya sendiri tidak diturunkan.
+    volatilityNote:
+      Number.isFinite(Number(dailyChangePercent)) && Math.abs(Number(dailyChangePercent)) >= 6
+        ? `Sudah ${Number(dailyChangePercent) > 0 ? "naik" : "turun"} ${Math.abs(Number(dailyChangePercent))}% hari ini — volatilitas historis lebih tinggi ke dua arah (data 6.548 kejadian: median gain besok lebih tinggi TAPI peluang close merah besok juga ~2x lipat)`
+        : null,
+
     inputs: {
       volumeAccelerationPercent: slopePercent,
       volumeRatio,
@@ -424,7 +468,8 @@ export function calculateNextDayOpportunity({
       closingStrength: Number.isFinite(cs) ? cs : null,
       marketTrend: trend,
       rsi: Number.isFinite(rsiValue) ? rsiValue : null,
-      macd: Number.isFinite(macdValue) ? macdValue : null
+      macd: Number.isFinite(macdValue) ? macdValue : null,
+      dailyChangePercent: Number.isFinite(dcp) ? dcp : null
     },
 
     breakdown,
