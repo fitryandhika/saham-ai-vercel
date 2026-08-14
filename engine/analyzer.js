@@ -79,6 +79,24 @@ export function analyzeStock(data) {
 
   const close = data.closePrices.at(-1);
 
+  // Kenaikan hari ini vs close kemarin — DITAMBAHKAN 14 Agustus 2026,
+  // dipicu laporan user: saham (VERN, AHAP) yang sudah naik >7% hari ini
+  // masih muncul sebagai "PRIORITAS" di Next-Day Opportunity, padahal
+  // "TIMING TEKNIKAL" (getEntryTiming, verdict.js) sudah bilang AVOID untuk
+  // saham yang sama - dua mesin berjalan sendiri-sendiri tanpa saling
+  // tahu. Root cause: TIDAK ADA fitur yang secara langsung mengukur
+  // "sudah naik berapa persen hari ini" di seluruh engine (RSI/exhaustion/
+  // jarak resistance semua cuma proxy tidak langsung) - jarak resistance
+  // 0% + RSI 70an bisa berasal dari rally pelan berhari-hari (aman) ATAU
+  // gap up 7%+ dalam satu hari (mengejar harga/chasing, jauh lebih
+  // berisiko), tapi kedua kondisi itu sebelumnya diskor SAMA.
+  // Dipakai sebagai guard tambahan di engine/nextDayOpportunity.js.
+  const previousClose = data.closePrices.at(-2);
+  const dailyChangePercent =
+    Number.isFinite(previousClose) && previousClose > 0
+      ? Number((((close - previousClose) / previousClose) * 100).toFixed(2))
+      : null;
+
   // ==========================
   // Liquidity Guard (saham beku / floor price / gocap)
   // ==========================
@@ -421,8 +439,23 @@ export function analyzeStock(data) {
     closingStrength,
     marketTrend,
     rsi,
-    macd
+    macd,
+    dailyChangePercent
   });
+
+  // Cross-check dengan TIMING TEKNIKAL (entry, getEntryTiming di atas) —
+  // ditambahkan 14 Agustus 2026, respons ke laporan user: VERN/AHAP
+  // muncul PRIORITAS/HIGH di Next-Day Opportunity padahal TIMING TEKNIKAL
+  // untuk saham yang sama, di waktu yang sama, sudah AVOID. Kedua modul
+  // ini SENGAJA menjawab pertanyaan berbeda (lihat catatan di
+  // nextDayOpportunity.js: fokus close H -> H+1, bukan "masuk sekarang
+  // juga") - jadi perbedaan itu sendiri BUKAN bug. Tapi UI menampilkan
+  // "Verdict Next-Day: Strategi Beli Sore" sebagai rekomendasi aksi
+  // tanpa menyebut kalau timing entry hari itu sendiri sedang AVOID -
+  // berpotensi menyesatkan. Flag ini TIDAK mengubah skor/label
+  // manapun, cuma dicatat supaya UI bisa menampilkan catatan silang.
+  const entryTimingConflict =
+    entry === "AVOID" && nextDayOpportunity.eligible;
 
   // Saham beku/tidak likuid: signal & session-gain internal (dihitung
   // dari `signal`/`score` di atas) tidak boleh ditampilkan apa adanya,
@@ -508,6 +541,8 @@ export function analyzeStock(data) {
     capitulationBounceCandidate,
     strongBuyConfirmed,
     volumeRsSynergy: Boolean(finalSessionGain.breakdown?.synergyPts),
+    dailyChangePercent,
+    entryTimingConflict,
 
     confidence,
     reasons,
