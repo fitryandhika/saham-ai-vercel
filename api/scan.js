@@ -1,1049 +1,378 @@
-// ==========================
-// Batch Scanner — Semua Emiten
-// ==========================
-//
-// Next-Day Opportunity V1:
-// Menambahkan analisis peluang kenaikan H+1 dari harga CLOSE H,
-// bukan hanya memprediksi gap/open.
-//
-// Engine utama tetap dipertahankan.
-// Next-Day Opportunity berjalan sebagai layer tambahan / shadow mode.
-//
-// ==========================
+/* ==========================================================
+   Riwayat & Evaluasi Prediksi AI — pakai variabel warna & utility
+   (.empty-state, .hint-text, .page-hero, .stat-row) dari style.css.
+   ========================================================== */
 
-import { analyzeStock } from "../engine/analyzer.js";
-import { getStockData } from "../services/stockService.js";
-import { getIhsgCloses } from "../services/marketService.js";
-import { nDayReturn } from "../engine/relativeStrength.js";
-import {
-  resolveUniverse,
-  UNIVERSE as STATIC_UNIVERSE
-} from "../config/universe.js";
-import { logScanSnapshots } from "../services/dataLogService.js";
-import {
-  isTradingDay,
-  nonTradingDayReason,
-  todayWIB
-} from "../config/tradingCalendar.js";
-import { getLatestMacroSnapshot } from "../services/macroDataService.js";
-import { getGapCalibrationMap } from "../services/gapCalibrationService.js";
-import { applyRegimeAdjustment } from "../engine/marketRegime.js";
-
-// ==========================
-// CONFIG
-// ==========================
-
-export const config = {
-  maxDuration: 60
-};
-
-const CONCURRENCY = 12;
-const RETURN_PERIOD = 20;
-
-// Tetap OFF.
-// Tidak digunakan untuk mengubah ranking / BUY / SELL.
-const HIGH_CONVICTION_ENABLED = false;
-
-// Tetap OFF.
-// Market regime hanya dicatat.
-const MACRO_FILTER_ENABLED = false;
-
-// ==========================
-// Helper: concurrency pool
-// ==========================
-
-async function runPool(items, worker, concurrency) {
-  const results = new Array(items.length);
-  let cursor = 0;
-
-  async function next() {
-    while (cursor < items.length) {
-      const i = cursor++;
-
-      try {
-        results[i] = await worker(items[i], i);
-      } catch (e) {
-        results[i] = {
-          error: e?.message || "Unknown worker error"
-        };
-      }
-    }
-  }
-
-  await Promise.all(
-    Array.from(
-      {
-        length: Math.min(concurrency, items.length)
-      },
-      next
-    )
-  );
-
-  return results;
+.summary-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
 }
 
-// ==========================
-// Helper: safe number
-// ==========================
-
-function safeNumber(value, fallback = null) {
-  const n = Number(value);
-
-  if (!Number.isFinite(n)) {
-    return fallback;
-  }
-
-  return n;
+@media (min-width:640px){
+  .summary-grid{grid-template-columns:repeat(4,1fr);}
 }
 
-// ==========================
-// Handler
-// ==========================
-
-export default async function handler(req, res) {
-  try {
-    const {
-      limit,
-      minScore,
-      maxPrice,
-      sector,
-      onlyBreakout,
-      highConviction,
-      macroFilter,
-      force
-    } = req.query;
-
-    // ==========================
-    // Trading day guard
-    // ==========================
-
-    const today = todayWIB();
-
-    if (!isTradingDay(today) && force !== "true") {
-      return res.status(200).json({
-        skipped: true,
-        reason: nonTradingDayReason(today),
-        scan_date: today,
-        message:
-          "Hari ini bukan hari bursa (weekend atau libur nasional IDX), " +
-          "scan dilewati. Tambahkan ?force=true kalau memang sengaja mau scan manual."
-      });
-    }
-
-    // ==========================
-    // Universe
-    // ==========================
-
-    const {
-      list: UNIVERSE,
-      sectorOf,
-      marketCapOf,
-      source: universeSource
-    } = await resolveUniverse();
-
-    const dynamicSet = new Set(UNIVERSE);
-
-    const excludedFromUniverseCodes =
-      universeSource === "DB"
-        ? STATIC_UNIVERSE.filter((k) => !dynamicSet.has(k))
-        : [];
-
-    let kodeList = UNIVERSE;
-
-    // ==========================
-    // Limit
-    // ==========================
-
-    if (limit) {
-      const n = parseInt(limit, 10);
-
-      if (Number.isFinite(n) && n > 0) {
-        kodeList = kodeList.slice(0, n);
-      }
-    }
-
-    // ==========================
-    // Sector filter
-    // ==========================
-
-    if (sector) {
-      kodeList = kodeList.filter(
-        (k) =>
-          sectorOf(k).toLowerCase() ===
-          String(sector).toLowerCase()
-      );
-    }
-
-    // ==========================
-    // IHSG
-    // ==========================
-
-    const ihsgCloses = await getIhsgCloses();
-
-    // ==========================
-    // Macro
-    // ==========================
-
-    const macroSnapshot = await getLatestMacroSnapshot();
-
-    const marketRegime =
-      macroSnapshot?.market_regime ?? null;
-
-    const marketRegimeScore =
-      safeNumber(
-        macroSnapshot?.market_regime_score,
-        50
-      );
-
-    // ==========================
-    // Gap calibration
-    // ==========================
-
-    const gapCalibrationMap =
-      await getGapCalibrationMap();
-
-    // ==========================
-    // Tahap 1
-    // Fetch data semua saham
-    // ==========================
-
-    const fetched = await runPool(
-      kodeList,
-      async (kode) => {
-        const stockData = await getStockData(kode);
-
-        const stockReturn =
-          nDayReturn(
-            stockData.closePrices,
-            RETURN_PERIOD
-          );
-
-        return {
-          kode,
-          stockData,
-          stockReturn,
-          sector: sectorOf(kode),
-          marketCap: marketCapOf(kode)
-        };
-      },
-      CONCURRENCY
-    );
-
-    const ok = fetched.filter(
-      (f) => f && !f.error
-    );
-
-    const failed = fetched
-      .map((f, i) =>
-        f && f.error
-          ? kodeList[i]
-          : null
-      )
-      .filter(Boolean);
-
-    // ==========================
-    // Tahap 2
-    // Sector return
-    // ==========================
-
-    const sectorReturns = {};
-    const sectorGroups = {};
-
-    for (const item of ok) {
-      if (item.stockReturn === null) {
-        continue;
-      }
-
-      if (!sectorGroups[item.sector]) {
-        sectorGroups[item.sector] = [];
-      }
-
-      sectorGroups[item.sector].push(
-        item.stockReturn
-      );
-    }
-
-    for (const [sec, returns] of Object.entries(
-      sectorGroups
-    )) {
-      if (!returns.length) continue;
-
-      sectorReturns[sec] =
-        returns.reduce(
-          (a, b) => a + b,
-          0
-        ) / returns.length;
-    }
-
-    // ==========================
-    // Tahap 3
-    // Analyze
-    // ==========================
-
-    const analyzeErrors = [];
-
-    const analyzed = ok
-      .map((item) => {
-        try {
-          item.stockData.ihsgCloses =
-            ihsgCloses;
-
-          item.stockData.sectorReturn =
-            sectorReturns[item.sector] ?? null;
-
-          item.stockData.sector =
-            item.sector;
-
-          item.stockData.gapCalibration =
-            gapCalibrationMap;
-
-          // ==========================
-          // Mesin analisis utama
-          // ==========================
-
-          const hasil =
-            analyzeStock(
-              item.stockData
-            );
-
-          hasil.sector =
-            item.sector;
-
-          hasil.marketCap =
-            item.marketCap ?? null;
-
-          // ==========================
-          // Market regime
-          // ==========================
-
-          hasil.marketRegime =
-            marketRegime;
-
-          hasil.marketRegimeScore =
-            marketRegimeScore;
-
-          hasil.scoreAdjusted =
-            applyRegimeAdjustment(
-              hasil.score,
-              marketRegimeScore
-            );
-
-          // ==========================
-          // NEXT-DAY OPPORTUNITY
-          // ==========================
-          //
-          // Engine sudah dipanggil oleh
-          // analyzer.js.
-          //
-          // Kita hanya memastikan hasilnya
-          // tetap aman jika engine tidak
-          // menghasilkan object.
-          // ==========================
-
-          if (
-            !hasil.nextDayOpportunity ||
-            typeof hasil.nextDayOpportunity !==
-              "object"
-          ) {
-            hasil.nextDayOpportunity = null;
-          }
-
-          return hasil;
-
-        } catch (e) {
-          analyzeErrors.push({
-            kode: item.kode,
-            error:
-              e?.message ||
-              "Unknown analyzer error"
-          });
-
-          return null;
-        }
-      })
-      .filter(Boolean);
-
-    // ==========================
-    // Scan date
-    // ==========================
-
-    const scanDate =
-      new Date()
-        .toISOString()
-        .slice(0, 10);
-
-    // ==========================
-    // Snapshot rows
-    // ==========================
-
-    const snapshotRows =
-      analyzed.map((d) => {
-
-        const opportunity =
-          d.nextDayOpportunity || null;
-
-        return {
-          // ======================
-          // Basic
-          // ======================
-
-          kode: d.kode,
-          sector: d.sector,
-          scan_date: scanDate,
-
-          close: d.close,
-
-          score: d.score,
-          signal: d.signal,
-          entry: d.entry,
-          entryTimingConflict: d.entryTimingConflict,
-
-          rsi: d.rsi,
-
-          macd:
-            d.macd?.macd ?? null,
-
-          sma20: d.sma20,
-          sma50: d.sma50,
-
-          ema9: d.ema9,
-          ema20: d.ema20,
-
-          risk_reward:
-            d.riskReward,
-
-          atr: d.atr,
-
-          // ======================
-          // Breakout
-          // ======================
-
-          breakout_level:
-            d.breakout?.level ?? null,
-
-          breakout_distance_pct:
-            d.breakout?.distancePercent ??
-            null,
-
-          // ======================
-          // Closing
-          // ======================
-
-          closing_strength:
-            d.closingStrength,
-
-          // ======================
-          // Volume
-          // ======================
-
-          volume_ratio:
-            d.volume?.ratio ?? null,
-
-          volume_signal:
-            d.volume?.signal ?? null,
-
-          volume_accel_slope_pct:
-            d.volumeAcceleration
-              ?.slopePercent ?? null,
-
-          volume_accelerating:
-            d.volumeAcceleration
-              ?.accelerating ?? null,
-
-          // ======================
-          // Relative strength
-          // ======================
-
-          rs_vs_ihsg:
-            d.relativeStrength
-              ?.vsIhsg ?? null,
-
-          rs_vs_sector:
-            d.relativeStrength
-              ?.vsSector ?? null,
-
-          rs_label:
-            d.relativeStrength
-              ?.label ?? null,
-
-          // ======================
-          // Gap
-          // ======================
-
-          gap_outlook:
-            d.gap?.outlook ?? null,
-
-          gap_probability:
-            d.gap?.probability
-              ? parseFloat(
-                  String(
-                    d.gap.probability
-                  ).replace("%", "")
-                )
-              : null,
-
-          gap_calibration_applied:
-            d.gap
-              ?.calibrationApplied ??
-            false,
-
-          gap_bucket_sample_count:
-            d.gap
-              ?.bucketSampleCount ??
-            null,
-
-          // ======================
-          // Session gain
-          // ======================
-
-          session_gain_score:
-            d.sessionGain
-              ?.sessionGainScore ??
-            null,
-
-          session_gain_label:
-            d.sessionGain?.label ??
-            null,
-
-          // ======================
-          // Liquidity
-          // ======================
-
-          illiquid:
-            d.liquidity
-              ?.illiquid ??
-            false,
-
-          illiquid_reason:
-            d.liquidity
-              ?.reason ??
-            null,
-
-          // ======================
-          // Market regime
-          // ======================
-
-          market_regime:
-            d.marketRegime ??
-            null,
-
-          market_regime_score:
-            d.marketRegimeScore ??
-            null,
-
-          score_adjusted:
-            d.scoreAdjusted ??
-            null,
-
-          // ======================
-          // Existing candidates
-          // ======================
-
-          reversal_candidate:
-            d.reversalCandidate ??
-            false,
-
-          capitulation_bounce_candidate:
-            d.capitulationBounceCandidate ??
-            false,
-
-          strong_buy_confirmed:
-            d.strongBuyConfirmed ??
-            false,
-
-          // Bonus sinergi volume EXPLOSIVE + rs_label JAUH OUTPERFORM —
-          // ditambahkan 14 Agustus 2026, lihat catatan lengkap di
-          // engine/sessionGainScore.js. Dicatat terpisah (sama seperti
-          // reversal/capitulation/strongBuy di atas) supaya bisa terus
-          // dievaluasi dari next_day_return_pct & max_gain_from_open_pct
-          // sesungguhnya seiring data bertambah.
-          volume_rs_synergy:
-            d.volumeRsSynergy ??
-            false,
-
-          // ======================
-          // Exhaustion
-          // ======================
-
-          exhaustion_score:
-            d.exhaustion
-              ?.exhaustionScore ??
-            null,
-
-          exhaustion_label:
-            d.exhaustion?.label ??
-            null,
-
-          // ======================
-          // Distribution
-          // ======================
-
-          distribution_score:
-            d.distribution
-              ?.distributionScore ??
-            null,
-
-          distribution_label:
-            d.distribution?.label ??
-            null,
-
-          // ======================
-          // Fundamentals
-          // ======================
-
-          market_cap:
-            d.marketCap ??
-            null,
-
-          pe_ratio: null,
-
-          // =================================================
-          // NEXT-DAY OPPORTUNITY
-          // =================================================
-          //
-          // Nama kolom harus sesuai migration Supabase.
-          //
-          // Jika engine menghasilkan null,
-          // database akan menerima null.
-          // =================================================
-
-          next_day_opportunity_score:
-            safeNumber(
-              opportunity
-                ?.opportunityScore
-            ),
-
-          next_day_opportunity_label:
-            opportunity
-              ?.opportunityLabel ??
-            null,
-
-          next_day_opportunity_setup:
-            opportunity
-              ?.coreSetup ??
-            null,
-
-          next_day_opportunity_eligible:
-            opportunity
-              ?.eligible ??
-            false,
-
-          // Sudah naik berapa % hari ini vs close kemarin — ditambahkan
-          // 14 Agustus 2026 sebagai info transparansi risiko (BUKAN
-          // penalti skor, sudah diuji ke data & ternyata expected value-
-          // nya tidak negatif — lihat catatan lengkap di
-          // engine/nextDayOpportunity.js). entry_timing_conflict
-          // menandai kapan TIMING TEKNIKAL bilang AVOID tapi Next-Day
-          // Opportunity tetap eligible untuk saham & waktu yang sama.
-          daily_change_pct:
-            safeNumber(d.dailyChangePercent),
-
-          entry_timing_conflict:
-            d.entryTimingConflict ??
-            false
-        };
-      });
-
-    // ==========================
-    // Simpan ke Supabase
-    // ==========================
-
-    const logResult =
-      await logScanSnapshots(
-        snapshotRows
-      );
-
-    // ==========================
-    // Filter display
-    // ==========================
-
-    const illiquidCount =
-      analyzed.filter(
-        (d) =>
-          d.liquidity?.illiquid
-      ).length;
-
-    let hasilFilter =
-      analyzed.filter(
-        (d) =>
-          !d.liquidity?.illiquid
-      );
-
-    // ==========================
-    // minScore
-    // ==========================
-
-    if (minScore) {
-      const n =
-        parseInt(
-          minScore,
-          10
-        );
-
-      if (Number.isFinite(n)) {
-        hasilFilter =
-          hasilFilter.filter(
-            (d) =>
-              d.score >= n
-          );
-      }
-    }
-
-    // ==========================
-    // maxPrice
-    // ==========================
-
-    if (maxPrice) {
-      const n =
-        parseFloat(
-          maxPrice
-        );
-
-      if (Number.isFinite(n)) {
-        hasilFilter =
-          hasilFilter.filter(
-            (d) =>
-              d.close < n
-          );
-      }
-    }
-
-    // ==========================
-    // High Conviction
-    // ==========================
-
-    if (
-      HIGH_CONVICTION_ENABLED &&
-      highConviction === "true"
-    ) {
-      hasilFilter =
-        hasilFilter.filter(
-          (d) => {
-
-            const signalOk =
-              d.signal === "BUY" ||
-              d.signal ===
-                "STRONG BUY";
-
-            const entryOk =
-              d.entry === "NOW";
-
-            const gapOk =
-              d.gap?.outlook ===
-                "POSSIBLE GAP UP" ||
-              d.gap?.outlook ===
-                "HIGH GAP UP";
-
-            const closingOk =
-              typeof d.closingStrength ===
-                "number" &&
-              d.closingStrength >=
-                0.5;
-
-            const volumeOk =
-              d.volume &&
-              d.volume.signal !==
-                "LOW";
-
-            return (
-              signalOk &&
-              entryOk &&
-              gapOk &&
-              closingOk &&
-              volumeOk
-            );
-          }
-        );
-    }
-
-    // ==========================
-    // Breakout filter
-    // ==========================
-
-    if (
-      onlyBreakout === "true"
-    ) {
-      hasilFilter =
-        hasilFilter.filter(
-          (d) =>
-            d.breakout &&
-            d.breakout.isBreakout
-        );
-    }
-
-    // ==========================
-    // Macro filter
-    // ==========================
-
-    if (
-      MACRO_FILTER_ENABLED &&
-      macroFilter === "true" &&
-      marketRegime ===
-        "RISK_OFF"
-    ) {
-      hasilFilter =
-        hasilFilter.filter(
-          (d) => {
-
-            const isBuySignal =
-              d.signal === "BUY" ||
-              d.signal ===
-                "STRONG BUY";
-
-            if (!isBuySignal) {
-              return true;
-            }
-
-            return (
-              d.scoreAdjusted >=
-              80
-            );
-          }
-        );
-    }
-
-    // =========================================================
-    // Ranking
-    // =========================================================
-    //
-    // PENTING:
-    // Opportunity Score BELUM digunakan untuk mengganti ranking
-    // utama. Kita masih dalam SHADOW MODE.
-    //
-    // Ranking lama dipertahankan agar tidak mengubah perilaku
-    // SahamAI yang sudah berjalan.
-    // =========================================================
-
-    hasilFilter.sort(
-      (a, b) => {
-
-        const aReady =
-          a.entry === "NOW"
-            ? 1
-            : 0;
-
-        const bReady =
-          b.entry === "NOW"
-            ? 1
-            : 0;
-
-        if (
-          aReady !== bReady
-        ) {
-          return (
-            bReady -
-            aReady
-          );
-        }
-
-        const aBreak =
-          a.breakout &&
-          a.breakout.isBreakout
-            ? 1
-            : 0;
-
-        const bBreak =
-          b.breakout &&
-          b.breakout.isBreakout
-            ? 1
-            : 0;
-
-        if (
-          aBreak !== bBreak
-        ) {
-          return (
-            bBreak -
-            aBreak
-          );
-        }
-
-        return (
-          b.rank -
-          a.rank
-        );
-      }
-    );
-
-    // =========================================================
-    // NEXT-DAY OPPORTUNITY STATS
-    // =========================================================
-
-    const opportunityResults =
-      analyzed
-        .map(
-          (d) =>
-            d.nextDayOpportunity
-        )
-        .filter(Boolean);
-
-    const nextDayOpportunityStats =
-      {
-        total:
-          opportunityResults.length,
-
-        high:
-          opportunityResults.filter(
-            (x) =>
-              x.opportunityLabel ===
-              "HIGH"
-          ).length,
-
-        moderate:
-          opportunityResults.filter(
-            (x) =>
-              x.opportunityLabel ===
-              "MODERATE"
-          ).length,
-
-        low:
-          opportunityResults.filter(
-            (x) =>
-              x.opportunityLabel ===
-              "LOW"
-          ).length,
-
-        avoid:
-          opportunityResults.filter(
-            (x) =>
-              x.opportunityLabel ===
-              "AVOID"
-          ).length,
-
-        eligible:
-          opportunityResults.filter(
-            (x) =>
-              x.eligible ===
-              true
-          ).length
-      };
-
-    // ==========================
-    // Response
-    // ==========================
-
-    return res.status(200).json({
-
-      success: true,
-
-      scanned:
-        kodeList.length,
-
-      universeSource,
-
-      succeeded:
-        analyzed.length,
-
-      failed:
-        failed.length +
-        analyzeErrors.length,
-
-      failedCodes: [
-        ...failed,
-        ...analyzeErrors.map(
-          (e) => e.kode
-        )
-      ],
-
-      analyzeErrors,
-
-      breakoutCount:
-        analyzed.filter(
-          (d) =>
-            d.breakout &&
-            d.breakout.isBreakout
-        ).length,
-
-      readyNowCount:
-        analyzed.filter(
-          (d) =>
-            d.entry === "NOW"
-        ).length,
-
-      illiquidCount,
-
-      excludedFromUniverse:
-        excludedFromUniverseCodes.length,
-
-      excludedFromUniverseCodes,
-
-      // ======================
-      // High Conviction
-      // ======================
-
-      highConvictionRequested:
-        highConviction ===
-        "true",
-
-      highConvictionApplied:
-        HIGH_CONVICTION_ENABLED &&
-        highConviction ===
-          "true",
-
-      // ======================
-      // Macro
-      // ======================
-
-      marketRegime,
-
-      marketRegimeScore,
-
-      macroFilterRequested:
-        macroFilter ===
-        "true",
-
-      macroFilterApplied:
-        MACRO_FILTER_ENABLED &&
-        macroFilter ===
-          "true",
-
-      // ======================
-      // NEXT-DAY OPPORTUNITY
-      // ======================
-
-      nextDayOpportunityStats,
-
-      nextDayOpportunityMode:
-        "SHADOW",
-
-      nextDayOpportunityAffectsRanking:
-        false,
-
-      // ======================
-      // Logging
-      // ======================
-
-      logging:
-        logResult,
-
-      // ======================
-      // Data
-      // ======================
-
-      data:
-        hasilFilter
-    });
-
-  } catch (error) {
-
-    console.error(
-      "Batch scan error:",
-      error
-    );
-
-    return res.status(500).json({
-
-      success: false,
-
-      message:
-        "Batch scan gagal.",
-
-      error:
-        error?.message ||
-        "Unknown error",
-
-      stack:
-        error?.stack ||
-        null
-    });
+.summary-stat{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:14px;
+  padding:14px 16px;
+}
+
+.summary-stat .stat-label{
+  font-size:11px;
+  color:var(--muted);
+  text-transform:uppercase;
+  letter-spacing:.04em;
+  margin-bottom:6px;
+}
+
+.summary-stat .stat-value{
+  font-family:var(--font-mono);
+  font-size:22px;
+  font-weight:700;
+}
+
+.summary-stat .stat-value.positive{color:var(--green);}
+.summary-stat .stat-value.negative{color:var(--red);}
+
+.mini-table{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+
+.mini-table-row{
+  display:grid;
+  grid-template-columns:1.4fr .6fr .8fr .8fr;
+  align-items:center;
+  gap:8px;
+  padding:9px 10px;
+  background:var(--surface-2);
+  border-radius:10px;
+  font-family:var(--font-mono);
+  font-size:12px;
+}
+
+.mini-table-row.head{
+  background:transparent;
+  color:var(--muted);
+  font-family:var(--font-body);
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:.03em;
+  padding:0 10px;
+}
+
+.mini-table-row .win-rate.positive{color:var(--green);font-weight:600;}
+.mini-table-row .win-rate.negative{color:var(--red);font-weight:600;}
+
+.trend-list{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  max-height:320px;
+  overflow-y:auto;
+  padding-right:2px;
+}
+
+.trend-row{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:7px 10px;
+  border-radius:8px;
+  font-family:var(--font-mono);
+  font-size:12px;
+}
+
+.trend-row:nth-child(odd){background:var(--surface-2);}
+
+.trend-bar-wrap{
+  flex:1;
+  margin:0 10px;
+  height:6px;
+  background:var(--border);
+  border-radius:999px;
+  overflow:hidden;
+}
+
+.trend-bar{
+  height:100%;
+  background:var(--green);
+}
+
+.trend-pending{
+  color:var(--muted);
+  font-style:italic;
+}
+
+/* ----- Filter periode (pill/chip) ----- */
+
+.period-filter{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  margin:10px 0 12px;
+}
+
+.period-pill{
+  font-family:var(--font-mono);
+  font-size:12px;
+  font-weight:600;
+  padding:6px 14px;
+  border-radius:999px;
+  background:var(--surface-2);
+  border:1px solid var(--border);
+  color:var(--muted);
+  cursor:pointer;
+  transition:border-color .15s, color .15s, background .15s;
+}
+
+.period-pill:hover{border-color:var(--amber);color:var(--text);}
+
+.period-pill.active{
+  background:var(--amber-dim);
+  border-color:var(--amber);
+  color:var(--amber);
+}
+
+/* ----- Filter panel (kode + tanggal) ----- */
+
+.riwayat-filter-row{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  align-items:center;
+}
+
+.riwayat-filter-row .filter-label{
+  font-size:11px;
+  color:var(--muted);
+  text-transform:uppercase;
+  letter-spacing:.04em;
+  width:100%;
+}
+
+/* Grid filter (kode / pola / tanggal / tombol) — dari 1 kolom di HP
+   sampai 4 kolom sejajar di layar lebar, tanpa bug tombol "menelan"
+   lebar input (flex + width:100% dari .btn-secondary global). */
+
+.filter-grid{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:12px;
+  margin-top:10px;
+}
+
+@media (min-width:560px){
+  .filter-grid{grid-template-columns:1fr 1fr;}
+}
+
+@media (min-width:900px){
+  .filter-grid{grid-template-columns:1.1fr .9fr .9fr auto;align-items:end;}
+}
+
+.field{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  min-width:0;
+}
+
+.field-label{
+  font-size:10px;
+  color:var(--muted-2);
+  text-transform:uppercase;
+  letter-spacing:.05em;
+  padding-left:2px;
+}
+
+.field-label-ghost{
+  visibility:hidden;
+}
+
+@media (max-width:899px){
+  .field-label-ghost{display:none;}
+}
+
+.field-actions .btn-secondary{
+  margin-top:0;
+  white-space:nowrap;
+}
+
+@media (min-width:900px){
+  .field-actions .btn-secondary{width:auto;padding-left:22px;padding-right:22px;}
+}
+
+.filter-export-row{
+  margin-top:12px;
+}
+
+.filter-export-row .btn-ghost{
+  width:100%;
+}
+
+@media (min-width:560px){
+  .filter-export-row{display:flex;justify-content:flex-end;}
+  .filter-export-row .btn-ghost{width:auto;padding-left:20px;padding-right:20px;}
+}
+
+/* ----- Date & select inputs — minimalist, dark theme (no default browser chrome) ----- */
+
+input[type="date"],
+select{
+  width:100%;
+  padding:12px 14px;
+  font-size:14px;
+  font-family:var(--font-mono);
+  background:var(--surface-2);
+  border:1px solid var(--border);
+  border-radius:10px;
+  color:var(--text);
+  appearance:none;
+  -webkit-appearance:none;
+  -moz-appearance:none;
+  color-scheme:dark;
+}
+
+input[type="date"]:focus,
+select:focus{
+  outline:2px solid var(--amber);
+  outline-offset:1px;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator{
+  filter:invert(60%) sepia(20%) saturate(400%) hue-rotate(360deg);
+  cursor:pointer;
+  opacity:.85;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator:hover{
+  opacity:1;
+}
+
+select{
+  padding-right:36px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238494A3' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;
+  background-position:right 14px center;
+  cursor:pointer;
+}
+
+select:hover{border-color:var(--amber);}
+
+select option{
+  background:var(--surface-2);
+  color:var(--text);
+}
+
+/* #historyTableWrap & #summaryOverall pakai class .results (grid multi-
+   kolom dari style.css, untuk kartu-kartu kecil). Tabel riwayat & ringkasan
+   overall cuma 1 elemen tunggal di dalamnya — tanpa ini dia cuma menempati
+   1 dari 2-3 kolom grid di layar tablet/desktop dan sisanya kosong. */
+#historyTableWrap > *,
+#summaryOverall > *{
+  grid-column:1/-1;
+}
+
+/* ----- Tabel riwayat mentah ----- */
+
+.history-table-scroll{
+  overflow-x:auto;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:14px;
+  padding:0;
+}
+
+.history-table{
+  width:100%;
+  border-collapse:collapse;
+  font-family:var(--font-mono);
+  font-size:12px;
+  min-width:720px;
+}
+
+@media (min-width:900px){
+  .history-table{
+    font-size:13px;
+    min-width:100%;
   }
+  .history-table th,
+  .history-table td{padding:12px 16px;}
+}
+
+.history-table th,
+.history-table td{
+  padding:10px 12px;
+  text-align:left;
+  border-bottom:1px solid var(--border);
+  white-space:nowrap;
+}
+
+.history-table thead th{
+  position:sticky;
+  top:0;
+  z-index:1;
+  background:var(--surface-2);
+  color:var(--muted);
+  font-family:var(--font-body);
+  font-size:10px;
+  text-transform:uppercase;
+  letter-spacing:.03em;
+}
+
+.history-table tbody tr:hover{background:var(--surface-2);}
+.history-table tbody tr:last-child td{border-bottom:none;}
+
+.result-pill{
+  font-size:11px;
+  font-weight:600;
+  padding:3px 9px;
+  border-radius:999px;
+  white-space:nowrap;
+}
+
+.result-pill.win{background:var(--green-dim);color:var(--green);}
+.result-pill.loss{background:var(--red-dim);color:var(--red);}
+.result-pill.pending{background:rgba(132,148,163,.15);color:var(--muted);}
+
+.regime-pill{
+  font-size:11px;
+  font-weight:600;
+  padding:3px 9px;
+  border-radius:999px;
+  white-space:nowrap;
+}
+
+.regime-pill.risk-on{background:var(--green-dim);color:var(--green);}
+.regime-pill.risk-off{background:var(--red-dim);color:var(--red);}
+.regime-pill.neutral{background:rgba(132,148,163,.15);color:var(--muted);}
+.regime-pill.unknown{background:rgba(132,148,163,.08);color:var(--muted);}
+
+.opp-pill{
+  font-size:11px;
+  font-weight:600;
+  padding:3px 9px;
+  border-radius:999px;
+  white-space:nowrap;
+}
+
+.opp-pill.high{background:var(--green-dim);color:var(--green);}
+.opp-pill.moderate{background:var(--amber-dim);color:var(--amber);}
+.opp-pill.watch{background:rgba(132,148,163,.15);color:var(--muted);}
+.opp-pill.low{background:var(--red-dim);color:var(--red);}
+
+.pattern-pill{
+  font-size:11px;
+  font-weight:600;
+  padding:3px 9px;
+  border-radius:999px;
+  white-space:nowrap;
+  display:inline-block;
+  margin:1px;
+  background:var(--amber-dim);
+  color:var(--amber);
 }
