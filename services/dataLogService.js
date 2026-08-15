@@ -346,6 +346,48 @@ export async function getRowsMissingSessionGain({ limit = 5000 } = {}) {
   return res.json();
 }
 
+// Ambil baris yang belum punya next_day_opportunity_label — baris lama
+// dari sebelum kolom ini ada (migration 2026-08-09, lihat db/migration_
+// 2026-08-09-next-day-opportunity.sql). Sama seperti getRowsMissingSessionGain:
+// SEMUA input calculateNextDayOpportunity() sudah tersimpan sebagai kolom
+// di baris itu sendiri (score, rsi, macd, sma/ema, risk_reward,
+// closing_strength, volume_ratio, volume_accel_slope_pct, breakout_level,
+// breakout_distance_pct, rs_label, exhaustion_score, distribution_score,
+// illiquid, daily_change_pct) KECUALI marketTrend yang tidak pernah
+// disimpan sebagai kolom sendiri — makanya dipanggil ulang dari
+// close/sma20/sma50/ema9/ema20/macd yang memang sudah ada. Backfill ini
+// murni hitung ulang, TIDAK fetch Yahoo/candle sama sekali, jadi bisa
+// diproses per baris langsung (bukan per kode) dan concurrency tinggi
+// aman. Dipakai oleh api/relabel-high-low.js?target=opportunity.
+export async function getRowsMissingOpportunity({ limit = 5000 } = {}) {
+  const cfg = getConfig();
+  if (!cfg) return [];
+
+  const params = new URLSearchParams();
+  params.set(
+    "select",
+    "id,score,close,rsi,macd,sma20,sma50,ema9,ema20,risk_reward,closing_strength," +
+      "volume_ratio,volume_accel_slope_pct,breakout_level,breakout_distance_pct," +
+      "rs_label,exhaustion_score,distribution_score,illiquid,daily_change_pct"
+  );
+  params.set("next_day_opportunity_label", "is.null");
+  params.set("order", "scan_date.asc");
+  params.set("limit", String(limit));
+
+  const res = await fetch(`${cfg.url}/rest/v1/scan_history?${params.toString()}`, {
+    headers: {
+      apikey: cfg.key,
+      Authorization: `Bearer ${cfg.key}`
+    }
+  });
+
+  if (!res.ok) {
+    throw new Error(`Supabase select gagal (${res.status}): ${await res.text()}`);
+  }
+
+  return res.json();
+}
+
 // Baris untuk ringkasan statistik, kolom diminimalkan (bukan select *)
 // supaya payload tetap ringan walau datasetnya sudah ribuan baris —
 // dipakai untuk menghitung ringkasan statistik di computeSummary().
@@ -371,7 +413,15 @@ export async function getLabeledRowsForStats({ sinceDate, kode, maxRows = 50000 
   const cols = [
     "kode", "sector", "scan_date", "score", "signal", "rsi",
     "breakout_level", "closing_strength", "volume_signal",
-    "gap_outlook", "next_day_return_pct", "gap_up_realized", "rs_label"
+    "gap_outlook", "next_day_return_pct", "gap_up_realized", "rs_label",
+    // Kolom strategi "beli sore -> jual pagi/close" (Next-Day Opportunity
+    // Engine + label Tahap 2 dari api/label-outcomes-close.js) — dipakai
+    // computeSummary() untuk kalibrasi yang benar-benar mencerminkan
+    // strategi ini, bukan cuma proxy gap_up_realized (basis open H+1).
+    "next_day_opportunity_label", "next_day_opportunity_eligible",
+    "next_day_opportunity_setup", "next_day_opportunity_score",
+    "next_day_close_return_from_close_pct", "next_day_max_gain_from_close_pct",
+    "next_day_success"
   ].join(",");
 
   const PAGE_SIZE = 1000; // samakan dengan max-rows Supabase supaya tiap halaman penuh
