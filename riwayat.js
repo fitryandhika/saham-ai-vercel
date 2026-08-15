@@ -171,6 +171,75 @@ function renderOverall(overall) {
 }
 
 // ==========================
+// Render: ringkasan kalibrasi beli sore -> jual pagi/close
+// ==========================
+
+function renderOverallOpportunity(o) {
+  const el = document.getElementById("summaryOpportunity");
+  if (!el) return;
+
+  if (!o || o.total_labeled === 0) {
+    el.innerHTML = `<div class="empty-state">Belum ada data yang sudah dilabel Tahap 2 (close). Tunggu cron /api/label-outcomes-close jalan beberapa hari dulu.</div>`;
+    return;
+  }
+
+  el.innerHTML = `
+    <div class="summary-grid">
+      <div class="summary-stat">
+        <div class="stat-label">Total Prediksi Dilabel (close)</div>
+        <div class="stat-value">${o.total_labeled.toLocaleString("id-ID")}</div>
+      </div>
+      <div class="summary-stat">
+        <div class="stat-label">Win Rate (target +3% sesi 1 / +2% close)</div>
+        <div class="stat-value ${pctClass(o.win_rate)}">${o.win_rate ?? "–"}%</div>
+      </div>
+      <div class="summary-stat">
+        <div class="stat-label">Avg Return (tahan sampai close)</div>
+        <div class="stat-value ${retClass(o.avg_return_pct)}">${fmtPct(o.avg_return_pct)}</div>
+      </div>
+      <div class="summary-stat">
+        <div class="stat-label">Avg Max Gain (titik terbaik sesi 1/H+1)</div>
+        <div class="stat-value ${retClass(o.avg_max_gain_pct)}">${fmtPct(o.avg_max_gain_pct)}</div>
+      </div>
+    </div>
+  `;
+}
+
+function renderEligibleVsNot(data) {
+  const el = document.getElementById("eligibleVsNot");
+  if (!el) return;
+  if (!data) {
+    el.innerHTML = `<div class="empty-state">Belum ada data.</div>`;
+    return;
+  }
+
+  const rows = [
+    { label: "⭐ Eligible (lolos semua hard-check)", ...data.eligible },
+    { label: "Tidak Eligible", ...data.not_eligible }
+  ];
+
+  const head = `
+    <div class="mini-table-row head">
+      <span>Kelompok</span>
+      <span>Jumlah</span>
+      <span>Win Rate</span>
+      <span>Avg Return</span>
+    </div>
+  `;
+  const body = rows
+    .map((r) => `
+      <div class="mini-table-row">
+        <span>${r.label}</span>
+        <span>${r.jumlah}</span>
+        <span class="win-rate ${pctClass(r.win_rate)}">${r.win_rate ?? "–"}%</span>
+        <span class="${retClass(r.avg_return_pct)}">${fmtPct(r.avg_return_pct)}</span>
+      </div>
+    `)
+    .join("");
+  el.innerHTML = head + body;
+}
+
+// ==========================
 // Render: mini-table (by_signal / by_score_bucket / by_breakout_level)
 // ==========================
 
@@ -289,13 +358,25 @@ function renderByDate(rows) {
 // Render: tabel riwayat mentah
 // ==========================
 
+// Status hasil strategi beli sore -> jual pagi/close, basis
+// next_day_success (lihat catatan di engine/evaluationStats.js &
+// api/label-outcomes-close.js) — BUKAN gap_up_realized (itu proxy lama
+// berbasis open H+1, dipakai di sinyal umum, bukan strategi ini).
 function statusPill(row) {
-  if (row.gap_up_realized === null || row.gap_up_realized === undefined) {
+  if (row.next_day_success === null || row.next_day_success === undefined) {
     return `<span class="result-pill pending">Belum dilabel</span>`;
   }
-  return row.gap_up_realized
-    ? `<span class="result-pill win">Gap Up</span>`
-    : `<span class="result-pill loss">Tidak Gap Up</span>`;
+  return row.next_day_success
+    ? `<span class="result-pill win">Kena Target</span>`
+    : `<span class="result-pill loss">Meleset</span>`;
+}
+
+function opportunityPill(row) {
+  const label = row.next_day_opportunity_label;
+  if (!label) return `<span class="pattern-pill">–</span>`;
+  const cls = label.toLowerCase();
+  const star = row.next_day_opportunity_eligible ? " ⭐" : "";
+  return `<span class="opp-pill ${cls}">${label}${star}</span>`;
 }
 
 function regimeBadge(regime) {
@@ -331,13 +412,14 @@ function renderHistoryTable(rows) {
       <tr>
         <td>${r.scan_date}</td>
         <td><strong>${r.kode}</strong></td>
+        <td>${opportunityPill(r)}</td>
         <td>${r.signal ?? "–"}</td>
         <td>${r.score ?? "–"}</td>
         <td>${r.close ?? "–"}</td>
-        <td>${r.actual_next_open ?? "–"}</td>
         <td>${r.actual_next_high ?? "–"}</td>
-        <td class="${retClass(r.max_gain_from_open_pct)}">${fmtPct(r.max_gain_from_open_pct)}</td>
-        <td class="${retClass(r.next_day_return_pct)}">${fmtPct(r.next_day_return_pct)}</td>
+        <td>${r.actual_next_close ?? "–"}</td>
+        <td class="${retClass(r.next_day_max_gain_from_close_pct)}">${fmtPct(r.next_day_max_gain_from_close_pct)}</td>
+        <td class="${retClass(r.next_day_close_return_from_close_pct)}">${fmtPct(r.next_day_close_return_from_close_pct)}</td>
         <td>${regimeBadge(r.market_regime)}</td>
         <td>${patternBadges(r)}</td>
         <td>${statusPill(r)}</td>
@@ -350,8 +432,10 @@ function renderHistoryTable(rows) {
       <table class="history-table">
         <thead>
           <tr>
-            <th>Tanggal</th><th>Kode</th><th>Signal</th><th>Score</th>
-            <th>Close</th><th>Next Open</th><th>High</th><th>Max Gain%</th><th>Return</th><th>Regime</th><th>Pola</th><th>Hasil</th>
+            <th>Tanggal</th><th>Kode</th><th>Opportunity</th><th>Signal</th><th>Score</th>
+            <th>Close (beli sore)</th><th>High H+1</th><th>Close H+1</th>
+            <th>Max Gain% (sesi 1)</th><th>Return% (sampai close)</th>
+            <th>Regime</th><th>Pola</th><th>Hasil</th>
           </tr>
         </thead>
         <tbody>${body}</tbody>
@@ -412,6 +496,9 @@ async function loadSummary() {
   try {
     const { data } = await fetchJSON(url);
     renderOverall(data.overall);
+    renderOverallOpportunity(data.overall_opportunity);
+    renderMiniTable("byOpportunityLabel", data.by_opportunity_label, "opportunity_label", "Opportunity Label");
+    renderEligibleVsNot(data.eligible_vs_not_eligible);
     renderMiniTable("bySignal", data.by_signal, "signal", "Signal");
     renderMiniTable("byScoreBucket", data.by_score_bucket, "bucket", "Bucket Skor");
     renderMiniTable("byBreakout", data.by_breakout_level, "breakout_level", "Breakout Level");
