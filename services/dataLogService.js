@@ -195,6 +195,42 @@ export async function updateLabel(id, patch) {
   return true;
 }
 
+
+// Ambil snapshot fitur yang cukup untuk menghitung ulang score + signal +
+// next-day opportunity menggunakan engine versi aktif. Dipakai oleh
+// /api/relabel-high-low?target=model-sync supaya Riwayat AI bisa disinkronkan
+// dengan logic scorer terbaru tanpa fetch candle eksternal.
+export async function getRowsForModelSync({ scanDate, kode, limit = 5000 } = {}) {
+  const cfg = getConfig();
+  if (!cfg) return [];
+
+  const cols = [
+    "id", "kode", "scan_date", "close", "sma20", "sma50", "ema9", "ema20",
+    "rsi", "macd", "risk_reward", "breakout_level", "breakout_distance_pct",
+    "closing_strength", "volume_ratio", "volume_signal",
+    "volume_accel_slope_pct", "volume_accelerating", "rs_label",
+    "illiquid", "market_regime", "market_regime_score",
+    "exhaustion_score", "distribution_score", "daily_change_pct"
+  ].join(",");
+
+  const params = new URLSearchParams();
+  params.set("select", cols);
+  params.set("order", "kode.asc");
+  params.set("limit", String(limit));
+  if (scanDate) params.set("scan_date", `eq.${scanDate}`);
+  if (kode) params.set("kode", `eq.${kode.toUpperCase()}`);
+
+  const res = await fetch(`${cfg.url}/rest/v1/scan_history?${params.toString()}`, {
+    headers: { apikey: cfg.key, Authorization: `Bearer ${cfg.key}` }
+  });
+
+  if (!res.ok) {
+    throw new Error(`Supabase select gagal (${res.status}): ${await res.text()}`);
+  }
+
+  return res.json();
+}
+
 // ==========================
 // Query untuk Dashboard Riwayat (api/history.js)
 // ==========================
