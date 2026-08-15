@@ -545,6 +545,43 @@ function exportCsv() {
 
 document.getElementById("patternFilter")?.addEventListener("change", loadTable);
 document.getElementById("dateFilter")?.addEventListener("change", loadTable);
+document.getElementById("btnSyncModel").addEventListener("click", async () => {
+  const date = document.getElementById("dateFilter").value;
+  const kode = document.getElementById("kodeFilter").value.trim().toUpperCase();
+
+  if (!date && !kode) {
+    alert("Pilih tanggal scan atau kode saham terlebih dahulu. Untuk sinkronisasi data 13 Agustus, pilih 2026-08-13.");
+    return;
+  }
+
+  const target = date ? `tanggal ${date}` : `kode ${kode}`;
+  if (!confirm(`Sinkronkan ulang score, signal, dan Next-Day Opportunity untuk ${target} menggunakan scorer aktif?`)) return;
+
+  const btn = document.getElementById("btnSyncModel");
+  const oldText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "⏳ Sinkronisasi…";
+
+  try {
+    const params = new URLSearchParams({ target: "model-sync", manual: "1" });
+    if (date) params.set("date", date);
+    if (kode) params.set("kode", kode);
+
+    const res = await fetch(`/api/relabel-high-low?${params.toString()}`);
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.message || "Sinkronisasi gagal.");
+
+    alert(`Sinkronisasi selesai. ${json.processed} baris diproses; ${json.changedScore} score berubah dan ${json.changedSignal} signal berubah.`);
+    await loadSummary();
+    await loadTable();
+  } catch (e) {
+    alert(`Sinkronisasi gagal: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = oldText;
+  }
+});
+
 document.getElementById("btnRefresh").addEventListener("click", loadSummary);
 document.getElementById("btnLoadTable").addEventListener("click", loadTable);
 document.getElementById("btnExportCsv").addEventListener("click", exportCsv);
