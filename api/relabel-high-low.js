@@ -32,10 +32,25 @@
 // calculateSessionGainScore sudah ada di baris itu sendiri), jadi jauh
 // lebih cepat dan terpisah total dari logic high/low di bawah — lihat
 // handler target === "session-gain" di awal handler().
+//
+// UPDATE 15 Agustus 2026 — gabungan ketiga (alasan sama: batas 12
+// serverless function Vercel Hobby, tidak bikin file endpoint baru):
+//   GET /api/relabel-high-low?target=opportunity              -> backfill next_day_opportunity_* 2000 baris pertama
+//   GET /api/relabel-high-low?target=opportunity&limit=500     -> batasi jumlah per panggilan
+// Backfill untuk baris LAMA (sebelum migration 2026-08-09) yang belum
+// punya next_day_opportunity_label/score/setup/eligible. Sama seperti
+// session-gain: TIDAK fetch Yahoo/candle sama sekali — semua input
+// calculateNextDayOpportunity() sudah tersimpan sebagai kolom di baris
+// itu sendiri, KECUALI marketTrend yang dihitung ulang dari
+// close/sma20/sma50/ema9/ema20/macd (juga sudah tersimpan). Lihat
+// getRowsMissingOpportunity() di services/dataLogService.js untuk daftar
+// kolom lengkap & alasannya.
 
-import { getRowsMissingHighLow, getRowsMissingSessionGain, updateLabel } from "../services/dataLogService.js";
+import { getRowsMissingHighLow, getRowsMissingSessionGain, getRowsMissingOpportunity, updateLabel } from "../services/dataLogService.js";
 import { getStockData, getIntradayPeakTime } from "../services/stockService.js";
 import { calculateSessionGainScore } from "../engine/sessionGainScore.js";
+import { calculateNextDayOpportunity } from "../engine/nextDayOpportunity.js";
+import { getMarketTrend } from "../engine/verdict.js";
 
 export const config = {
   maxDuration: 60
@@ -155,6 +170,95 @@ async function handleSessionGainBackfill(req, res) {
   });
 }
 
+// Rekonstruksi isBreakout dari breakout_level yang sudah tersimpan —
+// lihat engine/indicators/breakout.js: level cuma "BREAKOUT" atau
+// "STRONG_BREAKOUT" ketika brokeLevel && volumeRatio>=1.5 (persis
+// definisi isBreakout), jadi tidak perlu volume_ratio lagi di sini.
+function reconstructIsBreakout(breakoutLevel) {
+  return breakoutLevel === "BREAKOUT" || breakoutLevel === "STRONG_BREAKOUT";
+}
+
+// Backfill next_day_opportunity_* — lihat catatan "UPDATE 15 Agustus
+// 2026" di atas. Murni hitung ulang dari kolom yang sudah ada, tidak ada
+// fetch eksternal, jadi bisa proses per baris langsung dengan
+// concurrency tinggi (sama seperti session-gain).
+async function handleOpportunityBackfill(req, res) {
+  const limit = req.query.limit ? parseInt(req.query.limit, 10) : 2000;
+  const rows = await getRowsMissingOpportunity({ limit });
+
+  if (rows.length === 0) {
+    return res.status(200).json({
+      success: true,
+      message: "Tidak ada baris lama yang perlu di-backfill — semua sudah punya next_day_opportunity_label.",
+      processed: 0,
+      remaining: 0
+    });
+  }
+
+  const results = await runPool(
+    rows,
+    async (row) => {
+      // marketTrend tidak pernah disimpan sebagai kolom sendiri — hitung
+      // ulang dari indikator yang sudah ada (sama persis inputnya dengan
+      // getMarketTrend() di engine/analyzer.js).
+      const marketTrend = getMarketTrend({
+        close: row.close,
+        sma20: row.sma20,
+        sma50: row.sma50,
+        ema9: row.ema9,
+        ema20: row.ema20,
+        macd: { macd: row.macd }
+      });
+
+      const opportunity = calculateNextDayOpportunity({
+        score: row.score,
+        volume: { ratio: row.volume_ratio },
+        volumeAcceleration: { slopePercent: row.volume_accel_slope_pct },
+        breakout: {
+          isBreakout: reconstructIsBreakout(row.breakout_level),
+          distancePercent: row.breakout_distance_pct
+        },
+        relativeStrength: { label: row.rs_label },
+        exhaustion: { exhaustionScore: row.exhaustion_score },
+        distribution: { distributionScore: row.distribution_score },
+        liquidity: { illiquid: row.illiquid },
+        riskReward: row.risk_reward,
+        closingStrength: row.closing_strength,
+        marketTrend,
+        rsi: row.rsi,
+        macd: { macd: row.macd },
+        dailyChangePercent: row.daily_change_pct
+      });
+
+      await updateLabel(row.id, {
+        next_day_opportunity_score: opportunity.opportunityScore,
+        next_day_opportunity_label: opportunity.opportunityLabel,
+        next_day_opportunity_setup: opportunity.coreSetup,
+        next_day_opportunity_eligible: opportunity.eligible
+      });
+
+      return { id: row.id, ok: true };
+    },
+    20 // tidak ada fetch eksternal, aman concurrency lebih tinggi dari relabel high/low
+  );
+
+  const ok = results.filter((r) => r && r.ok).length;
+  const failed = results
+    .map((r, i) => (r && r.error ? { id: rows[i].id, error: r.error } : null))
+    .filter(Boolean);
+
+  return res.status(200).json({
+    success: true,
+    processed: ok,
+    failedCount: failed.length,
+    failed: failed.slice(0, 10),
+    remaining: rows.length - ok,
+    hint: rows.length === limit
+      ? "Batch ini penuh sampai limit — mungkin masih ada baris lagi, panggil ulang endpoint ini dengan target=opportunity."
+      : undefined
+  });
+}
+
 export default async function handler(req, res) {
   try {
     if (process.env.CRON_SECRET) {
@@ -169,6 +273,10 @@ export default async function handler(req, res) {
 
     if (req.query.target === "session-gain") {
       return await handleSessionGainBackfill(req, res);
+    }
+
+    if (req.query.target === "opportunity") {
+      return await handleOpportunityBackfill(req, res);
     }
 
     const singleKode = req.query.kode ? req.query.kode.toUpperCase() : null;
