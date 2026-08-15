@@ -376,3 +376,5 @@ select option{
   background:var(--amber-dim);
   color:var(--amber);
 }
+
+.btn-secondary:disabled{opacity:.55;cursor:wait;}
