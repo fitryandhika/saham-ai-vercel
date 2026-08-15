@@ -37,6 +37,13 @@
 // serverless function Vercel Hobby, tidak bikin file endpoint baru):
 //   GET /api/relabel-high-low?target=opportunity              -> backfill next_day_opportunity_* 2000 baris pertama
 //   GET /api/relabel-high-low?target=opportunity&limit=500     -> batasi jumlah per panggilan
+// UPDATE 15 Agustus 2026 — sinkronisasi scorer aktif untuk Riwayat AI:
+//   GET /api/relabel-high-low?target=model-sync&date=2026-08-13
+//   GET /api/relabel-high-low?target=model-sync&date=2026-08-13&kode=BBCA
+// Mode ini menghitung ulang score/signal dan Next-Day Opportunity dari
+// snapshot fitur yang sudah tersimpan, tanpa fetch Yahoo. Dipakai setelah
+// logic scorer berubah agar histori tanggal lama tidak tetap memakai score lama.
+//
 // Backfill untuk baris LAMA (sebelum migration 2026-08-09) yang belum
 // punya next_day_opportunity_label/score/setup/eligible. Sama seperti
 // session-gain: TIDAK fetch Yahoo/candle sama sekali — semua input
@@ -46,11 +53,13 @@
 // getRowsMissingOpportunity() di services/dataLogService.js untuk daftar
 // kolom lengkap & alasannya.
 
-import { getRowsMissingHighLow, getRowsMissingSessionGain, getRowsMissingOpportunity, updateLabel } from "../services/dataLogService.js";
+import { getRowsMissingHighLow, getRowsMissingSessionGain, getRowsMissingOpportunity, getRowsForModelSync, updateLabel } from "../services/dataLogService.js";
 import { getStockData, getIntradayPeakTime } from "../services/stockService.js";
 import { calculateSessionGainScore } from "../engine/sessionGainScore.js";
 import { calculateNextDayOpportunity } from "../engine/nextDayOpportunity.js";
 import { getMarketTrend } from "../engine/verdict.js";
+import { calculateScore, recommendation, hasStrongBuyConfirmation } from "../engine/scorer.js";
+import { applyRegimeAdjustment } from "../engine/marketRegime.js";
 
 export const config = {
   maxDuration: 60
@@ -182,6 +191,134 @@ function reconstructIsBreakout(breakoutLevel) {
 // 2026" di atas. Murni hitung ulang dari kolom yang sudah ada, tidak ada
 // fetch eksternal, jadi bisa proses per baris langsung dengan
 // concurrency tinggi (sama seperti session-gain).
+async function handleModelSync(req, res) {
+  const scanDate = req.query.date;
+  const kode = req.query.kode ? req.query.kode.toUpperCase() : null;
+  const limit = req.query.limit ? parseInt(req.query.limit, 10) : 5000;
+
+  if (!scanDate && !kode) {
+    return res.status(400).json({
+      success: false,
+      message: "Wajib isi ?date=YYYY-MM-DD atau ?kode=KODE. Untuk sinkronisasi tanggal 13 Agustus gunakan ?date=2026-08-13."
+    });
+  }
+
+  const rows = await getRowsForModelSync({ scanDate, kode, limit });
+  if (!rows.length) {
+    return res.status(200).json({ success: true, processed: 0, message: "Tidak ada data yang cocok." });
+  }
+
+  const results = await runPool(rows, async (row) => {
+    const marketTrend = getMarketTrend({
+      close: row.close,
+      sma20: row.sma20,
+      sma50: row.sma50,
+      ema9: row.ema9,
+      ema20: row.ema20,
+      macd: { macd: row.macd }
+    });
+
+    const volume = { ratio: row.volume_ratio, signal: row.volume_signal };
+    const breakout = {
+      level: row.breakout_level,
+      distancePercent: row.breakout_distance_pct,
+      isBreakout: row.breakout_level === "BREAKOUT" || row.breakout_level === "STRONG_BREAKOUT"
+    };
+    const volumeAcceleration = {
+      slopePercent: row.volume_accel_slope_pct,
+      accelerating: row.volume_accelerating
+    };
+    const relativeStrength = { label: row.rs_label };
+    const exhaustion = { exhaustionScore: row.exhaustion_score };
+    const distribution = { distributionScore: row.distribution_score };
+
+    const data = {
+      close: row.close,
+      sma20: row.sma20,
+      sma50: row.sma50,
+      ema9: row.ema9,
+      ema20: row.ema20,
+      rsi: row.rsi,
+      macd: { macd: row.macd },
+      volume,
+      riskReward: row.risk_reward,
+      breakout,
+      closingStrength: row.closing_strength,
+      volumeAcceleration,
+      relativeStrength,
+      exhaustion,
+      distribution
+    };
+
+    const score = calculateScore(data);
+    const strongBuyConfirmed = hasStrongBuyConfirmation({ breakout, volume, rsi: row.rsi });
+    let signal = recommendation(score);
+    if (signal === "STRONG BUY" && !strongBuyConfirmed) signal = "BUY";
+    if (row.illiquid) signal = "TIDAK LIKUID";
+
+    const scoreAdjusted = applyRegimeAdjustment(score, row.market_regime_score);
+
+    const opportunity = calculateNextDayOpportunity({
+      score,
+      volume,
+      volumeAcceleration,
+      breakout,
+      relativeStrength,
+      exhaustion,
+      distribution,
+      liquidity: { illiquid: Boolean(row.illiquid) },
+      riskReward: row.risk_reward,
+      closingStrength: row.closing_strength,
+      marketTrend,
+      rsi: row.rsi,
+      macd: { macd: row.macd },
+      dailyChangePercent: row.daily_change_pct
+    });
+
+    await updateLabel(row.id, {
+      score,
+      signal,
+      strong_buy_confirmed: strongBuyConfirmed,
+      score_adjusted: scoreAdjusted,
+      next_day_opportunity_score: opportunity.opportunityScore,
+      next_day_opportunity_label: opportunity.opportunityLabel,
+      next_day_opportunity_setup: opportunity.coreSetup,
+      next_day_opportunity_eligible: opportunity.eligible
+    });
+
+    return {
+      id: row.id,
+      kode: row.kode,
+      scan_date: row.scan_date,
+      oldScore: row.score ?? null,
+      score,
+      oldSignal: row.signal ?? null,
+      signal,
+      oldOpportunityScore: null,
+      opportunityScore: opportunity.opportunityScore,
+      opportunityLabel: opportunity.opportunityLabel
+    };
+  }, 20);
+
+  const failed = results.map((r, i) => r?.error ? { id: rows[i].id, error: r.error } : null).filter(Boolean);
+  const ok = results.filter(r => r && !r.error);
+  const changedScore = ok.filter(r => Number(r.oldScore) !== Number(r.score)).length;
+  const changedSignal = ok.filter(r => r.oldSignal !== r.signal).length;
+
+  return res.status(200).json({
+    success: true,
+    processed: ok.length,
+    failedCount: failed.length,
+    changedScore,
+    changedSignal,
+    failed: failed.slice(0, 20),
+    date: scanDate ?? null,
+    kode: kode ?? null,
+    sample: ok.slice(0, 10),
+    hint: "Riwayat AI sekarang membaca nilai yang sudah disinkronkan dari scorer aktif."
+  });
+}
+
 async function handleOpportunityBackfill(req, res) {
   const limit = req.query.limit ? parseInt(req.query.limit, 10) : 2000;
   const rows = await getRowsMissingOpportunity({ limit });
@@ -277,6 +414,10 @@ export default async function handler(req, res) {
 
     if (req.query.target === "opportunity") {
       return await handleOpportunityBackfill(req, res);
+    }
+
+    if (req.query.target === "model-sync") {
+      return await handleModelSync(req, res);
     }
 
     const singleKode = req.query.kode ? req.query.kode.toUpperCase() : null;
