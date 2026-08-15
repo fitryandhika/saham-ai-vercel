@@ -63,7 +63,22 @@
 
   <section id="summaryOverall" class="results"></section>
 
-  <h2 class="page-section-title">Rincian Win Rate</h2>
+  <h2 class="page-section-title">Kalibrasi: Beli Sore → Jual Pagi / Close</h2>
+  <p class="hint-text">Basis harga BELI = close sore hari itu. Target: high H+1 sempat +3% (jual pagi/sesi 1) atau close H+1 minimal +2% (kalau ditahan sampai close).</p>
+
+  <section id="summaryOpportunity" class="results"></section>
+
+  <section class="panel">
+    <label class="panel-label">Win rate per Opportunity Label (LOW/WATCH/MODERATE/HIGH)</label>
+    <div id="byOpportunityLabel" class="mini-table"></div>
+  </section>
+
+  <section class="panel">
+    <label class="panel-label">⭐ Eligible vs Tidak Eligible</label>
+    <div id="eligibleVsNot" class="mini-table"></div>
+  </section>
+
+  <h2 class="page-section-title">Rincian Win Rate (sinyal umum, proxy gap open H+1)</h2>
 
   <section class="panel">
     <label class="panel-label">Win rate per sinyal</label>
@@ -128,9 +143,15 @@
 
   <p class="disclaimer">
     Data ditarik dari tabel <code>scan_history</code> di Supabase (diisi otomatis oleh
-    /api/scan tiap sore dan dilabel oleh /api/label-outcomes tiap pagi).
-    Angka win rate di sini adalah proxy "gap_up_realized" (lihat db/TRAINING.MD),
-    bukan simulasi profit riil — pakai sebagai indikasi awal, bukan keputusan final.
+    /api/scan tiap sore, dilabel Tahap 1 oleh /api/label-outcomes tiap pagi, dan
+    Tahap 2 — close/high/low H+1 — oleh /api/label-outcomes-close).
+    Bagian "Kalibrasi: Beli Sore → Jual Pagi / Close" di atas memakai <code>next_day_success</code>
+    &amp; <code>next_day_close_return_from_close_pct</code> — basis harga beli CLOSE hari itu,
+    sesuai strategi beli-sore-jual-pagi/close yang sebenarnya.
+    Bagian "sinyal umum" di bawahnya masih proxy <code>gap_up_realized</code> (basis open H+1) —
+    dipertahankan sebagai info sinyal umum (BUY/HOLD/SELL), bukan kalibrasi strategi ini.
+    Tetap bukan simulasi profit riil (belum memperhitungkan fee/slippage) — pakai sebagai
+    indikasi awal, bukan keputusan final.
   </p>
 
 </main>
