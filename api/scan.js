@@ -2,12 +2,12 @@
 // Batch Scanner — Semua Emiten
 // ==========================
 //
-// Next-Day Opportunity V3:
+// Next-Day Opportunity V1:
 // Menambahkan analisis peluang kenaikan H+1 dari harga CLOSE H,
 // bukan hanya memprediksi gap/open.
 //
 // Engine utama tetap dipertahankan.
-// Next-Day Opportunity berjalan sebagai layer probabilistic untuk strategi overnight.
+// Next-Day Opportunity berjalan sebagai layer tambahan / shadow mode.
 //
 // ==========================
 
@@ -777,50 +777,64 @@ export default async function handler(req, res) {
     }
 
     // =========================================================
-    // Ranking — NEXT-DAY FIRST
+    // Ranking
     // =========================================================
-    // Untuk mode strategi beli sore -> jual pagi, ranking sekarang
-    // memprioritaskan probability H+1. Ranking teknikal lama tetap
-    // menjadi tie-breaker. Dengan demikian saham yang berpeluang H+1
-    // tinggi tidak tenggelam hanya karena entryTiming / breakout lama.
+    //
+    // PENTING:
+    // Opportunity Score BELUM digunakan untuk mengganti ranking
+    // utama. Kita masih dalam SHADOW MODE.
+    //
+    // Ranking lama dipertahankan agar tidak mengubah perilaku
+    // SahamAI yang sudah berjalan.
     // =========================================================
 
     hasilFilter.sort(
       (a, b) => {
-        const aOpp = a.nextDayOpportunity || {};
-        const bOpp = b.nextDayOpportunity || {};
 
-        const aEligible = aOpp.eligible === true ? 1 : 0;
-        const bEligible = bOpp.eligible === true ? 1 : 0;
+        const aReady =
+          a.entry === "NOW"
+            ? 1
+            : 0;
 
-        if (aEligible !== bEligible) {
-          return bEligible - aEligible;
+        const bReady =
+          b.entry === "NOW"
+            ? 1
+            : 0;
+
+        if (
+          aReady !== bReady
+        ) {
+          return (
+            bReady -
+            aReady
+          );
         }
 
-        const aOppScore = Number(aOpp.opportunityScore);
-        const bOppScore = Number(bOpp.opportunityScore);
-        const aSafeOpp = Number.isFinite(aOppScore) ? aOppScore : -1;
-        const bSafeOpp = Number.isFinite(bOppScore) ? bOppScore : -1;
+        const aBreak =
+          a.breakout &&
+          a.breakout.isBreakout
+            ? 1
+            : 0;
 
-        if (aSafeOpp !== bSafeOpp) {
-          return bSafeOpp - aSafeOpp;
+        const bBreak =
+          b.breakout &&
+          b.breakout.isBreakout
+            ? 1
+            : 0;
+
+        if (
+          aBreak !== bBreak
+        ) {
+          return (
+            bBreak -
+            aBreak
+          );
         }
 
-        const aReady = a.entry === "NOW" ? 1 : 0;
-        const bReady = b.entry === "NOW" ? 1 : 0;
-
-        if (aReady !== bReady) {
-          return bReady - aReady;
-        }
-
-        const aBreak = a.breakout?.isBreakout ? 1 : 0;
-        const bBreak = b.breakout?.isBreakout ? 1 : 0;
-
-        if (aBreak !== bBreak) {
-          return bBreak - aBreak;
-        }
-
-        return (b.rank || 0) - (a.rank || 0);
+        return (
+          b.rank -
+          a.rank
+        );
       }
     );
 
