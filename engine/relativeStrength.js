@@ -8,6 +8,15 @@
 // RS vs sektor: return N-hari saham dikurangi rata-rata return N-hari
 // saham lain di sektor yang sama (dihitung dari batch scan itu sendiri,
 // bukan indeks sektor eksternal terpisah — lihat config/universe.js).
+//
+// CATATAN (15 Agustus 2026): sectorReturn TIDAK LAGI diisi oleh
+// api/scan.js (lihat catatan di sana) supaya relativeStrength batch scan
+// identik dengan menu analisa satu-saham (api/analyze.js, yang memang
+// tidak pernah punya data peer sektor). vsSector karena itu sekarang
+// akan selalu null di kedua tempat — fungsi ini tetap menerima parameter
+// sectorReturn (tidak dihapus) supaya tidak breaking kalau suatu saat
+// nanti ada caller yang sengaja mengisinya lagi (mis. lewat cache sektor
+// terpisah), tapi saat ini tidak ada caller yang mengisi.
 
 export function nDayReturn(closes, period = 20) {
   if (!closes || closes.length <= period) return null;
