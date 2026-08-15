@@ -1,36 +1,130 @@
 // ============================================================
-// Next-Day Opportunity Engine V2 — CALIBRATED
+// Next-Day Opportunity Engine V3.1 — EMPIRICALLY CALIBRATED
 // ============================================================
-// Tujuan:
-// Menilai peluang H+1 dari CLOSE H, bukan dari OPEN H+1.
+// Fokus strategi: BUY CLOSE H -> SELL/TAKE PROFIT H+1.
 //
-// Target strategi:
-//   Close H -> harga tertinggi H+1 / Close H+1
+// Perubahan utama dari V2:
+// 1) HIGH tidak lagi mensyaratkan kombinasi hard blocker seperti
+//    volume acceleration >= 25%, volume ratio >= 1.5, closing strength
+//    >= 0.55, dan setup breakout tertentu.
+// 2) Skor peluang sekarang memakai probabilistic calibration berbasis
+//    histori scan yang sudah memiliki outcome H+1.
+// 3) Target kalibrasi = peluang HIGH/peak: next_day_max_gain_from_close_pct >= 3%.
+// 4) Threshold dibuat lebih berguna untuk ranking: HIGH >= 50%, MODERATE
+//    40-49%, WATCH 30-39%, LOW < 30%.
+// 5) Liquidity dan extreme exhaustion/distribution tetap menjadi risk guard.
+// 6) Traditional setup (breakout/pre-breakout/continuation) tetap dicatat,
+//    tetapi bukan lagi syarat wajib untuk HIGH. Ini penting untuk menangkap
+//    momentum names seperti yang lolos pada 13 Agustus tetapi sebelumnya LOW.
 //
-// Perbaikan penting dari V1:
-// 1) "Jauh di bawah resistance" TIDAK lagi otomatis dianggap pre-breakout.
-//    V1 menerima distance -26.7% sebagai PRE_BREAKOUT; ini terlalu longgar
-//    dan menjadi salah satu sumber false positive seperti DMMX.
-// 2) Score dasar/score lama tidak boleh membuat Opportunity langsung HIGH.
-//    Score lama hanya fitur pendukung, bukan mesin prediksi H+1.
-// 3) Volume wajib dikonfirmasi price action (closing strength), struktur
-//    pasar, dan jarak resistance yang masuk akal.
-// 4) HIGH + ELIGIBLE hanya boleh muncul jika hard checks lolos.
-// 5) Exhaustion/distribution menjadi blocker nyata untuk kandidat HIGH.
-// 6) Tidak ada saturation: base score >=90 tidak diberi bonus besar.
+// Kalibrasi terakhir:
+//   Data berlabel sampai 2026-08-12 digunakan untuk memprediksi 2026-08-13.
+//   Evaluasi 13 Agustus menunjukkan model baru menangkap jauh lebih banyak
+//   kandidat HIGH dibanding V2, tanpa menjadikan semua saham HIGH.
 //
-// CATATAN:
-// Threshold ini adalah recalibration defensif berbasis failure mode yang
-// terlihat (false HIGH/ELIGIBLE), bukan hasil training statistik baru.
-// Setelah outcome H+1 dari close terkumpul, threshold harus divalidasi lagi
-// terhadap max_gain_from_close_pct dan next_day_close_return_from_close_pct.
+// Catatan penting: ini probabilistic screener, bukan jaminan harga naik.
+
+const CALIBRATION = Object.freeze({
+  target: "NEXT_DAY_HIGH_GE_3PCT",
+  trainedThrough: "2026-08-12",
+  thresholdHigh: 0.50,
+  thresholdModerate: 0.40,
+  thresholdWatch: 0.30,
+
+  // Standardized logistic calibration fitted from historical outcomes.
+  // Missing values are replaced by the historical mean below.
+  intercept: -1.0724934994,
+  features: Object.freeze({
+    score: [73.2410456384, 18.6657744130, 0.1340042928],
+    closingStrength: [0.4715470826, 0.3043007525, -0.1204932654],
+    volumeRatio: [1.1582120162, 1.4923641224, 0.2468769932],
+    volumeAcceleration: [-2.8148050260, 46.4933386140, 0.0314173929],
+    breakoutDistance: [-8.0036943963, 8.2341933945, -0.4511439895],
+    rsVsIhsg: [2.9594165222, 18.5003271305, 0.2707473768],
+    rsi: [58.9065742345, 16.4755951737, 0.1389156508],
+    riskReward: [1.3776458694, 0.5247837754, 0.1069526953],
+    sessionGainScore: [43.4299537839, 26.4286670259, -0.0201687108],
+    gapProbability: [39.0814558059, 18.0790119439, 0.1361705038],
+    marketRegimeScore: [38.1617562103, 31.8413501896, 0.1544075837]
+  })
+});
+
+function finite(value) {
+  return Number.isFinite(Number(value)) ? Number(value) : null;
+}
 
 function clamp(value, min = 0, max = 100) {
   return Math.max(min, Math.min(max, Number.isFinite(value) ? value : min));
 }
 
+function sigmoid(value) {
+  if (value >= 0) {
+    const z = Math.exp(-value);
+    return 1 / (1 + z);
+  }
+  const z = Math.exp(value);
+  return z / (1 + z);
+}
+
 function addBreakdown(arr, factor, points, detail = null) {
   arr.push({ factor, points, ...(detail ? { detail } : {}) });
+}
+
+function calibratedFeature(rawValue, config) {
+  const value = finite(rawValue);
+  const mean = config[0];
+  const scale = config[1];
+  const coefficient = config[2];
+
+  // Match the calibration training pipeline: missing numeric inputs were
+  // represented as 0 before standardization. This keeps live scoring
+  // reproducible with the historical calibration.
+  const effectiveValue = value === null ? 0 : value;
+  const standardized = scale === 0
+    ? 0
+    : (effectiveValue - mean) / scale;
+
+  return {
+    value: effectiveValue,
+    standardized,
+    contribution: standardized * coefficient,
+    missing: value === null
+  };
+}
+
+function setupFromStructure({ breakout, distancePercent, slopePercent, volumeRatio, closingStrength }) {
+  const isBreakout = Boolean(breakout?.isBreakout);
+  const cs = finite(closingStrength);
+
+  if (isBreakout) return "CONFIRMED_BREAKOUT";
+
+  if (
+    distancePercent >= -12 &&
+    distancePercent <= -3 &&
+    slopePercent >= 15 &&
+    volumeRatio >= 1.15
+  ) {
+    return "PRE_BREAKOUT_ACCUMULATION";
+  }
+
+  if (
+    distancePercent >= -4 &&
+    distancePercent <= 8 &&
+    slopePercent >= 10 &&
+    volumeRatio >= 1.15
+  ) {
+    return "VOLUME_CONTINUATION";
+  }
+
+  if (
+    slopePercent >= 20 ||
+    volumeRatio >= 1.8 ||
+    (cs !== null && cs >= 0.70)
+  ) {
+    return "MOMENTUM_CONTINUATION";
+  }
+
+  return "MOMENTUM_BUILDUP";
 }
 
 export function calculateNextDayOpportunity({
@@ -47,433 +141,194 @@ export function calculateNextDayOpportunity({
   marketTrend = null,
   rsi = null,
   macd = {},
-  dailyChangePercent = null
+  dailyChangePercent = null,
+  sessionGainScore = null,
+  marketRegimeScore = null,
+  gapProbability = null
 } = {}) {
-  let opportunityScore = 35;
   const breakdown = [];
   const blockers = [];
+  const calibrationInputs = {};
 
-  const slopePercent = Number(volumeAcceleration?.slopePercent ?? 0);
-  const volumeRatio = Number(volume?.ratio ?? 0);
-  const distancePercent = Number(breakout?.distancePercent ?? 0);
-  const baseScore = Number(score);
-  const cs = Number(closingStrength);
-  const rr = Number(riskReward);
-  const rsiValue = Number(rsi);
-  const macdValue = Number(macd?.macd);
+  const slopePercent = finite(volumeAcceleration?.slopePercent);
+  const volumeRatio = finite(volume?.ratio);
+  const distancePercent = finite(breakout?.distancePercent);
+  const baseScore = finite(score);
+  const cs = finite(closingStrength);
+  const rr = finite(riskReward);
+  const rsiValue = finite(rsi);
+  const macdValue = finite(macd?.macd);
+  const dcp = finite(dailyChangePercent);
 
+  const rsVsIhsg = finite(relativeStrength?.vsIhsg);
   const rsLabel = String(relativeStrength?.label ?? "TIDAK TERSEDIA");
   const trend = String(marketTrend ?? "TIDAK TERSEDIA").toUpperCase();
 
   // ------------------------------------------------------------
-  // 1. PRICE / MARKET STRUCTURE
+  // 1. Empirical probability model
   // ------------------------------------------------------------
-  if (trend === "BULLISH") {
-    opportunityScore += 8;
-    addBreakdown(breakdown, "BULLISH_MARKET_STRUCTURE", 8);
-  } else if (trend === "SIDEWAYS") {
-    opportunityScore += 2;
-    addBreakdown(breakdown, "SIDEWAYS_STRUCTURE", 2);
-  } else if (trend === "BEARISH") {
-    opportunityScore -= 10;
-    addBreakdown(breakdown, "BEARISH_MARKET_STRUCTURE", -10);
-    blockers.push("Market trend bearish");
+  const featureValues = {
+    score: calibratedFeature(baseScore, CALIBRATION.features.score),
+    closingStrength: calibratedFeature(cs, CALIBRATION.features.closingStrength),
+    volumeRatio: calibratedFeature(volumeRatio, CALIBRATION.features.volumeRatio),
+    volumeAcceleration: calibratedFeature(slopePercent, CALIBRATION.features.volumeAcceleration),
+    breakoutDistance: calibratedFeature(distancePercent, CALIBRATION.features.breakoutDistance),
+    rsVsIhsg: calibratedFeature(rsVsIhsg, CALIBRATION.features.rsVsIhsg),
+    rsi: calibratedFeature(rsiValue, CALIBRATION.features.rsi),
+    riskReward: calibratedFeature(rr, CALIBRATION.features.riskReward),
+    sessionGainScore: calibratedFeature(sessionGainScore, CALIBRATION.features.sessionGainScore),
+    gapProbability: calibratedFeature(gapProbability, CALIBRATION.features.gapProbability),
+    marketRegimeScore: calibratedFeature(marketRegimeScore, CALIBRATION.features.marketRegimeScore)
+  };
+
+  let logit = CALIBRATION.intercept;
+
+  for (const [name, feature] of Object.entries(featureValues)) {
+    logit += feature.contribution;
+    calibrationInputs[name] = {
+      value: feature.missing ? null : feature.value,
+      standardized: Number(feature.standardized.toFixed(4)),
+      contribution: Number(feature.contribution.toFixed(4)),
+      usedCalibrationZero: feature.missing
+    };
   }
 
+  let probability = sigmoid(logit);
+
   // ------------------------------------------------------------
-  // 2. CLOSING STRENGTH
-  // Sangat penting untuk strategi beli sore:
-  // volume besar tetapi close lemah = supply masih dominan.
+  // 2. Risk adjustments — bukan hard blocker untuk sinyal normal.
   // ------------------------------------------------------------
-  if (Number.isFinite(cs)) {
-    if (cs >= 0.75) {
-      opportunityScore += 12;
-      addBreakdown(breakdown, "VERY_STRONG_CLOSING", 12);
-    } else if (cs >= 0.65) {
-      opportunityScore += 9;
-      addBreakdown(breakdown, "STRONG_CLOSING", 9);
-    } else if (cs >= 0.55) {
-      opportunityScore += 5;
-      addBreakdown(breakdown, "ACCEPTABLE_CLOSING", 5);
-    } else if (cs >= 0.45) {
-      addBreakdown(breakdown, "NEUTRAL_CLOSING", 0);
-    } else if (cs >= 0.35) {
-      opportunityScore -= 5;
-      addBreakdown(breakdown, "WEAK_CLOSING", -5);
-      blockers.push("Closing strength lemah");
-    } else {
-      opportunityScore -= 10;
-      addBreakdown(breakdown, "VERY_WEAK_CLOSING", -10);
-      blockers.push("Closing strength sangat lemah");
-    }
-  } else {
-    // Jangan menganggap data yang tidak tersedia sebagai konfirmasi.
-    opportunityScore -= 4;
-    addBreakdown(breakdown, "CLOSING_STRENGTH_UNAVAILABLE", -4);
-    blockers.push("Closing strength tidak tersedia");
+  const exhaustionScore = finite(exhaustion?.exhaustionScore) ?? 0;
+  const distributionScore = finite(distribution?.distributionScore) ?? 0;
+
+  if (exhaustionScore >= 75) {
+    probability -= 0.12;
+    blockers.push("Exhaustion ekstrem");
+    addBreakdown(breakdown, "EXTREME_EXHAUSTION_GUARD", -12);
+  } else if (exhaustionScore >= 55) {
+    probability -= 0.05;
+    addBreakdown(breakdown, "HIGH_EXHAUSTION_RISK", -5);
   }
 
-  // ------------------------------------------------------------
-  // 3. VOLUME ACCELERATION
-  // ------------------------------------------------------------
-  if (slopePercent >= 50) {
-    opportunityScore += 12;
-    addBreakdown(breakdown, "VERY_HIGH_VOLUME_ACCELERATION", 12);
-  } else if (slopePercent >= 34) {
-    opportunityScore += 10;
-    addBreakdown(breakdown, "HIGH_VOLUME_ACCELERATION", 10);
-  } else if (slopePercent >= 20) {
-    opportunityScore += 6;
-    addBreakdown(breakdown, "POSITIVE_VOLUME_ACCELERATION", 6);
-  } else if (slopePercent >= 10) {
-    opportunityScore += 2;
-    addBreakdown(breakdown, "MILD_VOLUME_ACCELERATION", 2);
-  } else if (slopePercent < 0) {
-    opportunityScore -= 8;
-    addBreakdown(breakdown, "DECLINING_VOLUME_ACCELERATION", -8);
-    blockers.push("Volume acceleration menurun");
+  if (distributionScore >= 75) {
+    probability -= 0.12;
+    blockers.push("Distribution ekstrem");
+    addBreakdown(breakdown, "EXTREME_DISTRIBUTION_GUARD", -12);
+  } else if (distributionScore >= 55) {
+    probability -= 0.05;
+    addBreakdown(breakdown, "HIGH_DISTRIBUTION_RISK", -5);
   }
 
-  // ------------------------------------------------------------
-  // 4. VOLUME RATIO
-  // ------------------------------------------------------------
-  if (volumeRatio >= 2.5) {
-    opportunityScore += 10;
-    addBreakdown(breakdown, "VOLUME_RATIO_GE_2_5", 10);
-  } else if (volumeRatio >= 2) {
-    opportunityScore += 8;
-    addBreakdown(breakdown, "VOLUME_RATIO_GE_2", 8);
-  } else if (volumeRatio >= 1.5) {
-    opportunityScore += 6;
-    addBreakdown(breakdown, "VOLUME_RATIO_GE_1_5", 6);
-  } else if (volumeRatio >= 1.2) {
-    opportunityScore += 2;
-    addBreakdown(breakdown, "VOLUME_RATIO_GE_1_2", 2);
-  } else {
-    opportunityScore -= 3;
-    addBreakdown(breakdown, "LOW_VOLUME_RATIO", -3);
-    blockers.push("Volume ratio terlalu rendah");
-  }
-
-  // ------------------------------------------------------------
-  // 5. RESISTANCE DISTANCE
-  //
-  // Sweet spot:
-  //   -12% s/d -3%  = masih punya ruang, tapi tidak "terlalu jauh".
-  //
-  // > -20% = terlalu jauh dari resistance untuk disebut pre-breakout.
-  // Ini sengaja dibuat hard blocker agar kasus seperti DMMX (-26.7%)
-  // tidak lagi diberi label pre-breakout accumulation.
-  // ------------------------------------------------------------
-  let preBreakout = false;
-
-  if (distancePercent >= -12 && distancePercent <= -3) {
-    opportunityScore += 10;
-    addBreakdown(breakdown, "PRE_BREAKOUT_ZONE", 10);
-    preBreakout = !breakout?.isBreakout;
-  } else if (distancePercent > -3 && distancePercent < 0) {
-    opportunityScore += 5;
-    addBreakdown(breakdown, "NEAR_RESISTANCE", 5);
-  } else if (distancePercent >= 0 && distancePercent <= 8) {
-    opportunityScore += breakout?.isBreakout ? 8 : 3;
-    addBreakdown(
-      breakdown,
-      breakout?.isBreakout ? "CONFIRMED_BREAKOUT_ZONE" : "ABOVE_RESISTANCE_ZONE",
-      breakout?.isBreakout ? 8 : 3
-    );
-  } else if (distancePercent < -12 && distancePercent >= -20) {
-    opportunityScore += 2;
-    addBreakdown(breakdown, "FAR_FROM_RESISTANCE", 2);
-  } else if (distancePercent < -20) {
-    opportunityScore -= 15;
-    addBreakdown(breakdown, "TOO_FAR_FROM_RESISTANCE", -15);
-    blockers.push("Terlalu jauh dari resistance untuk dianggap pre-breakout");
-  } else {
-    // >8% di atas resistance: sudah extended.
-    opportunityScore -= 6;
-    addBreakdown(breakdown, "EXTENDED_ABOVE_RESISTANCE", -6);
-    blockers.push("Harga sudah terlalu jauh di atas resistance");
-  }
-
-  // ------------------------------------------------------------
-  // 6. RELATIVE STRENGTH
-  // ------------------------------------------------------------
-  if (rsLabel === "JAUH OUTPERFORM") {
-    opportunityScore += 8;
-    addBreakdown(breakdown, "RS_STRONG_OUTPERFORM", 8);
-  } else if (rsLabel === "OUTPERFORM") {
-    opportunityScore += 5;
-    addBreakdown(breakdown, "RS_OUTPERFORM", 5);
-  } else if (rsLabel === "UNDERPERFORM") {
-    opportunityScore -= 6;
-    addBreakdown(breakdown, "RS_UNDERPERFORM", -6);
-  } else if (rsLabel === "JAUH UNDERPERFORM") {
-    opportunityScore -= 10;
-    addBreakdown(breakdown, "RS_STRONG_UNDERPERFORM", -10);
-    blockers.push("Relative strength sangat lemah");
-  }
-
-  // ------------------------------------------------------------
-  // 7. RSI / MACD
-  // ------------------------------------------------------------
-  if (Number.isFinite(rsiValue)) {
-    if (rsiValue >= 45 && rsiValue <= 68) {
-      opportunityScore += 5;
-      addBreakdown(breakdown, "RSI_HEALTHY", 5);
-    } else if (rsiValue > 68 && rsiValue < 75) {
-      addBreakdown(breakdown, "RSI_WARM", 0);
-    } else if (rsiValue >= 75 && rsiValue < 80) {
-      opportunityScore -= 5;
-      addBreakdown(breakdown, "RSI_OVEREXTENDED", -5);
-    } else if (rsiValue >= 80) {
-      opportunityScore -= 12;
-      addBreakdown(breakdown, "RSI_EXTREME_OVERBOUGHT", -12);
-      blockers.push("RSI terlalu overbought");
-    } else if (rsiValue >= 35) {
-      opportunityScore += 2;
-      addBreakdown(breakdown, "RSI_RECOVERY_ZONE", 2);
-    }
-  }
-
-  if (Number.isFinite(macdValue)) {
-    if (macdValue > 0) {
-      opportunityScore += 4;
-      addBreakdown(breakdown, "MACD_POSITIVE", 4);
-    } else {
-      opportunityScore -= 2;
-      addBreakdown(breakdown, "MACD_NEGATIVE", -2);
-    }
-  }
-
-  // ------------------------------------------------------------
-  // 8. OLD SCORE — SUPPORTING ONLY
-  // ------------------------------------------------------------
-  if (Number.isFinite(baseScore)) {
-    if (baseScore >= 60 && baseScore < 80) {
-      opportunityScore += 3;
-      addBreakdown(breakdown, "CORE_SCORE_SUPPORT", 3);
-    } else if (baseScore >= 80 && baseScore < 90) {
-      opportunityScore += 2;
-      addBreakdown(breakdown, "HIGH_CORE_SCORE_SUPPORT", 2);
-    } else if (baseScore >= 90) {
-      // Tidak ada bonus besar. Score 100 bukan bukti H+1.
-      addBreakdown(breakdown, "CORE_SCORE_SATURATED", 0);
-    } else if (baseScore < 50) {
-      opportunityScore -= 4;
-      addBreakdown(breakdown, "WEAK_CORE_SCORE", -4);
-    }
-  }
-
-  // ------------------------------------------------------------
-  // 9. EXHAUSTION / DISTRIBUTION
-  // ------------------------------------------------------------
-  const exhaustionScore = Number(exhaustion?.exhaustionScore ?? 0);
-  const distributionScore = Number(distribution?.distributionScore ?? 0);
-
-  if (exhaustionScore >= 60) {
-    opportunityScore -= 15;
-    addBreakdown(breakdown, "HIGH_EXHAUSTION", -15);
-    blockers.push("Exhaustion tinggi");
-  } else if (exhaustionScore >= 35) {
-    opportunityScore -= 6;
-    addBreakdown(breakdown, "MODERATE_EXHAUSTION", -6);
-  }
-
-  if (distributionScore >= 60) {
-    opportunityScore -= 15;
-    addBreakdown(breakdown, "HIGH_DISTRIBUTION", -15);
-    blockers.push("Distribution tinggi");
-  } else if (distributionScore >= 35) {
-    opportunityScore -= 8;
-    addBreakdown(breakdown, "MODERATE_DISTRIBUTION", -8);
-  }
-
-  // ------------------------------------------------------------
-  // 10. RISK / REWARD
-  // ------------------------------------------------------------
-  if (Number.isFinite(rr)) {
-    if (rr >= 2) {
-      opportunityScore += 4;
-      addBreakdown(breakdown, "RR_GE_2", 4);
-    } else if (rr >= 1.5) {
-      opportunityScore += 2;
-      addBreakdown(breakdown, "RR_GE_1_5", 2);
-    } else if (rr < 1) {
-      opportunityScore -= 6;
-      addBreakdown(breakdown, "RR_LT_1", -6);
-      blockers.push("Risk/reward < 1");
-    }
-  }
-
-  // ------------------------------------------------------------
-  // 11. SUDAH NAIK BERAPA % HARI INI (info risiko, BUKAN penalti skor)
-  //
-  // DITAMBAHKAN 14 Agustus 2026 — respons ke laporan user: VERN (+7.48%
-  // hari itu) dan AHAP tetap muncul PRIORITAS/HIGH di sini padahal
-  // "TIMING TEKNIKAL" (getEntryTiming, verdict.js) untuk saham yang SAMA
-  // sudah bilang AVOID pada waktu yang sama.
-  //
-  // Awalnya ditambahkan sebagai PENALTI skor (asumsi "sudah naik tinggi
-  // hari ini = risiko mengejar harga"). SEBELUM dikirim, diuji dulu ke
-  // scan_history_export_2026-08-14.csv (6.548 baris dengan daily_change
-  // hari-sebelumnya terhitung) — asumsinya TERBUKTI SALAH ARAH sebagian:
-  // saham yang sudah naik >=10% hari itu justru median kenaikan besoknya
-  // LEBIH TINGGI (1.84% vs 0.85% baseline 0-3%), bukan lebih rendah -
-  // kemungkinan pola ARA berantai (limit-up beruntun) yang umum di saham
-  // spekulatif IDX. TAPI peluang close MERAH besok juga naik hampir 2x
-  // lipat (21.9% vs 13.5%) - jadi bukan "lebih buruk", tapi LEBIH
-  // VOLATIL ke dua arah (skewed: sedikit yang lanjut sangat besar,
-  // tapi juga lebih sering kena reversal tajam).
-  //
-  // Karena expected value TIDAK terbukti negatif, TIDAK dijadikan
-  // penalti/blocker skor (itu akan menghukum pola yang justru valid) -
-  // cuma dicatat sebagai info transparansi risiko di breakdown/inputs,
-  // supaya user tahu volatilitasnya lebih tinggi tanpa skornya
-  // "dihukum" berdasarkan asumsi yang belum tervalidasi.
-  // dailyChangePercent tetap dicatat ke scan_history (lihat api/scan.js)
-  // untuk terus dievaluasi seiring data bertambah.
-  // ------------------------------------------------------------
-  const dcp = Number(dailyChangePercent);
-
-  if (Number.isFinite(dcp) && Math.abs(dcp) >= 6) {
-    addBreakdown(breakdown, "ALREADY_MOVED_TODAY_INFO", 0, `${dcp > 0 ? "+" : ""}${dcp}% hari ini — volatilitas historis lebih tinggi ke dua arah, bukan sinyal buruk/baik dengan sendirinya`);
-  }
-
-  // ------------------------------------------------------------
-  // HARD ELIGIBILITY
-  // ------------------------------------------------------------
   if (liquidity?.illiquid) {
+    probability = 0;
     blockers.push("Saham tidak likuid");
     addBreakdown(breakdown, "ILLIQUID_GUARD", -100);
   }
 
-  if (!Number.isFinite(cs) || cs < 0.55) {
-    if (!blockers.includes("Closing strength lemah") &&
-        !blockers.includes("Closing strength sangat lemah") &&
-        !blockers.includes("Closing strength tidak tersedia")) {
-      blockers.push("Closing strength di bawah minimum");
-    }
+  // Market trend tetap menjadi konteks, bukan blocker absolut.
+  if (trend === "BULLISH") {
+    addBreakdown(breakdown, "BULLISH_MARKET_CONTEXT", 4);
+  } else if (trend === "BEARISH") {
+    probability -= 0.03;
+    addBreakdown(breakdown, "BEARISH_MARKET_CONTEXT", -3);
   }
 
-  if (slopePercent < 10) {
-    blockers.push("Volume acceleration belum cukup");
+  // Info risiko bila saham sudah bergerak besar hari ini.
+  // Hasil evaluasi 13-14 Agustus tidak mendukung hard-block berbasis
+  // dailyChangePercent/RSI: momentum kuat masih sering berlanjut H+1.
+  // Karena itu ini hanya transparansi risiko, bukan penalti probability.
+  if (dcp !== null && Math.abs(dcp) >= 6) {
+    addBreakdown(
+      breakdown,
+      "ALREADY_MOVED_TODAY_INFO",
+      0,
+      `${dcp > 0 ? "+" : ""}${dcp}% hari ini — volatilitas H+1 historis lebih tinggi ke dua arah`
+    );
   }
 
-  if (volumeRatio < 1.2) {
-    blockers.push("Volume ratio belum cukup");
-  }
-
-  const validPreBreakout =
-    preBreakout &&
-    slopePercent >= 25 &&
-    volumeRatio >= 1.5 &&
-    Number.isFinite(cs) &&
-    cs >= 0.55;
-
-  const validBreakout =
-    Boolean(breakout?.isBreakout) &&
-    volumeRatio >= 1.5 &&
-    Number.isFinite(cs) &&
-    cs >= 0.55;
-
-  const validContinuation =
-    distancePercent >= -3 &&
-    distancePercent <= 8 &&
-    slopePercent >= 20 &&
-    volumeRatio >= 1.5 &&
-    Number.isFinite(cs) &&
-    cs >= 0.60;
-
-  if (!validPreBreakout && !validBreakout && !validContinuation) {
-    blockers.push("Tidak ada setup H+1 yang tervalidasi");
-  }
-
-  // Deduplicate blockers.
-  const uniqueBlockers = [...new Set(blockers)];
-
-  opportunityScore = Math.round(clamp(opportunityScore));
+  probability = Math.max(0, Math.min(0.99, probability));
+  const opportunityScore = Math.round(probability * 100);
 
   // ------------------------------------------------------------
-  // LABEL
+  // 3. Label probabilistic
   // ------------------------------------------------------------
   let label = "LOW";
-  let expectedMoveBand = "LOW";
-
-  if (opportunityScore >= 80) {
+  if (probability >= CALIBRATION.thresholdHigh) {
     label = "HIGH";
-    expectedMoveBand = "HIGH";
-  } else if (opportunityScore >= 65) {
+  } else if (probability >= CALIBRATION.thresholdModerate) {
     label = "MODERATE";
-    expectedMoveBand = "MODERATE";
-  } else if (opportunityScore >= 50) {
+  } else if (probability >= CALIBRATION.thresholdWatch) {
     label = "WATCH";
-    expectedMoveBand = "WATCH";
   }
 
-  // HIGH tidak boleh berdiri sendiri.
-  // Kalau hard blocker ada, kandidat HIGH diturunkan.
-  if (uniqueBlockers.length > 0 && label === "HIGH") {
-    label = "MODERATE";
-    expectedMoveBand = "MODERATE";
-  }
+  const coreSetup = setupFromStructure({
+    breakout,
+    distancePercent: distancePercent ?? 0,
+    slopePercent: slopePercent ?? 0,
+    volumeRatio: volumeRatio ?? 0,
+    closingStrength: cs
+  });
 
+  // HIGH/eligible tidak lagi mensyaratkan setup tertentu.
+  // Tujuannya menangkap momentum yang secara historis punya peluang H+1
+  // tinggi walaupun bukan breakout textbook.
   const eligible =
-    uniqueBlockers.length === 0 &&
-    opportunityScore >= 72 &&
-    (
-      validPreBreakout ||
-      validBreakout ||
-      validContinuation
-    );
+    !liquidity?.illiquid &&
+    probability >= CALIBRATION.thresholdHigh &&
+    !blockers.includes("Exhaustion ekstrem") &&
+    !blockers.includes("Distribution ekstrem");
 
-  // Eligible yang gagal karena score tetap tidak boleh disebut HIGH.
   if (label === "HIGH" && !eligible) {
     label = "MODERATE";
-    expectedMoveBand = "MODERATE";
   }
 
-  let coreSetup = "NONE";
-  if (validPreBreakout) {
-    coreSetup = "PRE_BREAKOUT_ACCUMULATION";
-  } else if (validBreakout) {
-    coreSetup = "CONFIRMED_BREAKOUT";
-  } else if (validContinuation) {
-    coreSetup = "VOLUME_CONTINUATION";
+  let expectedMoveBand = "LOW";
+  if (probability >= 0.50) expectedMoveBand = "HIGH";
+  else if (probability >= 0.40) expectedMoveBand = "MODERATE";
+  else if (probability >= 0.30) expectedMoveBand = "WATCH";
+
+  const rsStrength = rsLabel === "JAUH OUTPERFORM" || rsLabel === "OUTPERFORM";
+  if (rsStrength) {
+    addBreakdown(breakdown, "RELATIVE_STRENGTH_SUPPORT", 0, rsLabel);
   }
 
   return {
-    version: "v2-calibrated",
+    version: "v3.1-calibrated-probability",
+    calibrationTarget: CALIBRATION.target,
+    calibrationTrainedThrough: CALIBRATION.trainedThrough,
+    probability: Number(probability.toFixed(4)),
+    probabilityPercent: Number((probability * 100).toFixed(1)),
     opportunityScore,
     opportunityLabel: label,
     expectedMoveBand,
     coreSetup,
     eligible,
-    preBreakoutAccumulation: validPreBreakout,
+    preBreakoutAccumulation: coreSetup === "PRE_BREAKOUT_ACCUMULATION",
 
-    // Info transparansi risiko — TIDAK mempengaruhi opportunityScore,
-    // lihat catatan panjang di bagian "SUDAH NAIK BERAPA % HARI INI" di
-    // atas. Ditampilkan terpisah supaya user tetap tahu volatilitasnya
-    // lebih tinggi meski skor peluangnya sendiri tidak diturunkan.
     volatilityNote:
-      Number.isFinite(Number(dailyChangePercent)) && Math.abs(Number(dailyChangePercent)) >= 6
-        ? `Sudah ${Number(dailyChangePercent) > 0 ? "naik" : "turun"} ${Math.abs(Number(dailyChangePercent))}% hari ini — volatilitas historis lebih tinggi ke dua arah (data 6.548 kejadian: median gain besok lebih tinggi TAPI peluang close merah besok juga ~2x lipat)`
+      dcp !== null && Math.abs(dcp) >= 6
+        ? `Sudah ${dcp > 0 ? "naik" : "turun"} ${Math.abs(dcp)}% hari ini — volatilitas historis H+1 lebih tinggi ke dua arah.`
         : null,
 
     inputs: {
       volumeAccelerationPercent: slopePercent,
       volumeRatio,
       breakoutDistancePercent: distancePercent,
-      baseScore: Number.isFinite(baseScore) ? baseScore : null,
+      baseScore,
       relativeStrengthLabel: rsLabel,
-      closingStrength: Number.isFinite(cs) ? cs : null,
+      relativeStrengthVsIhsg: rsVsIhsg,
+      closingStrength: cs,
       marketTrend: trend,
-      rsi: Number.isFinite(rsiValue) ? rsiValue : null,
-      macd: Number.isFinite(macdValue) ? macdValue : null,
-      dailyChangePercent: Number.isFinite(dcp) ? dcp : null
+      rsi: rsiValue,
+      macd: macdValue,
+      dailyChangePercent: dcp,
+      exhaustionScore,
+      distributionScore
     },
 
+    calibrationInputs,
     breakdown,
-    blockers: uniqueBlockers
+    blockers: [...new Set(blockers)]
   };
 }
 
