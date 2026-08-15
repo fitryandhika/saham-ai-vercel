@@ -352,6 +352,19 @@ select option{
 .regime-pill.neutral{background:rgba(132,148,163,.15);color:var(--muted);}
 .regime-pill.unknown{background:rgba(132,148,163,.08);color:var(--muted);}
 
+.opp-pill{
+  font-size:11px;
+  font-weight:600;
+  padding:3px 9px;
+  border-radius:999px;
+  white-space:nowrap;
+}
+
+.opp-pill.high{background:var(--green-dim);color:var(--green);}
+.opp-pill.moderate{background:var(--amber-dim);color:var(--amber);}
+.opp-pill.watch{background:rgba(132,148,163,.15);color:var(--muted);}
+.opp-pill.low{background:var(--red-dim);color:var(--red);}
+
 .pattern-pill{
   font-size:11px;
   font-weight:600;
