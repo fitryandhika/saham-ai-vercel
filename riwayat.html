@@ -138,20 +138,13 @@
       <button class="btn-ghost" id="btnExportCsv">⬇ Export CSV</button>
     </div>
     <p class="hint-text">Export mengikuti filter kode/tanggal di atas (kosongkan untuk semua data, maksimal 5000 baris terbaru).</p>
-    <p class="hint-text">Jika scorer berubah, pilih <strong>tanggal scan</strong> lalu tekan <strong>Sinkronkan Score</strong>. Untuk data 13 Agustus 2026 pilih <strong>2026-08-13</strong>. Nilai score, signal, dan Next-Day Opportunity akan dihitung ulang dari snapshot fitur historis.</p>
   </section>
 
   <section id="historyTableWrap" class="results"></section>
 
   <p class="disclaimer">
-    Data ditarik dari tabel <code>scan_history</code> di Supabase (diisi otomatis oleh
-    /api/scan tiap sore, dilabel Tahap 1 oleh /api/label-outcomes tiap pagi, dan
-    Tahap 2 — close/high/low H+1 — oleh /api/label-outcomes-close).
-    Bagian "Kalibrasi: Beli Sore → Jual Pagi / Close" di atas memakai <code>next_day_success</code>
-    &amp; <code>next_day_close_return_from_close_pct</code> — basis harga beli CLOSE hari itu,
-    sesuai strategi beli-sore-jual-pagi/close yang sebenarnya.
-    Bagian "sinyal umum" di bawahnya masih proxy <code>gap_up_realized</code> (basis open H+1) —
-    dipertahankan sebagai info sinyal umum (BUY/HOLD/SELL), bukan kalibrasi strategi ini.
+    SIGNAL → filter kondisi teknikal
+OPPORTUNITY → penentu utama ranking overnight SCORE → komponen pendukung Signal, bukan penentu utama Opportunity.
     Tetap bukan simulasi profit riil (belum memperhitungkan fee/slippage) — pakai sebagai
     indikasi awal, bukan keputusan final.
   </p>
