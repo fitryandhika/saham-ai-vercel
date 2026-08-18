@@ -415,6 +415,7 @@ function renderHistoryTable(rows) {
         <td>${opportunityPill(r)}</td>
         <td>${r.signal ?? "–"}</td>
         <td>${r.score ?? "–"}</td>
+        <td>${r.next_day_entry_quality_score ?? "–"} ${r.next_day_entry_quality_label ? `(${r.next_day_entry_quality_label})` : ""}</td>
         <td>${r.close ?? "–"}</td>
         <td>${r.actual_next_high ?? "–"}</td>
         <td>${r.actual_next_close ?? "–"}</td>
@@ -432,7 +433,7 @@ function renderHistoryTable(rows) {
       <table class="history-table">
         <thead>
           <tr>
-            <th>Tanggal</th><th>Kode</th><th>Opportunity</th><th>Signal</th><th>Score</th>
+            <th>Tanggal</th><th>Kode</th><th>Opportunity</th><th>Signal</th><th>Score</th><th>Entry Quality</th>
             <th>Close (beli sore)</th><th>High H+1</th><th>Close H+1</th>
             <th>Max Gain% (sesi 1)</th><th>Return% (sampai close)</th>
             <th>Regime</th><th>Pola</th><th>Hasil</th>
