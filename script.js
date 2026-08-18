@@ -190,46 +190,53 @@ function nextDayDecisionMeta(d) {
   if (n.score === null) {
     return {
       className: "avoid",
-      label: "Verdict Next-Day",
+      label: "Next-Day Opportunity",
       text: "Data Next-Day belum tersedia.",
       note: "Jangan gunakan Signal/Score lama sebagai alasan entry."
     };
   }
 
-  if (n.label === "HIGH" && n.eligible) {
-    return {
-      className: "buy",
-      label: "Verdict Next-Day · Strategi Beli Sore / Jual Pagi",
-      text: "🟢 PRIORITAS — kandidat utama H+1",
-      note: "Fokus Close H → peluang High/Close H+1. Ini prioritas screener, bukan jaminan harga naik."
-    };
-  }
-
-  if (n.label === "MODERATE" && n.eligible) {
-    return {
-      className: "monitor",
-      label: "Verdict Next-Day · Strategi Beli Sore / Jual Pagi",
-      text: "🟡 PANTAU — belum prioritas HIGH",
-      note: "Ada peluang H+1, tetapi belum sekuat kandidat HIGH."
-    };
-  }
-
-  if (n.label === "HIGH" && !n.eligible) {
+  if (!n.eligible) {
     return {
       className: "avoid",
-      label: "Verdict Next-Day · Strategi Beli Sore / Jual Pagi",
-      text: "🔴 HIGH TAPI TIDAK ELIGIBLE — JANGAN ENTRY",
-      note: n.blockers.length
-        ? `Ada penghambat: ${n.blockers.join(", ")}.`
-        : "Label HIGH saja tidak cukup tanpa status Eligible."
+      label: "Next-Day Opportunity · H+1",
+      text: "🔴 TIDAK ADA SETUP H+1 YANG VALID",
+      note: n.blockers.length ? `Penghambat: ${n.blockers.join(", ")}.` : "Setup H+1 belum memenuhi hard-check."
+    };
+  }
+
+  if (n.entryDecision === "BUY_NOW" && n.entryEligible) {
+    return {
+      className: "buy",
+      label: "Trade Decision · Beli Sore / Jual Pagi",
+      text: "🟢 PRIORITAS — BUY SORE",
+      note: "Opportunity H+1 kuat dan kualitas harga saat ini masih layak untuk entry."
+    };
+  }
+
+  if (n.entryDecision === "WAIT_PULLBACK") {
+    return {
+      className: "monitor",
+      label: "Trade Decision · Beli Sore / Jual Pagi",
+      text: "🟡 WAIT PULLBACK — JANGAN KEJAR",
+      note: "Peluang H+1 masih ada, tetapi harga sekarang sudah terlalu agresif untuk entry langsung."
+    };
+  }
+
+  if (n.entryDecision === "WATCH") {
+    return {
+      className: "monitor",
+      label: "Trade Decision · Beli Sore / Jual Pagi",
+      text: "🟡 PANTAU — ENTRY BELUM IDEAL",
+      note: "Opportunity ada, tetapi kualitas entry belum cukup baik."
     };
   }
 
   return {
     className: "avoid",
-    label: "Verdict Next-Day · Strategi Beli Sore / Jual Pagi",
-    text: "🔴 JANGAN PRIORITASKAN UNTUK BUY SORE",
-    note: "Next-Day Opportunity belum memenuhi syarat kandidat utama."
+    label: "Trade Decision · Beli Sore / Jual Pagi",
+    text: "🔴 JANGAN ENTRY — CHASE RISK TINGGI",
+    note: "Peluang H+1 boleh tetap tinggi, tetapi harga sekarang tidak layak dikejar."
   };
 }
 
@@ -292,37 +299,29 @@ function getNextDayOpportunityMeta(d) {
   const n = d?.nextDayOpportunity;
   if (!n || typeof n !== "object") {
     return {
-      score: null,
-      label: "UNAVAILABLE",
-      expectedMoveBand: "UNAVAILABLE",
-      setup: "NONE",
-      eligible: false,
-      blockers: [],
-      volumeAcceleration: null,
-      volumeRatio: null,
-      breakoutDistance: null,
-      rsLabel: null
+      score: null, label: "UNAVAILABLE", expectedMoveBand: "UNAVAILABLE", setup: "NONE",
+      eligible: false, entryEligible: false, entryQualityScore: null, entryQualityLabel: "UNAVAILABLE",
+      chaseRisk: "UNAVAILABLE", entryDecision: "NO_SETUP", tradeDecision: "NO_SETUP", blockers: [],
+      volumeAcceleration: null, volumeRatio: null, breakoutDistance: null, rsLabel: null
     };
   }
 
   return {
-    score: Number.isFinite(Number(n.opportunityScore))
-      ? Number(n.opportunityScore)
-      : null,
+    score: Number.isFinite(Number(n.opportunityScore)) ? Number(n.opportunityScore) : null,
     label: String(n.opportunityLabel || "WATCH").toUpperCase(),
     expectedMoveBand: String(n.expectedMoveBand || n.opportunityLabel || "WATCH").toUpperCase(),
     setup: String(n.coreSetup || "NONE").replaceAll("_", " "),
     eligible: n.eligible === true,
+    entryEligible: n.entryEligible === true,
+    entryQualityScore: Number.isFinite(Number(n.entryQualityScore)) ? Number(n.entryQualityScore) : null,
+    entryQualityLabel: String(n.entryQualityLabel || "UNAVAILABLE").toUpperCase(),
+    chaseRisk: String(n.chaseRisk || "LOW").toUpperCase(),
+    entryDecision: String(n.entryDecision || "NO_SETUP").toUpperCase(),
+    tradeDecision: String(n.tradeDecision || "NO_SETUP").toUpperCase(),
     blockers: Array.isArray(n.blockers) ? n.blockers : [],
-    volumeAcceleration: Number.isFinite(Number(n.inputs?.volumeAccelerationPercent))
-      ? Number(n.inputs.volumeAccelerationPercent)
-      : null,
-    volumeRatio: Number.isFinite(Number(n.inputs?.volumeRatio))
-      ? Number(n.inputs.volumeRatio)
-      : null,
-    breakoutDistance: Number.isFinite(Number(n.inputs?.breakoutDistancePercent))
-      ? Number(n.inputs.breakoutDistancePercent)
-      : null,
+    volumeAcceleration: Number.isFinite(Number(n.inputs?.volumeAccelerationPercent)) ? Number(n.inputs.volumeAccelerationPercent) : null,
+    volumeRatio: Number.isFinite(Number(n.inputs?.volumeRatio)) ? Number(n.inputs.volumeRatio) : null,
+    breakoutDistance: Number.isFinite(Number(n.inputs?.breakoutDistancePercent)) ? Number(n.inputs.breakoutDistancePercent) : null,
     rsLabel: n.inputs?.relativeStrengthLabel || null
   };
 }
@@ -356,15 +355,19 @@ function renderNextDayOpportunity(d) {
     `;
   }
 
-  const decision = n.eligible && n.label === "HIGH"
-    ? "PRIORITAS — setup H+1 kuat"
-    : n.eligible
-      ? "BOLEH DIPANTAU — belum prioritas HIGH"
-      : "JANGAN PRIORITASKAN UNTUK BUY SORE";
+  const decision = n.entryDecision === "BUY_NOW" && n.entryEligible
+    ? "PRIORITAS — BUY SORE"
+    : n.entryDecision === "WAIT_PULLBACK"
+      ? "WAIT PULLBACK — JANGAN KEJAR"
+      : n.entryDecision === "WATCH"
+        ? "PANTAU — ENTRY BELUM IDEAL"
+        : n.eligible
+          ? "JANGAN ENTRY — CHASE RISK TINGGI"
+          : "TIDAK ADA SETUP H+1 VALID";
 
-  const decisionIcon = n.eligible && n.label === "HIGH"
+  const decisionIcon = n.entryDecision === "BUY_NOW" && n.entryEligible
     ? "🟢"
-    : n.eligible
+    : n.entryDecision === "WAIT_PULLBACK" || n.entryDecision === "WATCH"
       ? "🟡"
       : "🔴";
 
@@ -416,18 +419,24 @@ function renderNextDayOpportunity(d) {
           <strong>${n.rsLabel || "—"}</strong>
         </div>
         <div>
-          <span>Status Eligible</span>
-          <strong>${n.eligible ? "YES — PRIORITAS" : "NO — JANGAN ENTRY"}</strong>
+          <span>Opportunity H+1</span>
+          <strong>${n.eligible ? "VALID — " + n.label : "TIDAK VALID"}</strong>
+        </div>
+        <div>
+          <span>Entry Quality</span>
+          <strong>${n.entryQualityScore === null ? "—" : `${n.entryQualityScore} · ${n.entryQualityLabel}`}</strong>
+        </div>
+        <div>
+          <span>Chase Risk</span>
+          <strong>${n.chaseRisk}</strong>
         </div>
       </div>
 
       ${blockers}
 
       <div class="nextday-note">
-        <strong>Aturan screener:</strong>
-        Opportunity HIGH + Eligible adalah kandidat utama untuk strategi beli sore.
-        Outlook multi-hari dan Next-Day Opportunity menjawab pertanyaan berbeda; jangan samakan outlook beberapa hari dengan prediksi besok.
-        Ini adalah probabilistic screening, bukan jaminan harga naik besok.
+        <strong>Aturan baru:</strong> Opportunity menjawab “seberapa menarik peluang H+1?”, sedangkan Entry Quality menjawab “apakah harga sekarang layak dibeli?”.
+        Jadi Opportunity HIGH tidak otomatis berarti BUY SORE. Jika harga sudah terlalu naik, keputusan menjadi WAIT PULLBACK atau JANGAN ENTRY.
       </div>
     </div>
   `;
@@ -444,10 +453,11 @@ function renderNextDaySummary(json) {
         <div class="summary-high"><strong>${s.high ?? 0}</strong><span>HIGH</span></div>
         <div class="summary-moderate"><strong>${s.moderate ?? 0}</strong><span>MODERATE</span></div>
         <div class="summary-watch"><strong>${s.low ?? 0}</strong><span>LOW</span></div>
-        <div class="summary-eligible"><strong>${s.eligible ?? 0}</strong><span>ELIGIBLE</span></div>
+        <div class="summary-eligible"><strong>${s.eligible ?? 0}</strong><span>H+1 VALID</span></div>
+        <div class="summary-eligible"><strong>${s.entryEligible ?? 0}</strong><span>BUY SORE</span></div>
       </div>
       <div class="nextday-summary-note">
-        Tampilkan HIGH di urutan teratas. Kandidat non-eligible diberi peringatan agar tidak terbeli hanya karena Signal/Score lama.
+        H+1 HIGH hanya berarti peluang continuation menarik. Prioritas BUY SORE ditentukan lagi oleh Entry Quality dan Chase Risk, sehingga saham yang sudah terlalu tinggi tidak otomatis dikejar.
       </div>
     </div>
   `;
@@ -475,7 +485,9 @@ function renderCard(d) {
       <div class="badge-row">
         <span class="badge ${tClass}">${d.marketTrend}</span>
         <span class="badge sideways">Risiko ${d.riskLevel}</span>
-        <span class="badge ${n.label === "HIGH" && n.eligible ? "bullish" : "sideways"}">Next-Day ${n.label}</span>
+        <span class="badge ${n.label === "HIGH" && n.eligible ? "bullish" : "sideways"}">H+1 ${n.label}</span>
+        <span class="badge ${n.entryQualityLabel === "GOOD" ? "bullish" : n.entryQualityLabel === "POOR" || n.entryQualityLabel === "AVOID" ? "bearish" : "sideways"}">Entry ${n.entryQualityLabel}</span>
+        <span class="badge ${n.chaseRisk === "HIGH" || n.chaseRisk === "EXTREME" ? "bearish" : "sideways"}">Chase ${n.chaseRisk}</span>
         <span class="badge sideways">Timing teknikal · ${d.entry}</span>
         ${d.breakout && d.breakout.isBreakout ? `<span class="badge bullish">🚀 ${d.breakout.level === "STRONG_BREAKOUT" ? "Strong Breakout" : "Breakout"}</span>` : ""}
         ${d.relativeStrength && (d.relativeStrength.label === "OUTPERFORM" || d.relativeStrength.label === "JAUH OUTPERFORM") ? `<span class="badge bullish">RS ${d.relativeStrength.label}</span>` : ""}
@@ -752,10 +764,11 @@ async function batchScanSemua() {
     const rankedForNextDay = [...json.data].sort((a, b) => {
       const aN = getNextDayOpportunityMeta(a);
       const bN = getNextDayOpportunityMeta(b);
+      const decisionRank = { BUY_NOW: 4, WAIT_PULLBACK: 3, WATCH: 2, AVOID: 1, NO_SETUP: 0 };
 
-      if (aN.eligible !== bN.eligible) {
-        return Number(bN.eligible) - Number(aN.eligible);
-      }
+      const aRank = decisionRank[aN.entryDecision] ?? 0;
+      const bRank = decisionRank[bN.entryDecision] ?? 0;
+      if (aRank !== bRank) return bRank - aRank;
 
       if ((aN.score ?? -1) !== (bN.score ?? -1)) {
         return (bN.score ?? -1) - (aN.score ?? -1);
