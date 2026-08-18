@@ -46,6 +46,8 @@ const CSV_COLUMNS = [
   // lihat catatan di engine/evaluationStats.js & api/label-outcomes-close.js.
   "next_day_opportunity_label", "next_day_opportunity_eligible",
   "next_day_opportunity_setup", "next_day_opportunity_score",
+  "next_day_entry_quality_score", "next_day_entry_quality_label",
+  "next_day_chase_risk", "next_day_entry_decision", "next_day_entry_eligible",
   "next_day_close_return_from_close_pct", "next_day_max_gain_from_close_pct",
   "next_day_high_3pct_realized", "next_day_close_2pct_realized", "next_day_success",
   "close_labeled_at"
