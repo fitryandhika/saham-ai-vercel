@@ -283,7 +283,12 @@ async function handleModelSync(req, res) {
       next_day_opportunity_score: opportunity.opportunityScore,
       next_day_opportunity_label: opportunity.opportunityLabel,
       next_day_opportunity_setup: opportunity.coreSetup,
-      next_day_opportunity_eligible: opportunity.eligible
+      next_day_opportunity_eligible: opportunity.eligible,
+      next_day_entry_quality_score: opportunity.entryQualityScore,
+      next_day_entry_quality_label: opportunity.entryQualityLabel,
+      next_day_chase_risk: opportunity.chaseRisk,
+      next_day_entry_decision: opportunity.entryDecision,
+      next_day_entry_eligible: opportunity.entryEligible
     });
 
     return {
@@ -371,7 +376,12 @@ async function handleOpportunityBackfill(req, res) {
         next_day_opportunity_score: opportunity.opportunityScore,
         next_day_opportunity_label: opportunity.opportunityLabel,
         next_day_opportunity_setup: opportunity.coreSetup,
-        next_day_opportunity_eligible: opportunity.eligible
+        next_day_opportunity_eligible: opportunity.eligible,
+        next_day_entry_quality_score: opportunity.entryQualityScore,
+        next_day_entry_quality_label: opportunity.entryQualityLabel,
+        next_day_chase_risk: opportunity.chaseRisk,
+        next_day_entry_decision: opportunity.entryDecision,
+        next_day_entry_eligible: opportunity.entryEligible
       });
 
       return { id: row.id, ok: true };
