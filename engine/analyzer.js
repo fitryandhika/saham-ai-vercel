@@ -422,7 +422,7 @@ export function analyzeStock(data) {
   });
 
   // ==========================
-  // Next-Day Opportunity Engine (shadow)
+  // Next-Day Opportunity Engine (active, entry-aware)
   // Fokus: Close H -> High/Close H+1, bukan gap/open.
   // Tidak mengubah signal/verdict lama.
   // ==========================
@@ -455,7 +455,7 @@ export function analyzeStock(data) {
   // berpotensi menyesatkan. Flag ini TIDAK mengubah skor/label
   // manapun, cuma dicatat supaya UI bisa menampilkan catatan silang.
   const entryTimingConflict =
-    entry === "AVOID" && nextDayOpportunity.eligible;
+    entry === "AVOID" && nextDayOpportunity.entryEligible;
 
   // Saham beku/tidak likuid: signal & session-gain internal (dihitung
   // dari `signal`/`score` di atas) tidak boleh ditampilkan apa adanya,
