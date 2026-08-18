@@ -7,7 +7,7 @@
 // bukan hanya memprediksi gap/open.
 //
 // Engine utama tetap dipertahankan.
-// Next-Day Opportunity berjalan sebagai layer tambahan / shadow mode.
+// Next-Day Opportunity berjalan sebagai layer aktif untuk ranking strategi beli sore -> jual pagi.
 //
 // ==========================
 
@@ -602,6 +602,21 @@ export default async function handler(req, res) {
               ?.eligible ??
             false,
 
+          next_day_entry_quality_score:
+            safeNumber(opportunity?.entryQualityScore),
+
+          next_day_entry_quality_label:
+            opportunity?.entryQualityLabel ?? null,
+
+          next_day_chase_risk:
+            opportunity?.chaseRisk ?? null,
+
+          next_day_entry_decision:
+            opportunity?.entryDecision ?? null,
+
+          next_day_entry_eligible:
+            opportunity?.entryEligible ?? false,
+
           // Sudah naik berapa % hari ini vs close kemarin — ditambahkan
           // 14 Agustus 2026 sebagai info transparansi risiko (BUKAN
           // penalti skor, sudah diuji ke data & ternyata expected value-
@@ -780,16 +795,22 @@ export default async function handler(req, res) {
     // Ranking
     // =========================================================
     //
-    // PENTING:
-    // Opportunity Score BELUM digunakan untuk mengganti ranking
-    // utama. Kita masih dalam SHADOW MODE.
-    //
-    // Ranking lama dipertahankan agar tidak mengubah perilaku
-    // SahamAI yang sudah berjalan.
+    // Ranking strategi beli sore -> jual pagi sekarang memprioritaskan
+    // keputusan entry yang sudah melewati Opportunity + Entry Quality.
+    // Ini mencegah saham yang Opportunity-nya HIGH tetapi harga sudah
+    // terlalu extended naik ke urutan BUY SORE.
     // =========================================================
 
     hasilFilter.sort(
       (a, b) => {
+
+        const decisionRank = { BUY_NOW: 4, WAIT_PULLBACK: 3, WATCH: 2, AVOID: 1, NO_SETUP: 0 };
+        const aTrade = decisionRank[a.nextDayOpportunity?.tradeDecision] ?? 0;
+        const bTrade = decisionRank[b.nextDayOpportunity?.tradeDecision] ?? 0;
+
+        if (aTrade !== bTrade) {
+          return bTrade - aTrade;
+        }
 
         const aReady =
           a.entry === "NOW"
@@ -888,6 +909,24 @@ export default async function handler(req, res) {
             (x) =>
               x.eligible ===
               true
+          ).length,
+
+        entryEligible:
+          opportunityResults.filter(
+            (x) =>
+              x.entryEligible === true
+          ).length,
+
+        waitPullback:
+          opportunityResults.filter(
+            (x) =>
+              x.entryDecision === "WAIT_PULLBACK"
+          ).length,
+
+        avoidEntry:
+          opportunityResults.filter(
+            (x) =>
+              x.entryDecision === "AVOID"
           ).length
       };
 
@@ -977,10 +1016,10 @@ export default async function handler(req, res) {
       nextDayOpportunityStats,
 
       nextDayOpportunityMode:
-        "SHADOW",
+        "ACTIVE_ENTRY_AWARE",
 
       nextDayOpportunityAffectsRanking:
-        false,
+        true,
 
       // ======================
       // Logging
