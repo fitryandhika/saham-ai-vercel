@@ -33,6 +33,98 @@ function addBreakdown(arr, factor, points, detail = null) {
   arr.push({ factor, points, ...(detail ? { detail } : {}) });
 }
 
+function calculateEntryQuality({
+  dailyChangePercent = null,
+  breakout = {},
+  rsi = null,
+  exhaustion = {},
+  distribution = {},
+  riskReward = null,
+  closingStrength = null
+} = {}) {
+  let score = 100;
+  const reasons = [];
+  const dcp = Number(dailyChangePercent);
+  const distance = Number(breakout?.distancePercent);
+  const rsiValue = Number(rsi);
+  const exhaustionScore = Number(exhaustion?.exhaustionScore ?? 0);
+  const distributionScore = Number(distribution?.distributionScore ?? 0);
+  const rr = Number(riskReward);
+  const cs = Number(closingStrength);
+
+  // Opportunity = potensi H+1 dari Close H.
+  // Entry Quality = apakah Close H masih layak dibeli sekarang.
+  // Keduanya sengaja dipisahkan agar momentum kuat tidak berarti "buy at any price".
+  if (Number.isFinite(dcp)) {
+    if (dcp >= 10) { score -= 35; reasons.push(`Sudah naik +${dcp}% hari ini`); }
+    else if (dcp >= 8) { score -= 25; reasons.push(`Kenaikan harian +${dcp}% sudah tinggi`); }
+    else if (dcp >= 6) { score -= 15; reasons.push(`Kenaikan harian +${dcp}% cukup tinggi`); }
+    else if (dcp >= 4) { score -= 8; reasons.push(`Kenaikan harian +${dcp}% mulai membatasi entry`); }
+    else if (dcp >= 2) { score -= 3; }
+  }
+
+  if (Number.isFinite(distance)) {
+    if (distance > 8) { score -= 30; reasons.push(`Harga sudah ${distance}% di atas resistance`); }
+    else if (distance > 5) { score -= 20; reasons.push(`Harga ${distance}% di atas resistance`); }
+    else if (distance > 3) { score -= 12; reasons.push(`Harga ${distance}% di atas resistance`); }
+    else if (distance > 1.5) { score -= 6; }
+    else if (distance > 0) { score -= 2; }
+  }
+
+  if (Number.isFinite(rsiValue)) {
+    if (rsiValue >= 80) { score -= 20; reasons.push(`RSI ${rsiValue} sangat overbought`); }
+    else if (rsiValue >= 75) { score -= 12; reasons.push(`RSI ${rsiValue} overbought`); }
+    else if (rsiValue >= 70) { score -= 6; reasons.push(`RSI ${rsiValue} mulai tinggi`); }
+  }
+
+  if (exhaustionScore >= 60) { score -= 20; reasons.push("Rally menunjukkan exhaustion tinggi"); }
+  else if (exhaustionScore >= 35) { score -= 10; reasons.push("Rally mulai menunjukkan exhaustion"); }
+
+  if (distributionScore >= 60) { score -= 25; reasons.push("Indikasi distribusi tinggi"); }
+  else if (distributionScore >= 35) { score -= 12; reasons.push("Ada indikasi distribusi"); }
+
+  if (Number.isFinite(rr)) {
+    if (rr < 1) { score -= 25; reasons.push("Risk/reward < 1"); }
+    else if (rr < 1.5) { score -= 12; reasons.push("Risk/reward < 1.5"); }
+    else if (rr < 2) { score -= 4; }
+  }
+
+  if (Number.isFinite(cs) && cs < 0.55) {
+    score -= 10;
+    reasons.push("Closing strength belum cukup kuat");
+  }
+
+  score = Math.round(clamp(score));
+
+  let label = "AVOID";
+  if (score >= 80) label = "GOOD";
+  else if (score >= 65) label = "FAIR";
+  else if (score >= 50) label = "CAUTION";
+  else if (score >= 35) label = "POOR";
+
+  let chaseRisk = "LOW";
+  if (dcp >= 10 || distance > 8) chaseRisk = "EXTREME";
+  else if (dcp >= 8 || distance > 5 || rsiValue >= 80) chaseRisk = "HIGH";
+  else if (dcp >= 6 || distance > 3 || rsiValue >= 75) chaseRisk = "MODERATE";
+
+  let decision = "BUY_NOW";
+  if (score < 50 || chaseRisk === "EXTREME") decision = "AVOID";
+  else if (score < 65 || chaseRisk === "HIGH") decision = "WAIT_PULLBACK";
+  else if (score < 80 || chaseRisk === "MODERATE") decision = "WATCH";
+
+  // Anti-chasing guard khusus strategi beli sore -> jual pagi.
+  // Opportunity boleh tetap HIGH, tetapi harga tidak boleh otomatis dianggap layak entry.
+  if (dcp >= 8) {
+    decision = dcp >= 10 ? "AVOID" : "WAIT_PULLBACK";
+    score = Math.min(score, dcp >= 10 ? 49 : 64);
+    label = dcp >= 10 ? "POOR" : "CAUTION";
+  }
+
+  const entryEligible = score >= 65 && decision === "BUY_NOW";
+
+  return { score, label, chaseRisk, decision, entryEligible, reasons };
+}
+
 export function calculateNextDayOpportunity({
   score = null,
   volume = {},
@@ -441,6 +533,20 @@ export function calculateNextDayOpportunity({
     coreSetup = "VOLUME_CONTINUATION";
   }
 
+  const entryQuality = calculateEntryQuality({
+    dailyChangePercent: dcp,
+    breakout,
+    rsi: rsiValue,
+    exhaustion,
+    distribution,
+    riskReward: rr,
+    closingStrength: cs
+  });
+
+  const tradeDecision = !eligible
+    ? "NO_SETUP"
+    : entryQuality.decision;
+
   return {
     version: "v2-calibrated",
     opportunityScore,
@@ -448,6 +554,16 @@ export function calculateNextDayOpportunity({
     expectedMoveBand,
     coreSetup,
     eligible,
+
+    // Layer entry terpisah: tidak mengubah Opportunity Score.
+    entryQualityScore: entryQuality.score,
+    entryQualityLabel: entryQuality.label,
+    chaseRisk: entryQuality.chaseRisk,
+    entryDecision: entryQuality.decision,
+    entryEligible: entryQuality.entryEligible,
+    entryQualityReasons: entryQuality.reasons,
+    tradeDecision,
+
     preBreakoutAccumulation: validPreBreakout,
 
     // Info transparansi risiko — TIDAK mempengaruhi opportunityScore,
