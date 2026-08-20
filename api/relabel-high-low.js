@@ -154,7 +154,14 @@ async function handleSessionGainBackfill(req, res) {
         volumeSignal: row.volume_signal,
         volumeRatio: row.volume_ratio,
         gapOutlook: row.gap_outlook,
-        rsLabel: row.rs_label
+        rsLabel: row.rs_label,
+        // Ditambahkan 20 Agustus 2026 - lihat catatan di sessionGainScore.js.
+        // Kolom ini sudah ada di scan_history dari fitur-fitur sebelumnya,
+        // jadi backfill baris lama bisa langsung pakai nilai aslinya (bukan
+        // fallback netral) tanpa perlu fetch data tambahan.
+        breakoutDistancePct: row.breakout_distance_pct,
+        closingStrength: row.closing_strength,
+        marketRegimeScore: row.market_regime_score
       });
 
       await updateLabel(row.id, {
