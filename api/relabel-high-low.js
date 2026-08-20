@@ -53,13 +53,18 @@
 // getRowsMissingOpportunity() di services/dataLogService.js untuk daftar
 // kolom lengkap & alasannya.
 
-import { getRowsMissingHighLow, getRowsMissingSessionGain, getRowsMissingOpportunity, getRowsForModelSync, updateLabel } from "../services/dataLogService.js";
+import { getRowsMissingHighLow, getRowsMissingSessionGain, getRowsMissingOpportunity, getRowsForModelSync, updateLabel, getScannedKodeForDate, logScanSnapshots } from "../services/dataLogService.js";
 import { getStockData, getIntradayPeakTime } from "../services/stockService.js";
 import { calculateSessionGainScore } from "../engine/sessionGainScore.js";
 import { calculateNextDayOpportunity } from "../engine/nextDayOpportunity.js";
 import { getMarketTrend } from "../engine/verdict.js";
 import { calculateScore, recommendation, hasStrongBuyConfirmation } from "../engine/scorer.js";
 import { applyRegimeAdjustment } from "../engine/marketRegime.js";
+import { analyzeStock } from "../engine/analyzer.js";
+import { resolveUniverse } from "../config/universe.js";
+import { isTradingDay } from "../config/tradingCalendar.js";
+import { getGapCalibrationMap } from "../services/gapCalibrationService.js";
+import { buildSnapshotRow } from "../services/snapshotBuilder.js";
 
 export const config = {
   maxDuration: 60
@@ -406,6 +411,207 @@ async function handleOpportunityBackfill(req, res) {
   });
 }
 
+// ==========================
+// Backfill Gap — isi ulang scan_history untuk tanggal yang KOSONG total
+// ==========================
+//
+// Beda dengan mode di atas (high-low/session-gain/opportunity/model-sync):
+// mode-mode itu MELENGKAPI baris yang SUDAH ada tapi kurang beberapa kolom.
+// Mode ini dipakai kalau baris untuk satu scan_date TIDAK ADA SAMA SEKALI
+// (kasus bug 'entryTimingConflict' Agustus 2026 — lihat riwayat chat/commit
+// api/scan.js). Menjalankan ulang pipeline yang sama persis dengan
+// api/scan.js (analyzeStock + buildSnapshotRow), tapi candle di-potong
+// sampai tanggal target, jadi hasilnya SAMA seperti kalau scan beneran
+// dijalankan di tanggal itu — bukan cuma copy data hari ini.
+//
+// KETERBATASAN (best-effort, dicatat apa adanya, bukan bug):
+//   - market_regime / market_regime_score pakai nilai netral (null / 50),
+//     BUKAN kondisi macro riil di tanggal itu — snapshot macro historis
+//     tidak disimpan per-tanggal di macroDataService.js saat ini.
+//   - gap_calibration pakai peta kalibrasi TERKINI (bukan yang berlaku
+//     persis di tanggal itu), karena gapCalibrationService.js juga tidak
+//     menyimpan versi historis per-tanggal.
+//   Dua hal di atas TIDAK mempengaruhi indikator teknikal/skor utama
+//   (RSI, MACD, breakout, dst — semua dihitung dari candle historis asli),
+//   cuma mempengaruhi 2 kolom itu saja.
+//   - Kode yang tidak punya candle persis di tanggal target (suspend,
+//     IPO belakangan, delisting) otomatis di-skip, dicatat di 'skipped'.
+//   - Label next-day (gap_up_realized, actual_next_open/close/high/low,
+//     dst) TIDAK diisi di sini — otomatis akan kekejar sendiri oleh cron
+//     api/label-outcomes.js & api/label-outcomes-close.js yang sudah ada
+//     (keduanya jalan berbasis "scan_date belum dilabel PALING LAMA",
+//     bukan "kemarin", jadi tanggal backfill lama ikut kepungut).
+//
+// Cara pakai (ulangi sampai remainingKode: 0, lalu pindah ke tanggal lain):
+//   GET /api/relabel-high-low?target=backfill-gap&date=2026-08-14&manual=1
+//   GET /api/relabel-high-low?target=backfill-gap&date=2026-08-14&maxKode=20&manual=1
+//   GET /api/relabel-high-low?target=backfill-gap&date=2026-08-14&kode=BBCA&manual=1
+async function handleBackfillGap(req, res) {
+  const scanDate = req.query.date;
+
+  if (!scanDate || !/^\d{4}-\d{2}-\d{2}$/.test(scanDate)) {
+    return res.status(400).json({
+      success: false,
+      message: "Parameter ?date=YYYY-MM-DD wajib diisi, contoh: ?date=2026-08-14"
+    });
+  }
+
+  if (!isTradingDay(scanDate) && req.query.force !== "true") {
+    return res.status(200).json({
+      success: true,
+      skipped: true,
+      message: `${scanDate} bukan hari bursa (weekend/libur) — tidak perlu backfill. Tambahkan &force=true kalau memang sengaja.`
+    });
+  }
+
+  const singleKode = req.query.kode ? req.query.kode.toUpperCase() : null;
+  const maxKode = req.query.maxKode ? parseInt(req.query.maxKode, 10) : 20;
+
+  // Universe sama seperti scan.js (dinamis dari DB kalau ada, fallback
+  // statis kalau tidak).
+  const { list: UNIVERSE, sectorOf, marketCapOf } = await resolveUniverse();
+
+  // Skip kode yang sudah ada barisnya di tanggal ini, supaya panggilan
+  // ulang (lanjutan setelah kena maxKode) tidak insert dobel.
+  const alreadyScanned = new Set(await getScannedKodeForDate(scanDate));
+
+  const remaining = singleKode
+    ? [singleKode]
+    : UNIVERSE.filter((k) => !alreadyScanned.has(k));
+
+  const kodesToProcess = remaining.slice(0, maxKode);
+
+  if (kodesToProcess.length === 0) {
+    return res.status(200).json({
+      success: true,
+      message: `Semua kode untuk ${scanDate} sudah ter-backfill.`,
+      date: scanDate,
+      remainingKode: 0
+    });
+  }
+
+  // IHSG historis, dipotong sampai scanDate — dipakai bareng untuk semua
+  // kode di batch ini (1x fetch, bukan per-kode), sama pola cache-nya
+  // dengan getIhsgCloses() di marketService.js tapi versi ber-tanggal.
+  const ihsgClosesUpToDate = await fetchIhsgClosesUpTo(scanDate);
+
+  // Best-effort — lihat catatan keterbatasan di atas fungsi ini.
+  const gapCalibrationMap = await getGapCalibrationMap();
+
+  const results = await runPool(
+    kodesToProcess,
+    async (kode) => {
+      const stockData = await getStockData(kode, "1y");
+      const candles = truncateCandlesUpTo(stockData.candles, scanDate);
+
+      if (candles.length === 0) {
+        return { kode, skipped: "tidak ada candle sebelum tanggal ini" };
+      }
+
+      const lastCandle = candles[candles.length - 1];
+      if (lastCandle.date.slice(0, 10) !== scanDate) {
+        return {
+          kode,
+          skipped: `tidak ada candle persis di ${scanDate} (kemungkinan suspend/belum listing/delisting)`
+        };
+      }
+
+      const truncatedStockData = {
+        kode: stockData.kode,
+        candles,
+        closePrices: candles.map((c) => c.close),
+        volumes: candles.map((c) => c.volume),
+        priceSource: lastCandle.source,
+        latestSource: lastCandle.source,
+        latestDate: lastCandle.date,
+        ihsgCloses: ihsgClosesUpToDate,
+        sector: sectorOf(kode),
+        gapCalibration: gapCalibrationMap
+      };
+
+      const hasil = analyzeStock(truncatedStockData);
+
+      hasil.sector = sectorOf(kode);
+      hasil.marketCap = marketCapOf(kode) ?? null;
+
+      // Macro historis tidak tersedia — nilai netral, lihat catatan di
+      // atas fungsi ini.
+      hasil.marketRegime = null;
+      hasil.marketRegimeScore = 50;
+      hasil.scoreAdjusted = applyRegimeAdjustment(hasil.score, 50);
+
+      if (!hasil.nextDayOpportunity || typeof hasil.nextDayOpportunity !== "object") {
+        hasil.nextDayOpportunity = null;
+      }
+
+      return { kode, row: buildSnapshotRow(hasil, scanDate) };
+    },
+    CONCURRENCY
+  );
+
+  const rowsToSave = results.filter((r) => r && r.row).map((r) => r.row);
+  const skipped = results.filter((r) => r && r.skipped).map((r) => ({ kode: r.kode, reason: r.skipped }));
+  const errored = results.filter((r) => r && r.error).map((r) => ({ error: r.error }));
+
+  const logResult = await logScanSnapshots(rowsToSave);
+
+  return res.status(200).json({
+    success: true,
+    date: scanDate,
+    processed: kodesToProcess.length,
+    saved: logResult.logged,
+    saveError: logResult.error ?? null,
+    skipped,
+    errors: errored,
+    remainingKode: remaining.length - kodesToProcess.length
+  });
+}
+
+// Fetch IHSG (^JKSE) historis dan potong sampai dateStr — versi ber-tanggal
+// dari getIhsgCloses() di marketService.js (yang selalu "sampai sekarang",
+// tidak bisa dipotong ke tanggal lampau). Dipakai KHUSUS oleh backfill di
+// atas supaya relativeStrength.vsIhsg tidak "mengintip" data masa depan.
+async function fetchIhsgClosesUpTo(dateStr) {
+  try {
+    const url =
+      "https://query1.finance.yahoo.com/v8/finance/chart/%5EJKSE?range=1y&interval=1d";
+    const response = await fetch(url);
+
+    if (!response.ok) return null;
+
+    const json = await response.json();
+    const result = json?.chart?.result?.[0];
+    if (!result) return null;
+
+    const timestamps = result.timestamp || [];
+    const closesRaw = result.indicators?.quote?.[0]?.close || [];
+    const closes = [];
+
+    for (let i = 0; i < timestamps.length; i++) {
+      const ts = Number(timestamps[i]);
+      const c = closesRaw[i];
+      if (!Number.isFinite(ts) || c === null || c === undefined) continue;
+
+      const date = new Date(ts * 1000).toISOString().slice(0, 10);
+      if (date > dateStr) break; // stop persis sebelum "masa depan" dari sudut pandang tanggal backfill
+
+      closes.push(c);
+    }
+
+    return closes.length > 0 ? closes : null;
+  } catch (e) {
+    console.error("fetchIhsgClosesUpTo error:", e.message);
+    return null;
+  }
+}
+
+// candles diasumsikan sudah urut naik berdasarkan tanggal (sama seperti
+// asumsi findNextTradingDayCandle() di atas).
+function truncateCandlesUpTo(candles, dateStr) {
+  const idx = candles.findIndex((c) => c.date.slice(0, 10) > dateStr);
+  return idx === -1 ? candles : candles.slice(0, idx);
+}
+
 export default async function handler(req, res) {
   try {
     if (process.env.CRON_SECRET) {
@@ -428,6 +634,10 @@ export default async function handler(req, res) {
 
     if (req.query.target === "model-sync") {
       return await handleModelSync(req, res);
+    }
+
+    if (req.query.target === "backfill-gap") {
+      return await handleBackfillGap(req, res);
     }
 
     const singleKode = req.query.kode ? req.query.kode.toUpperCase() : null;
