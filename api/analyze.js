@@ -6,6 +6,7 @@ import { getIhsgCloses } from "../services/marketService.js";
 import { getSector } from "../config/universe.js";
 import { getLatestMacroSnapshot } from "../services/macroDataService.js";
 import { applyRegimeAdjustment } from "../engine/marketRegime.js";
+import { getGapCalibrationMap } from "../services/gapCalibrationService.js";
 
 export default async function handler(req, res) {
 
@@ -24,6 +25,17 @@ export default async function handler(req, res) {
     stockData.sector = getSector(kode);
     // RS vs sektor butuh data batch (peer sektor), tidak tersedia di
     // analisa satu-ticker — hanya diisi oleh api/scan.js.
+
+    // Gap calibration — sebelumnya TIDAK diisi di sini, jadi
+    // getGapProbability() di engine/gap.js selalu fallback ke heuristik
+    // murni (calibrationApplied selalu false) untuk menu analisa,
+    // sementara api/scan.js (top 10 / batch) selalu memakai kalibrasi
+    // empiris dari scan_history. Akibatnya gap.probability & gap.outlook
+    // (dan session_gain_score/label yang menurunkannya) bisa beda untuk
+    // saham & waktu yang sama antara Top 10 dan menu analisa, padahal
+    // fetch tabel ini murah (satu request kecil, sama seperti dipakai
+    // scan.js) — jadi tidak ada alasan untuk tidak menyamakannya di sini.
+    stockData.gapCalibration = await getGapCalibrationMap();
 
     const hasil = analyzeStock(stockData);
 
