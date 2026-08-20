@@ -605,3 +605,33 @@ export async function getUniverseFromDb() {
     return [];
   }
 }
+
+// ==========================
+// Backfill Gap (lihat api/relabel-high-low.js?target=backfill-gap)
+// ==========================
+// Ambil daftar kode yang SUDAH punya baris untuk satu scan_date tertentu.
+// Dipakai supaya backfill tidak insert dobel kalau dipanggil berkali-kali
+// (dilanjutkan setelah kena batas maxKode per panggilan) — sama alasannya
+// dengan getRowsMissingHighLow, cuma filternya per tanggal bukan per status
+// label.
+export async function getScannedKodeForDate(scanDate) {
+  const cfg = getConfig();
+  if (!cfg) return [];
+
+  const res = await fetch(
+    `${cfg.url}/rest/v1/scan_history?scan_date=eq.${scanDate}&select=kode`,
+    {
+      headers: {
+        apikey: cfg.key,
+        Authorization: `Bearer ${cfg.key}`
+      }
+    }
+  );
+
+  if (!res.ok) {
+    throw new Error(`Supabase select gagal (${res.status}): ${await res.text()}`);
+  }
+
+  const rows = await res.json();
+  return rows.map((r) => r.kode);
+}
