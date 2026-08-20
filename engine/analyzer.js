@@ -418,7 +418,15 @@ export function analyzeStock(data) {
     volumeSignal: volume?.signal,
     volumeRatio: volume?.ratio,
     gapOutlook: gap?.outlook,
-    rsLabel: relativeStrength?.label
+    rsLabel: relativeStrength?.label,
+    // Ditambahkan 20 Agustus 2026 - lihat catatan di sessionGainScore.js.
+    // marketRegimeScore harus sudah diisi caller (api/scan.js, api/analyze.js)
+    // ke data.marketRegimeScore SEBELUM analyzeStock() dipanggil, karena
+    // macroSnapshot biasanya baru diambil setelahnya - lihat catatan di
+    // masing-masing api handler.
+    breakoutDistancePct: breakout?.distancePercent,
+    closingStrength,
+    marketRegimeScore: data.marketRegimeScore ?? 50
   });
 
   // ==========================
