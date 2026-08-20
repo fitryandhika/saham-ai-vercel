@@ -62,6 +62,31 @@ function summarizeGroup(rows) {
   };
 }
 
+// ==========================
+// Tahap 2 (beli sore -> jual pagi/close, basis CLOSE H) — dipakai untuk
+// overall_opportunity / by_opportunity_label / eligible_vs_not_eligible.
+// Beda basis dari summarizeGroup() di atas: win pakai next_day_success
+// (bukan gap_up_realized) dan return pakai next_day_close_return_from_close_pct
+// (bukan next_day_return_pct, yang basisnya open H+1).
+// ==========================
+
+function winRateClose(rows) {
+  const labeled = rows.filter(
+    (r) => r.next_day_success !== null && r.next_day_success !== undefined
+  );
+  if (labeled.length === 0) return null;
+  const wins = labeled.filter((r) => r.next_day_success === true).length;
+  return wins / labeled.length;
+}
+
+function summarizeGroupClose(rows) {
+  return {
+    jumlah: rows.length,
+    win_rate: round((winRateClose(rows) ?? 0) * 100),
+    avg_return_pct: round(avg(rows.map((r) => r.next_day_close_return_from_close_pct)))
+  };
+}
+
 export function computeSummary(rows) {
   const labeled = rows.filter(
     (r) => r.gap_up_realized !== null && r.gap_up_realized !== undefined
@@ -150,8 +175,42 @@ export function computeSummary(rows) {
     high_conviction: summarizeGroup(highConviction)
   };
 
+  // ==========================
+  // Tahap 2 — kalibrasi Opportunity Engine (beli sore -> jual pagi/close).
+  // Dipakai oleh riwayat.js untuk panel "Kalibrasi: Beli Sore -> Jual
+  // Pagi/Close" (summaryOpportunity, byOpportunityLabel, eligibleVsNot).
+  // Baris yang dipakai dibatasi ke yang SUDAH dilabel cron
+  // /api/label-outcomes-close.js (next_day_success terisi) — bukan
+  // labeled (Tahap 1, gap_up_realized) supaya win_rate & avg_return
+  // konsisten pakai basis CLOSE H, bukan basis open H+1.
+  const closeLabeled = rows.filter(
+    (r) => r.next_day_success !== null && r.next_day_success !== undefined
+  );
+
+  const overallOpportunity = {
+    total_labeled: closeLabeled.length,
+    win_rate: round((winRateClose(closeLabeled) ?? 0) * 100),
+    avg_return_pct: round(avg(closeLabeled.map((r) => r.next_day_close_return_from_close_pct))),
+    avg_max_gain_pct: round(avg(closeLabeled.map((r) => r.next_day_max_gain_from_close_pct)))
+  };
+
+  const byOpportunityLabelMap = groupBy(closeLabeled, (r) => r.next_day_opportunity_label);
+  const byOpportunityLabel = Array.from(byOpportunityLabelMap.entries())
+    .map(([label, group]) => ({ opportunity_label: label, ...summarizeGroupClose(group) }))
+    .sort((a, b) => b.jumlah - a.jumlah);
+
+  const eligibleRows = closeLabeled.filter((r) => r.next_day_opportunity_eligible === true);
+  const notEligibleRows = closeLabeled.filter((r) => r.next_day_opportunity_eligible !== true);
+  const eligibleVsNotEligible = {
+    eligible: summarizeGroupClose(eligibleRows),
+    not_eligible: summarizeGroupClose(notEligibleRows)
+  };
+
   return {
     overall,
+    overall_opportunity: overallOpportunity,
+    by_opportunity_label: byOpportunityLabel,
+    eligible_vs_not_eligible: eligibleVsNotEligible,
     by_signal: bySignal,
     by_score_bucket: byScoreBucket,
     by_breakout_level: byBreakout,
