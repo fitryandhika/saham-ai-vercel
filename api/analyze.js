@@ -37,6 +37,13 @@ export default async function handler(req, res) {
     // scan.js) — jadi tidak ada alasan untuk tidak menyamakannya di sini.
     stockData.gapCalibration = await getGapCalibrationMap();
 
+    // Layer makro — dipindah ke SEBELUM analyzeStock() (20 Agustus 2026).
+    // Sebelumnya diambil sesudahnya, jadi engine/sessionGainScore.js tidak
+    // pernah menerima marketRegimeScore yang sebenarnya (selalu fallback
+    // netral 50) - lihat catatan di analyzer.js & sessionGainScore.js.
+    const macroSnapshot = await getLatestMacroSnapshot();
+    stockData.marketRegimeScore = macroSnapshot?.market_regime_score ?? 50;
+
     const hasil = analyzeStock(stockData);
 
     const news = await checkNewsWarnings(kode);
@@ -45,9 +52,8 @@ export default async function handler(req, res) {
 
     // Layer makro — best-effort, lapisan terpisah dari hasil.score asli
     // (lihat catatan di engine/marketRegime.js).
-    const macroSnapshot = await getLatestMacroSnapshot();
     hasil.marketRegime = macroSnapshot?.market_regime ?? null;
-    hasil.marketRegimeScore = macroSnapshot?.market_regime_score ?? 50;
+    hasil.marketRegimeScore = stockData.marketRegimeScore;
     hasil.scoreAdjusted = applyRegimeAdjustment(hasil.score, hasil.marketRegimeScore);
 
     return res.status(200).json({
