@@ -38,6 +38,90 @@
 // tervalidasi. Jangan dipakai sebagai satu-satunya dasar keputusan beli;
 // terus bandingkan skor ini dengan max_gain_from_open_pct aktual seiring
 // data bertambah, dan siap dikalibrasi ulang.
+//
+// UPDATE 20 Agustus 2026 — perluasan ke target "beli SORE (close hari
+// ini), jual besok" (bukan cuma "beli besok pagi di open"). Skor di
+// atas basisnya max_gain_from_open_pct (open H+1 -> high H+1) - beda
+// dari yang user benar-benar lakukan (beli di CLOSE hari H, jual di
+// high H+1). Kolom yang cocok untuk target itu adalah
+// next_day_max_gain_from_close_pct / next_day_high_3pct_realized
+// (>=3% dari close). Dianalisa 8.556 baris scan_history_export
+// 2026-08-20 (15 Jul - 19 Agt 2026, 26 hari bursa, 100+ kode) khusus
+// utk target >=3% dari close ini:
+//   - Base rate keseluruhan: 28,5%.
+//   - breakout_distance_pct SANGAT NEGATIF (harga jauh di bawah
+//     resistance-N-hari, oversold dalam) -> win rate NAIK, bukan
+//     turun: <=-14% -> 39,2%, vs -5%..-2% (dekat resistance tapi
+//     belum tembus) cuma 19,5% - ini pola MEAN-REVERSION, arahnya
+//     kebalikan dari breakout biasa. (breakout_distance_pct sudah ada
+//     di gapCalibration.js/engine lain tapi belum pernah dipakai di
+//     skor ini.)
+//   - closing_strength RENDAH (close lemah, dekat low harian) justru
+//     lebih baik dari close kuat: kuartil terendah (<=0,185) -> 34,0%
+//     vs kuartil tertinggi (>=0,75) -> 25,0%.
+//   - market_regime_score LEBIH RENDAH (pasar netral/tenang, 50-55)
+//     -> 34,2% vs regime tinggi/risk-on kuat (67-77) -> 23,5%.
+//   - volume_ratio>1,5x tetap prediktor terkuat sendirian (39,1%,
+//     sudah tercermin di volumeRatioPoints di bawah).
+//   - KOMBINASI oversold-dalam (breakout_distance_pct<=-14%) DENGAN
+//     volume_ratio>=1,5x jauh lebih kuat dari keduanya sendiri-
+//     sendiri: n=199, win rate 59,3% (2,08x base rate) - disebar di
+//     116 kode & 26 hari berbeda, bukan kebetulan beberapa saham/hari.
+//     Ditambah rs_label JAUH OUTPERFORM atau market_regime_score<=55,
+//     naik lagi ke 66-68% (n=53-82) - tapi sampel makin kecil jadi
+//     BELUM ditambahkan bonus terpisah, cukup biarkan komponen²nya
+//     saling menjumlah secara alami.
+//
+// Tiga komponen baru (breakoutDistancePts, closingStrengthPts,
+// marketRegimePts) + SYNERGY_BONUS_OVERSOLD_VOLUME ditambahkan di
+// bawah berdasarkan temuan ini. SEMUA parameter baru OPSIONAL (fallback
+// ke nilai netral kalau tidak dikirim) supaya caller lama yang belum
+// update tidak error - lihat komentar di calculateSessionGainScore.
+// SAMA seperti temuan sebelumnya di file ini: masih ~1 bulan data,
+// heuristik kombinasi, terus dievaluasi & dikalibrasi ulang.
+
+// Tiga fungsi + 1 synergy bonus di bawah ini mengimplementasikan temuan
+// UPDATE 20 Agustus 2026 di atas. Tier dibuat mengikuti bentuk win-rate
+// per quintile/bucket dari analisa tsb (bukan linear), supaya nilai
+// poin merefleksikan bentuk kurva aslinya (mis. breakout_distance_pct
+// punya titik terlemah di -5%..-2%, BUKAN di ujung positif).
+function breakoutDistancePoints(distancePct) {
+  if (typeof distancePct !== "number" || Number.isNaN(distancePct)) return 6; // fallback netral
+  if (distancePct <= -14) return 15; // oversold dalam - win rate tertinggi (39,2%)
+  if (distancePct <= -8) return 10;
+  if (distancePct <= -5) return 6;
+  if (distancePct <= -2) return 2; // titik terlemah: dekat resistance, belum tembus (19,5%)
+  return 4; // dekat/di atas breakout level
+}
+
+function closingStrengthPoints(closingStrength) {
+  if (typeof closingStrength !== "number" || Number.isNaN(closingStrength)) return 8; // fallback netral
+  if (closingStrength <= 0.2) return 15; // close lemah - win rate tertinggi (34,0%)
+  if (closingStrength <= 0.4) return 10;
+  if (closingStrength <= 0.8) return 6;
+  return 4; // close kuat, dekat high harian - win rate terendah (25,0%)
+}
+
+function marketRegimePoints(marketRegimeScore) {
+  if (typeof marketRegimeScore !== "number" || Number.isNaN(marketRegimeScore)) return 8; // fallback netral
+  if (marketRegimeScore <= 55) return 15; // pasar netral/tenang - win rate tertinggi (34,2%)
+  if (marketRegimeScore <= 67) return 8;
+  return 2; // risk-on kuat - win rate terendah (23,5%)
+}
+
+// Sama seperti SYNERGY_BONUS_VOLUME_RS di bawah: kombinasi oversold-dalam
+// + volume tinggi jauh lebih kuat SECARA BERSAMA (59,3%, n=199, 116 kode,
+// 26 hari) daripada dijumlah dari kontribusinya sendiri-sendiri. Kombinasi
+// 3-arah (+rs_label/+regime, naik ke 66-68%) SENGAJA belum dijadikan bonus
+// terpisah karena sampelnya sudah kecil (n=53-82) - lihat catatan di atas.
+const SYNERGY_BONUS_OVERSOLD_VOLUME = 10;
+
+function oversoldVolumeSynergyPoints(distancePct, volumeRatio) {
+  return typeof distancePct === "number" && distancePct <= -14 &&
+    typeof volumeRatio === "number" && volumeRatio >= 1.5
+    ? SYNERGY_BONUS_OVERSOLD_VOLUME
+    : 0;
+}
 
 const SIGNAL_POINTS = {
   "HOLD": 15,
@@ -136,9 +220,33 @@ function volumeRatioPoints(volumeRatio) {
   return 2;
 }
 
-// Total maksimal 100 (15+15+15+15+15+15+10). Dipecah jadi 7 komponen
-// supaya tetap bisa ditelusuri komponen mana yang paling nyumbang,
-// bukan cuma angka akhir tanpa penjelasan.
+// Dipecah jadi banyak komponen kecil supaya tetap bisa ditelusuri
+// komponen mana yang paling nyumbang, bukan cuma angka akhir tanpa
+// penjelasan (lihat breakdown di return value).
+//
+// UPDATE 20 Agustus 2026 - breakoutDistancePct, closingStrength, dan
+// marketRegimeScore ditambahkan sbg parameter OPSIONAL (lihat 3 fungsi
+// + synergy bonus baru di atas). Caller lama yang belum mengirim
+// parameter ini tetap jalan (fallback ke poin netral), TAPI skor jadi
+// lebih akurat untuk target "beli close H, jual high H+1" begitu 3
+// parameter ini dikirim.
+//
+// Total poin mentah sekarang bisa jauh lebih tinggi dari 100 (teoretis
+// maks 170, di data riil 8.556 baris 15 Jul-19 Agt 2026 rentangnya
+// 36-145) - CAP LAMA di Math.min(100, ...) DIHAPUS karena tadinya
+// membuat ~50% baris rata di TINGGI dengan win rate cuma 34,3% (nyaris
+// sama dengan base rate 28,5% - hampir tidak ada daya pembeda lagi).
+// Threshold classifySessionGainScore() di bawah diganti ke skala baru
+// ini, divalidasi lewat simulasi thd 8.556 baris yg sama:
+//   TINGGI   (raw>=94, top ~21% data): win rate 41,1%
+//   SEDANG   (raw 77-93):              win rate 27,3%
+//   RENDAH   (raw 63-76):              win rate 20,6%
+//   SANGAT RENDAH (raw<63):            win rate 12,8%
+// Monoton naik dan diskriminasinya jauh lebih tajam dari sebelumnya.
+// CATATAN JUJUR: threshold ini fit ke data yang tersedia sekarang
+// (~1 bulan) - perlu dicek ulang begitu next_day_high_3pct_realized
+// terus bertambah, dan idealnya divalidasi out-of-sample (bukan cuma
+// in-sample seperti sekarang).
 export function calculateSessionGainScore({
   signal,
   score,
@@ -146,7 +254,10 @@ export function calculateSessionGainScore({
   volumeSignal,
   volumeRatio,
   gapOutlook,
-  rsLabel
+  rsLabel,
+  breakoutDistancePct,
+  closingStrength,
+  marketRegimeScore
 } = {}) {
   const signalPts = SIGNAL_POINTS[signal] ?? 6;
   const scorePts = scoreBucketPoints(score);
@@ -156,14 +267,21 @@ export function calculateSessionGainScore({
   const gapPts = GAP_OUTLOOK_POINTS[gapOutlook] ?? 8;
   const rsPts = RS_LABEL_POINTS[rsLabel] ?? 8;
   const synergyPts = volumeRsSynergyPoints(volumeSignal, rsLabel);
+  const breakoutDistancePts = breakoutDistancePoints(breakoutDistancePct);
+  const closingStrengthPts = closingStrengthPoints(closingStrength);
+  const marketRegimePts = marketRegimePoints(marketRegimeScore);
+  const oversoldVolumeSynergyPts = oversoldVolumeSynergyPoints(breakoutDistancePct, volumeRatio);
 
-  const total = Math.min(
-    100,
-    signalPts + scorePts + volAccelPts + volSignalPts + volRatioPts + gapPts + rsPts + synergyPts
-  );
+  const total =
+    signalPts + scorePts + volAccelPts + volSignalPts + volRatioPts + gapPts + rsPts + synergyPts +
+    breakoutDistancePts + closingStrengthPts + marketRegimePts + oversoldVolumeSynergyPts;
 
   return {
-    sessionGainScore: total, // 0-100
+    // UPDATE 20 Agustus 2026: BUKAN skala 0-100 lagi (lihat catatan di
+    // atas) - poin mentah, dipakai apa adanya oleh classifySessionGainScore()
+    // di bawah. Kalau UI menampilkan ini sebagai progress bar/persen,
+    // perlu disesuaikan (mis. dibagi 145 atau range aktual terbaru).
+    sessionGainScore: total,
     label: classifySessionGainScore(total),
     breakdown: {
       signalPts,
@@ -173,14 +291,25 @@ export function calculateSessionGainScore({
       volRatioPts,
       gapPts,
       rsPts,
-      synergyPts
+      synergyPts,
+      breakoutDistancePts,
+      closingStrengthPts,
+      marketRegimePts,
+      oversoldVolumeSynergyPts
     }
   };
 }
 
+// UPDATE 20 Agustus 2026 - threshold diganti dari skala lama (40/60/80,
+// asumsi maks 100) ke skala baru (raw, tanpa cap) berdasarkan simulasi
+// thd 8.556 baris scan_history_export_2026-08-20 - lihat catatan di
+// calculateSessionGainScore(). Win rate per bucket: TINGGI 41,1%,
+// SEDANG 27,3%, RENDAH 20,6%, SANGAT RENDAH 12,8% - monoton & jauh
+// lebih tajam dari sebelumnya (dulu TINGGI cuma 34,3% dan berisi ~50%
+// dari semua baris).
 export function classifySessionGainScore(total) {
-  if (total >= 80) return "TINGGI";
-  if (total >= 60) return "SEDANG";
-  if (total >= 40) return "RENDAH";
+  if (total >= 94) return "TINGGI";
+  if (total >= 77) return "SEDANG";
+  if (total >= 63) return "RENDAH";
   return "SANGAT RENDAH";
 }
