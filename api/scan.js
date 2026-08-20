@@ -271,6 +271,13 @@ export default async function handler(req, res) {
           item.stockData.gapCalibration =
             gapCalibrationMap;
 
+          // Ditambahkan 20 Agustus 2026 - supaya sessionGainScore.js
+          // (dipanggil di dalam analyzeStock()) menerima marketRegimeScore
+          // yang sebenarnya, bukan fallback netral 50. marketRegimeScore
+          // sudah dihitung di atas sebelum loop ini.
+          item.stockData.marketRegimeScore =
+            marketRegimeScore;
+
           // ==========================
           // Mesin analisis utama
           // ==========================
