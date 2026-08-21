@@ -145,6 +145,19 @@ input[type="text"], .card-kode{
 .regime-badge.risk-on{background:var(--green-dim);color:var(--green);}
 .regime-badge.risk-off{background:var(--red-dim);color:var(--red);}
 
+.scan-health-banner{
+  display:flex;
+  align-items:center;
+  gap:.5rem;
+  padding:.65rem 1rem;
+  margin:0 0 .75rem 0;
+  background:var(--red-dim);
+  color:var(--red);
+  font-size:.85rem;
+  font-weight:600;
+  border-bottom:1px solid rgba(239,68,68,.35);
+}
+
 .ticker-ihsg{color:var(--text);font-weight:600;}
 .ticker-ihsg .chg.positive{color:var(--green);}
 .ticker-ihsg .chg.negative{color:var(--red);}
