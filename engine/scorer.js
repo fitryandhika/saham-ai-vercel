@@ -1,3 +1,15 @@
+// Kill-switch — ikut pola HIGH_CONVICTION_ENABLED/MACRO_FILTER_ENABLED
+// di api/scan.js. Dimatikan 21 Agustus 2026 setelah re-test terhadap
+// 8.950 baris scan_history_export_2026-08-21 menunjukkan kedua bonus
+// ini TIDAK bertahan (bahkan berkebalikan) terhadap gap_up_realized,
+// metrik asli yang dipakai untuk kalibrasinya — lihat catatan lengkap
+// di calculateScore() di bawah. Flag isReversalCandidate/
+// isCapitulationBounceCandidate TETAP dihitung & dicatat ke
+// scan_history (lewat analyzer.js/api/scan.js) supaya terus bisa
+// dievaluasi; cuma kontribusinya ke `score` yang dimatikan.
+const REVERSAL_BONUS_ENABLED = false;
+const CAPITULATION_BONUS_ENABLED = false;
+
 export function calculateScore(data) {
 
   let score = 50;
@@ -15,16 +27,32 @@ export function calculateScore(data) {
   // profit-taking besok pagi (lihat warning STRONG BUY di warnings.js,
   // yang menemukan skor tertinggi justru underperform). RSI 90+ dianggap
   // paling overextended -> penalti terbesar.
-  if (data.rsi >= 45 && data.rsi <= 65) {
+  //
+  // RE-KALIBRASI (21 Agustus 2026): re-test terhadap 8.950 baris
+  // scan_history_export_2026-08-21 dengan bin 5-poin RSI, di DUA metrik
+  // (next_day_high_3pct_realized & gap_up_realized — target asli scorer
+  // ini) menunjukkan skema lama TERLALU KETAT:
+  //  - RSI 65-70 justru bucket TERBAIK di next_day_high_3pct (35,0%,
+  //    n=940) — tapi kode lama berhenti kasih bonus di RSI<=65, RSI
+  //    65-70 dapat 0.
+  //  - RSI 70-90 masih 30-33% (next_day_high_3pct) & 7,9-8,6%
+  //    (gap_up_realized) — SAMA ATAU LEBIH BAIK dari zona bonus 45-65
+  //    (23-31% / 5,4-7,0%) di kedua metrik — tapi kode lama menghukum
+  //    zona ini -10/-15. Overbought beneran baru kelihatan di RSI>=95
+  //    (next_day_high_3pct anjlok ke 8,9% n=168; gap_up ke 2,2% n=185)
+  //    — RSI 90-95 masih wajar (28,4% / 14,8%).
+  //  - RSI<30 (dulu dikasih bonus +8 dengan asumsi oversold-bounce)
+  //    ternyata UNDERPERFORM zona netral di kedua metrik (18-20% /
+  //    4-7%) — bonusnya dihapus, bukan overfit yang terbukti.
+  //
+  // Bonus zone diperlebar ke 70 (dari 65), penalti cuma tersisa di RSI
+  // ekstrem (>=95 berat, 90-95 ringan), dan bonus RSI<30 dihapus.
+  if (data.rsi >= 45 && data.rsi <= 70) {
     score += 10;
-  } else if (data.rsi >= 90) {
-    score -= 20;
-  } else if (data.rsi >= 80) {
+  } else if (data.rsi >= 95) {
     score -= 15;
-  } else if (data.rsi > 70) {
-    score -= 10;
-  } else if (data.rsi < 30) {
-    score += 8;
+  } else if (data.rsi >= 90) {
+    score -= 4;
   }
 
   // MACD
@@ -94,12 +122,17 @@ export function calculateScore(data) {
   // dan closing strength tidak jelek-jelek amat. Ini kebalikan dari
   // filosofi breakout/momentum yang dominan di scorer ini.
   //
-  // CATATAN JUJUR: sampel dasarnya baru 10 hari/133 kejadian — bonus
-  // ini SENGAJA dibuat kecil (+6, bukan reweight besar) dan flag-nya
-  // (isReversalCandidate) dicatat terpisah ke scan_history lewat
-  // analyzer.js/api/scan.js supaya validitasnya bisa dievaluasi sendiri
-  // dari data nyata, bukan cuma diasumsikan benar dari analisis ini.
-  if (isReversalCandidate(data)) {
+  // KILL-SWITCH (21 Agustus 2026): re-test terhadap 8.950 baris
+  // scan_history_export_2026-08-21 (metrik ASLI yang dipakai untuk
+  // kalibrasi, gap_up_realized) menunjukkan pola ini TIDAK bertahan —
+  // isReversalCandidate=true justru gap_up_realized 3,3% (n=150),
+  // LEBIH RENDAH dari baseline 6,75% (n=8.800). Kebalikan dari temuan
+  // 10-hari/133-kejadian awal yang jadi dasar bonus ini — indikasi
+  // overfit ke sampel kecil. Bonus DIMATIKAN (bukan dihapus flag-nya —
+  // isReversalCandidate tetap dihitung & dicatat ke scan_history lewat
+  // analyzer.js supaya bisa terus dipantau, siap dinyalakan lagi kalau
+  // pola positifnya kembali muncul di data yang lebih besar).
+  if (REVERSAL_BONUS_ENABLED && isReversalCandidate(data)) {
     score += 6;
   }
 
@@ -117,20 +150,16 @@ export function calculateScore(data) {
   // tinggi dari rata-rata (5.46% vs 3.68%) — jadi memang lebih berisiko,
   // bukan sinyal "coiling tenang".
   //
-  // Divalidasi balik ke seluruh dataset (bukan cuma 103 kejadian yang
-  // memunculkan pola ini): rule ini menyala 428 kali dari 5.692 baris,
-  // dengan rata-rata max_gain_from_open_pct 2.45% vs baseline 1.76% di
-  // seluruh data — angkanya modest, BUKAN sinyal kuat, makanya bonusnya
-  // dibuat SETARA ATAU LEBIH KECIL dari reversal biasa (+5, bukan +6),
-  // dan mutually exclusive dengan isReversalCandidate lewat syarat
-  // close vs sma50 yang berkebalikan (tidak pernah menyala bersamaan).
-  //
-  // CATATAN JUJUR: sampel dasar cuma ~3 minggu data. Flag-nya
-  // (isCapitulationBounceCandidate) dicatat terpisah ke scan_history
-  // lewat analyzer.js/api/scan.js supaya bisa dievaluasi sendiri dari
-  // next_day_return_pct & max_gain_from_open_pct sesungguhnya seiring
-  // data bertambah — jangan diperbesar bobotnya sebelum tervalidasi.
-  if (isCapitulationBounceCandidate(data)) {
+  // KILL-SWITCH (21 Agustus 2026): re-test thd 8.950 baris terbaru
+  // (gap_up_realized, metrik asli): 3,8% (n=104) vs baseline 6,7% —
+  // juga lebih rendah. Terhadap next_day_close_2pct_realized (target
+  // yang lebih longgar, sample close-labeled n=8.942): 20,2% vs
+  // baseline 17,8% — di sini sedikit LEBIH BAIK, jadi hasilnya
+  // campur/tidak konsisten antar metrik. Karena tidak konsisten dan
+  // sampel dasarnya masih ~3 minggu, bonus DIMATIKAN dulu (flag tetap
+  // dicatat penuh untuk terus dievaluasi) — sama seperti reversal di
+  // atas, jangan diperbesar bobotnya sebelum tervalidasi jelas.
+  if (CAPITULATION_BONUS_ENABLED && isCapitulationBounceCandidate(data)) {
     score += 5;
   }
 
