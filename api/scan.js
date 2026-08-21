@@ -348,10 +348,14 @@ export default async function handler(req, res) {
     // Scan date
     // ==========================
 
-    const scanDate =
-      new Date()
-        .toISOString()
-        .slice(0, 10);
+    // FIX (21 Agustus 2026): dulu pakai new Date().toISOString().slice(0,10)
+    // yaitu tanggal UTC, bukan WIB — tidak konsisten dengan todayWIB() yang
+    // dipakai guard hari bursa di atas. Kebetulan aman untuk jam cron saat
+    // ini (16:30 WIB = masih tanggal UTC yang sama), TAPI kalau endpoint
+    // dipanggil manual larut malam WIB (sesudah 00:00 WIB tapi sebelum
+    // 07:00 WIB, saat UTC masih di tanggal sebelumnya) baris akan tersimpan
+    // dengan scan_date yang salah (mundur 1 hari). Disamakan ke todayWIB().
+    const scanDate = today;
 
     // ==========================
     // Snapshot rows
