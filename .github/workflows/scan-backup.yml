@@ -1,0 +1,23 @@
+name: Backup daily scan trigger
+
+on:
+  schedule:
+    - cron: "40 9 * * 1-5"
+  workflow_dispatch: {}
+
+jobs:
+  trigger-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/scan
+        run: |
+          echo "Memanggil /api/scan di $(date -u)..."
+          response=$(curl -s -w "\n%{http_code}" "https://saham-ai-vercel-six.vercel.app/api/scan")
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+          echo "HTTP status: $http_code"
+          echo "Response: $body"
+          if [ "$http_code" -ge 400 ]; then
+            echo "::error::Scan gagal dengan HTTP $http_code"
+            exit 1
+          fi
