@@ -381,7 +381,6 @@ export default async function handler(req, res) {
           score: d.score,
           signal: d.signal,
           entry: d.entry,
-          entryTimingConflict: d.entryTimingConflict,
 
           rsi: d.rsi,
 
@@ -635,6 +634,22 @@ export default async function handler(req, res) {
           // engine/nextDayOpportunity.js). entry_timing_conflict
           // menandai kapan TIMING TEKNIKAL bilang AVOID tapi Next-Day
           // Opportunity tetap eligible untuk saham & waktu yang sama.
+          //
+          // BUG FIX (21 Agustus 2026): dulu field ini SEMPAT juga
+          // dikirim dengan key camelCase salah ("entryTimingConflict")
+          // di bagian atas object ini (dekat "entry:") — nama kolom itu
+          // TIDAK ADA di skema Supabase, dan karena insert Supabase
+          // bersifat all-or-nothing per batch, SATU key salah ini bikin
+          // SELURUH insert scan hari itu gagal (PGRST204 "Could not
+          // find the entryTimingConflict column"), walau response
+          // /api/scan tetap 200 OK — ini akar penyebab tabel Riwayat
+          // kosong di 08/20 & 08/21 meski cron sudah jalan. Sudah
+          // dihapus; SATU-SATUNYA key yang valid untuk field ini adalah
+          // entry_timing_conflict (snake_case) di bawah ini. Kalau
+          // nambah kolom baru lagi, JANGAN duplikat mapping manual di
+          // sini — pindahkan snapshotRows ke buildSnapshotRow() di
+          // services/snapshotBuilder.js (comment di file itu sudah
+          // dibuat untuk mencegah masalah persis ini terulang).
           daily_change_pct:
             safeNumber(d.dailyChangePercent),
 
