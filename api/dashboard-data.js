@@ -13,6 +13,48 @@
 
 import { getRecentMacroSnapshots } from "../services/macroDataService.js";
 import { fetchMarketNews } from "../services/marketNewsService.js";
+import { getScannedKodeForDate } from "../services/dataLogService.js";
+import { todayWIB, lastTradingDay, isTradingDay } from "../config/tradingCalendar.js";
+
+// ----------------------------------------------------------
+// type=scanhealth — cek apakah scan harian sudah jalan
+// ----------------------------------------------------------
+// Ditambahkan 21 Agustus 2026 setelah insiden scan tanggal 20 Agustus
+// kosong (cron gagal/tidak jalan, baru ketahuan sehari kemudian lewat
+// Riwayat AI). Endpoint ini mengecek hari bursa TERAKHIR (bisa hari ini
+// kalau sudah lewat jam scan, atau hari bursa sebelumnya kalau belum)
+// dan memberi tahu FE kalau baris scan_history untuk tanggal itu masih
+// kosong, supaya dashboard bisa tampilkan peringatan HARI ITU JUGA,
+// bukan ketauan pas cek Riwayat besoknya.
+async function handleScanHealth(req, res) {
+  const today = todayWIB();
+  const checkDate = isTradingDay(today) ? today : lastTradingDay(today);
+
+  const kodeList = await getScannedKodeForDate(checkDate);
+  const count = kodeList.length;
+
+  // Jam scan cron dijadwalkan 16:30 WIB (30 9 * * 1-5). Vercel Hobby
+  // cron cuma dijamin jalan dalam JAM yang dijadwalkan (bisa kapan saja
+  // 16:00-16:59 WIB), jadi baru dianggap "telat/gagal" setelah 17:00 WIB.
+  const nowWibHour = Number(
+    new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(11, 13)
+  );
+  const pastScanWindow = checkDate === today ? nowWibHour >= 17 : true;
+
+  return res.status(200).json({
+    success: true,
+    view: "scanhealth",
+    data: {
+      checkDate,
+      scannedCount: count,
+      ok: count > 0,
+      pastScanWindow,
+      // FE sebaiknya cuma tampilkan banner peringatan kalau ok=false DAN
+      // pastScanWindow=true (supaya tidak false-alarm sebelum jam 17:00 WIB).
+      warning: count === 0 && pastScanWindow
+    }
+  });
+}
 
 // ----------------------------------------------------------
 // type=ihsg — grafik IHSG
@@ -250,10 +292,11 @@ export default async function handler(req, res) {
     if (type === "asia") return await handleAsiaMarkets(req, res);
     if (type === "flow") return await handleForeignFlow(req, res);
     if (type === "news") return await handleMarketNews(req, res);
+    if (type === "scanhealth") return await handleScanHealth(req, res);
 
     return res.status(400).json({
       success: false,
-      message: "Parameter ?type= wajib diisi salah satu: ihsg, asia, flow, news."
+      message: "Parameter ?type= wajib diisi salah satu: ihsg, asia, flow, news, scanhealth."
     });
   } catch (error) {
     console.error(error);
