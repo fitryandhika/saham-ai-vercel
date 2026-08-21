@@ -71,3 +71,18 @@ export function nonTradingDayReason(dateStr = todayWIB()) {
   if (ALL_HOLIDAYS.has(dateStr)) return "libur_bursa";
   return null;
 }
+
+// Hari bursa TERAKHIR yang <= tanggal yang diberikan (default hari ini
+// WIB). Dipakai untuk cek kesehatan scan harian: "apakah hari bursa
+// terakhir sudah punya baris scan_history", tanpa perlu tahu persis
+// kalender liburnya di sisi caller. Mundur maksimal 14 hari untuk
+// jaga-jaga (long weekend/libur beruntun) lalu berhenti.
+export function lastTradingDay(dateStr = todayWIB()) {
+  let d = new Date(`${dateStr}T00:00:00Z`);
+  for (let i = 0; i < 14; i++) {
+    const candidate = d.toISOString().slice(0, 10);
+    if (isTradingDay(candidate)) return candidate;
+    d = new Date(d.getTime() - 24 * 60 * 60 * 1000);
+  }
+  return dateStr;
+}
