@@ -4,27 +4,37 @@
 //
 // DATA POLICY
 //
-// DAILY / HISTORICAL OHLCV
-//   1. Yahoo Finance = historical daily source
-//   2. IDX Official   = optional replacement for latest daily candle
+// DAILY / HISTORICAL OHLCV (6 bulan ke belakang, buat SMA/RSI/dst)
+//   1. Yahoo Finance = SATU-SATUNYA sumber histori panjang
 //
-// REALTIME / INTRADAY TODAY
-//   1. ZAPI Stockbit  = PRIORITY
+// CANDLE TERBARU / HARI INI (prioritas, dari tinggi ke rendah)
+//   1. ZAPI Stockbit  = PRIORITAS UTAMA (ditambahkan 21 Agustus 2026
+//                        — Yahoo resmi delay 10 menit utk .JK, lihat
+//                        catatan lengkap di getZapiOfficialLatestCandle())
+//   2. IDX Official   = fallback kalau ZAPI gagal/tidak lengkap
+//   3. Yahoo (delayed)= fallback terakhir, tetap dipakai walau delay
+//                        10 menit, drpd tidak ada data sama sekali
+//
+// REALTIME / INTRADAY PEAK TRACKING (buat next-day opportunity, BEDA
+// dari candle terbaru di atas)
+//   1. ZAPI Stockbit  = PRIORITAS
 //   2. Yahoo 15m      = FALLBACK
 //
-// IMPORTANT:
-// zapiService.js yang tersedia saat ini hanya menyediakan
-// getZapiIntradayPeakToday(). Itu hanya peak intraday, bukan OHLCV.
-//
-// Karena itu ZAPI TIDAK boleh dipaksa menjadi sumber daily OHLCV.
-// Memaksa peak menjadi OHLC akan menghasilkan data palsu.
+// CATATAN:
+// getZapiDailyCandle() (dipakai utk "candle terbaru" di atas) BEDA
+// fungsi dari getZapiIntradayPeakToday() (dipakai utk peak tracking).
+// Yang pertama satu-tanggal-satu-saham (summary), yang kedua tick-
+// by-tick. Histori 6 bulan TETAP Yahoo — shape API ZAPI daily tidak
+// efisien dipanggil 120+ hari x 397 saham (lihat komentar di
+// getYahooDailyCandles di bawah).
 //
 // ==========================
 
 import { getOfficialTodayData } from "./idxService.js";
 
 import {
-  getZapiIntradayPeakToday
+  getZapiIntradayPeakToday,
+  getZapiDailyCandle
 } from "./zapiService.js";
 
 import {
@@ -290,6 +300,9 @@ function sourcePriority(source) {
 
   switch (source) {
 
+    case "ZAPI_IDX_DAILY":
+      return 3;
+
     case "IDX_OFFICIAL":
       return 2;
 
@@ -541,6 +554,98 @@ async function getYahooDailyCandles(
 
 
 // ============================================================
+// ZAPI LATEST CANDLE (real-time hari berjalan)
+// ============================================================
+//
+// Ditambahkan 21 Agustus 2026. Yahoo secara RESMI melabeli data
+// .JK (IDX) sebagai "Delayed Quote" dengan delay 10 menit (sumber:
+// help.yahoo.com/kb/finance/SLN2310.html, provider ICE Data
+// Services) — untuk analisa jam 15:30 WIB (menjelang closing
+// auction, periode paling menentukan buat strategi beli-sore),
+// delay 10 menit itu bisa bikin harga & indikator yang dipakai
+// sudah ketinggalan momen penting.
+//
+// ZAPI (Stockbit) dipakai sebagai PRIORITAS UTAMA untuk candle
+// HARI INI SAJA — bukan pengganti histori 6 bulan (lihat komentar
+// DATA POLICY di atas soal kenapa ZAPI tidak dipakai untuk histori
+// panjang: shape API-nya satu-tanggal-satu-saham, tidak efisien
+// untuk 120+ hari x 397 saham). Prioritas akhir di sourcePriority():
+// ZAPI_IDX_DAILY (3) > IDX_OFFICIAL (2) > YAHOO (1) — jadi kalau
+// ZAPI gagal/tidak lengkap, otomatis jatuh ke IDX Official, lalu ke
+// Yahoo (delayed) sebagai lapisan terakhir. Sama seperti
+// getIdxOfficialLatestCandle(), fungsi ini SELALU aman — kalau
+// gagal apapun sebabnya, return null dan caller fallback ke sumber
+// di bawahnya, tidak pernah melempar error ke atas.
+//
+// CATATAN JUJUR: getZapiDailyCandle() memanggil endpoint
+// "stock-summary" ZAPI. Saya (dari kode) tidak bisa memverifikasi
+// apakah endpoint ini benar-benar ter-update live sepanjang jam
+// bursa, atau cuma snapshot yang di-refresh berkala oleh provider-
+// nya — itu perilaku sisi Stockbit/ZAPI yang cuma bisa dikonfirmasi
+// dengan tes langsung saat market buka (misal jam 15:30 WIB,
+// bandingkan angkanya dengan running trade/RTI di aplikasi
+// sekuritas). Kalau ternyata tidak se-real-time yang diharapkan,
+// gunakan getZapiIntradayPeakToday()/realtimeIntradayService.js
+// (Tahap 1 — sudah pasti live, dipakai untuk peak tracking) sebagai
+// sumber alternatif untuk field `close` saja.
+// ============================================================
+
+async function getZapiOfficialLatestCandle(
+  kode
+) {
+
+  try {
+
+    const zapi =
+      await Promise.race([
+
+        getZapiDailyCandle(
+          kode,
+          todayWIB()
+        ),
+
+        new Promise(
+          (_, reject) =>
+            setTimeout(
+              () =>
+                reject(
+                  new Error(
+                    "ZAPI timeout"
+                  )
+                ),
+              ZAPI_TIMEOUT_MS
+            )
+        )
+
+      ]);
+
+
+    if (!zapi) {
+
+      return null;
+
+    }
+
+
+    return normalizeCandle(zapi);
+
+
+  } catch (e) {
+
+    console.error(
+      `ZAPI daily latest ${kode} gagal:`,
+      e?.message ||
+      String(e)
+    );
+
+    return null;
+
+  }
+
+}
+
+
+// ============================================================
 // IDX OFFICIAL LATEST CANDLE
 // ============================================================
 //
@@ -641,10 +746,9 @@ async function getIdxOfficialLatestCandle(
 //   latestDate
 //
 // DAILY SOURCE:
-//   Yahoo historical
-//   + IDX latest jika tersedia
-//
-// ZAPI TIDAK dicampurkan ke candles daily.
+//   Yahoo historical (histori panjang)
+//   + ZAPI/IDX latest jika tersedia (candle terbaru, lihat DATA
+//     POLICY di atas file — urutan prioritas ZAPI > IDX > Yahoo)
 //
 // ============================================================
 
@@ -704,6 +808,31 @@ export async function getStockData(
 
 
   // ==========================================================
+  // ZAPI LATEST (real-time, prioritas utama)
+  // ==========================================================
+
+  let zapiCandle = null;
+
+
+  if (
+    [
+      "1mo",
+      "3mo",
+      "6mo",
+      "1y",
+      "max"
+    ].includes(range)
+  ) {
+
+    zapiCandle =
+      await getZapiOfficialLatestCandle(
+        normalizedKode
+      );
+
+  }
+
+
+  // ==========================================================
   // IDX LATEST
   // ==========================================================
 
@@ -731,6 +860,11 @@ export async function getStockData(
   // ==========================================================
   // MERGE
   // ==========================================================
+  //
+  // Prioritas (lihat sourcePriority()): ZAPI_IDX_DAILY > IDX_OFFICIAL
+  // > YAHOO. mergeCandles menangani ini otomatis per tanggal — kalau
+  // ZAPI & IDX sama-sama gagal untuk hari ini, candle Yahoo (delayed
+  // 10 menit) yang tetap dipakai, bukan error.
 
   const candles =
     mergeCandles(
@@ -739,6 +873,10 @@ export async function getStockData(
 
       idxCandle
         ? [idxCandle]
+        : [],
+
+      zapiCandle
+        ? [zapiCandle]
         : []
 
     );
