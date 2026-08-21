@@ -141,8 +141,27 @@ export function classifyMarketRegime(snapshots = []) {
 // FILTER/KONTEKS, bukan penentu utama; strategi beli-sore-jual-pagi
 // tetap didominasi price action per saham (lihat komentar serupa di
 // analyzer.js soal bobot fundamental 20%).
+//
+// KILL-SWITCH (21 Agustus 2026): re-test terhadap 8.950 baris
+// scan_history_export_2026-08-21 (gap_up_realized, metrik yang sama
+// dipakai untuk evaluasi score_adjusted) menunjukkan arah adjustment
+// ini TERBALIK dari data aktual — RISK_ON dapat bonus +skor di sini,
+// tapi win rate RISK_ON (6,0%, n=2.742) justru LEBIH RENDAH dari
+// NEUTRAL (7,2%, n=2.210) yang tidak dapat bonus. Sample RISK_OFF
+// masih terlalu kecil di window ini untuk ikut divalidasi, jadi bukan
+// berarti sisi RISK_OFF (-8) pasti juga salah arah — cuma belum bisa
+// dikonfirmasi. Karena MACRO_FILTER_ENABLED di api/scan.js sudah
+// false (score_adjusted memang tidak dipakai untuk ranking utama),
+// adjustment di bawah ini DIMATIKAN sepenuhnya dulu (return score
+// asli tanpa perubahan) sampai polanya tervalidasi ulang dengan data
+// lebih besar & mencakup periode RISK_OFF yang cukup — regimeScore &
+// regime label tetap dihitung penuh dan dicatat ke scan_history untuk
+// terus dipantau.
+const REGIME_SCORE_ADJUSTMENT_ENABLED = false;
+
 export function applyRegimeAdjustment(score, regimeScore) {
   if (typeof score !== "number" || typeof regimeScore !== "number") return score;
+  if (!REGIME_SCORE_ADJUSTMENT_ENABLED) return score;
 
   // regimeScore 50 = netral (adjustment 0), 100 = risk-on penuh (+8),
   // 0 = risk-off penuh (-8).
