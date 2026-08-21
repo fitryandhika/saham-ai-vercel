@@ -157,6 +157,13 @@ export function calculateNextDayOpportunity({
   const rsLabel = String(relativeStrength?.label ?? "TIDAK TERSEDIA");
   const trend = String(marketTrend ?? "TIDAK TERSEDIA").toUpperCase();
 
+  // Dipakai di beberapa blok di bawah (Closing Strength, Resistance
+  // Distance, hard-eligibility) — breakout yang SUDAH confirmed (tembus
+  // + volume >=1.5x) dievaluasi dengan aturan longgar tersendiri, tidak
+  // digabung dengan kasus pre-breakout/extended biasa. Lihat catatan
+  // RE-KALIBRASI 21 Agustus 2026 di masing-masing blok.
+  const isConfirmedBreakout = Boolean(breakout?.isBreakout);
+
   // ------------------------------------------------------------
   // 1. PRICE / MARKET STRUCTURE
   // ------------------------------------------------------------
@@ -176,9 +183,45 @@ export function calculateNextDayOpportunity({
   // 2. CLOSING STRENGTH
   // Sangat penting untuk strategi beli sore:
   // volume besar tetapi close lemah = supply masih dominan.
+  //
+  // RE-KALIBRASI (21 Agustus 2026, atas instruksi user): untuk CONFIRMED
+  // BREAKOUT (tembus resistance + volume >=1.5x), closing strength lemah
+  // TIDAK LAGI dianggap diskualifikasi breakout continuation — dikasih
+  // skala sendiri yang lebih longgar, TANPA blocker, walau CS-nya sangat
+  // lemah. Rasional: breakout yang sudah terkonfirmasi oleh volume itu
+  // sendiri sinyal kuat; closing strength cuma pembeda KUALITAS, bukan
+  // syarat lolos/tidak. Skala umum (non-breakout) di bawah TIDAK diubah.
   // ------------------------------------------------------------
   if (Number.isFinite(cs)) {
-    if (cs >= 0.75) {
+    if (isConfirmedBreakout) {
+      // RE-KALIBRASI KEDUA (21 Agustus 2026): re-test skala -3..+6 di atas
+      // terhadap scan_history_export_2026-08-21 (n=331 confirmed breakout,
+      // dipecah per bucket CS) menunjukkan arahnya JUSTRU TERBALIK — CS
+      // lemah (<0,45) malah win rate TERTINGGI (51,4%, n=35), bukan
+      // terendah. TAPI sample kecil & tidak monoton (naik-turun antar
+      // bucket), jadi TIDAK dibalik arahnya (berisiko overfit sampel
+      // kecil, sama seperti kasus reversal_candidate) — cuma dipersempit
+      // jadi -1..+3 supaya CS tidak terlalu menentukan pada confirmed
+      // breakout sampai data lebih banyak terkumpul untuk memastikan arah
+      // yang benar. Tetap TANPA blocker.
+      if (cs >= 0.75) {
+        opportunityScore += 3;
+        addBreakdown(breakdown, "CONFIRMED_BREAKOUT_VERY_STRONG_CLOSING", 3);
+      } else if (cs >= 0.65) {
+        opportunityScore += 2;
+        addBreakdown(breakdown, "CONFIRMED_BREAKOUT_STRONG_CLOSING", 2);
+      } else if (cs >= 0.55) {
+        opportunityScore += 1;
+        addBreakdown(breakdown, "CONFIRMED_BREAKOUT_ACCEPTABLE_CLOSING", 1);
+      } else if (cs >= 0.45) {
+        addBreakdown(breakdown, "CONFIRMED_BREAKOUT_NEUTRAL_CLOSING", 0);
+      } else {
+        opportunityScore -= 1;
+        addBreakdown(breakdown, "CONFIRMED_BREAKOUT_WEAK_CLOSING", -1);
+        // SENGAJA tidak ada blockers.push() di sini — CS lemah pada
+        // confirmed breakout cuma mengurangi poin, tidak mendiskualifikasi.
+      }
+    } else if (cs >= 0.75) {
       opportunityScore += 12;
       addBreakdown(breakdown, "VERY_STRONG_CLOSING", 12);
     } else if (cs >= 0.65) {
@@ -250,38 +293,61 @@ export function calculateNextDayOpportunity({
   // ------------------------------------------------------------
   // 5. RESISTANCE DISTANCE
   //
-  // Sweet spot:
-  //   -12% s/d -3%  = masih punya ruang, tapi tidak "terlalu jauh".
+  // RE-KALIBRASI (21 Agustus 2026, atas instruksi user, berdasar re-test
+  // ke scan_history_export_2026-08-21, 8.950 baris):
+  //   -20% s/d -12%  -> +6   (sebelumnya +2)
+  //   -12% s/d -3%   -> +1   (sebelumnya +10 — sweet spot lama terlalu
+  //                           tinggi dibanding data)
+  //   -3% s/d 0%     -> -3   (sebelumnya +5 — ini titik TERLEMAH di
+  //                           data, 16,8% win rate, dulu malah dikasih
+  //                           bonus positif)
+  //   0% s/d +8%     -> +8   (sebelumnya +3, breakout naik jadi +8 flat)
+  //   > +8%          -> -6 + blocker, tetap (extended TANPA konfirmasi
+  //                           volume breakout = masih dicurigai)
+  //   < -20%         -> -15 + blocker, TIDAK DIUBAH (di luar cakupan
+  //                           instruksi user — guard DMMX -26.7% masih
+  //                           berlaku, lihat catatan lama di bawah)
   //
-  // > -20% = terlalu jauh dari resistance untuk disebut pre-breakout.
-  // Ini sengaja dibuat hard blocker agar kasus seperti DMMX (-26.7%)
-  // tidak lagi diberi label pre-breakout accumulation.
+  // CONFIRMED BREAKOUT (isConfirmedBreakout) TIDAK memakai tier jarak di
+  // atas sama sekali — begitu breakout sudah terkonfirmasi (tembus +
+  // volume >=1.5x), kualitasnya dinilai lewat closing strength (blok
+  // CONFIRMED_BREAKOUT_* di atas), bukan seberapa jauh dari resistance.
+  //
+  // > -20% (tanpa breakout confirmed) = terlalu jauh dari resistance
+  // untuk disebut pre-breakout. Ini sengaja dibuat hard blocker agar
+  // kasus seperti DMMX (-26.7%) tidak lagi diberi label pre-breakout
+  // accumulation.
   // ------------------------------------------------------------
   let preBreakout = false;
 
-  if (distancePercent >= -12 && distancePercent <= -3) {
-    opportunityScore += 10;
-    addBreakdown(breakdown, "PRE_BREAKOUT_ZONE", 10);
-    preBreakout = !breakout?.isBreakout;
-  } else if (distancePercent > -3 && distancePercent < 0) {
-    opportunityScore += 5;
-    addBreakdown(breakdown, "NEAR_RESISTANCE", 5);
-  } else if (distancePercent >= 0 && distancePercent <= 8) {
-    opportunityScore += breakout?.isBreakout ? 8 : 3;
+  if (isConfirmedBreakout) {
     addBreakdown(
       breakdown,
-      breakout?.isBreakout ? "CONFIRMED_BREAKOUT_ZONE" : "ABOVE_RESISTANCE_ZONE",
-      breakout?.isBreakout ? 8 : 3
+      "CONFIRMED_BREAKOUT_ZONE",
+      0,
+      `${distancePercent}% di atas resistance — dinilai lewat closing strength, bukan tier jarak`
     );
-  } else if (distancePercent < -12 && distancePercent >= -20) {
-    opportunityScore += 2;
-    addBreakdown(breakdown, "FAR_FROM_RESISTANCE", 2);
+  } else if (distancePercent >= -20 && distancePercent < -12) {
+    opportunityScore += 6;
+    addBreakdown(breakdown, "FAR_FROM_RESISTANCE", 6);
+  } else if (distancePercent >= -12 && distancePercent <= -3) {
+    opportunityScore += 1;
+    addBreakdown(breakdown, "PRE_BREAKOUT_ZONE", 1);
+    preBreakout = true;
+  } else if (distancePercent > -3 && distancePercent < 0) {
+    opportunityScore -= 3;
+    addBreakdown(breakdown, "NEAR_RESISTANCE", -3);
+  } else if (distancePercent >= 0 && distancePercent <= 8) {
+    opportunityScore += 8;
+    addBreakdown(breakdown, "ABOVE_RESISTANCE_ZONE", 8);
   } else if (distancePercent < -20) {
     opportunityScore -= 15;
     addBreakdown(breakdown, "TOO_FAR_FROM_RESISTANCE", -15);
     blockers.push("Terlalu jauh dari resistance untuk dianggap pre-breakout");
   } else {
-    // >8% di atas resistance: sudah extended.
+    // >8% di atas resistance TANPA breakout confirmed: sudah extended,
+    // masih dicurigai (beda dengan >8% YANG confirmed, lihat cabang
+    // isConfirmedBreakout di atas).
     opportunityScore -= 6;
     addBreakdown(breakdown, "EXTENDED_ABOVE_RESISTANCE", -6);
     blockers.push("Harga sudah terlalu jauh di atas resistance");
@@ -439,7 +505,12 @@ export function calculateNextDayOpportunity({
     addBreakdown(breakdown, "ILLIQUID_GUARD", -100);
   }
 
-  if (!Number.isFinite(cs) || cs < 0.55) {
+  // RE-KALIBRASI (21 Agustus 2026, atas instruksi user): confirmed
+  // breakout DIKECUALIKAN dari blocker CS & slope di bawah — alasannya
+  // sama seperti blok CLOSING STRENGTH di atas: CONFIRMED BREAKOUT +
+  // volume kuat + CS/slope lemah tetap dianggap continuation yang valid
+  // (dinilai lewat poin, bukan diblokir).
+  if ((!Number.isFinite(cs) || cs < 0.55) && !isConfirmedBreakout) {
     if (!blockers.includes("Closing strength lemah") &&
         !blockers.includes("Closing strength sangat lemah") &&
         !blockers.includes("Closing strength tidak tersedia")) {
@@ -447,7 +518,7 @@ export function calculateNextDayOpportunity({
     }
   }
 
-  if (slopePercent < 10) {
+  if (slopePercent < 10 && !isConfirmedBreakout) {
     blockers.push("Volume acceleration belum cukup");
   }
 
@@ -455,18 +526,23 @@ export function calculateNextDayOpportunity({
     blockers.push("Volume ratio belum cukup");
   }
 
+  // Ambang slopePercent PRE_BREAKOUT diturunkan 25 -> 20 (atas instruksi
+  // user, "acceleration >=20/25" — dipilih 20 supaya konsisten dengan
+  // VOLUME_CONTINUATION di bawah; kabari kalau maksudnya tetap 25).
   const validPreBreakout =
     preBreakout &&
-    slopePercent >= 25 &&
+    slopePercent >= 20 &&
     volumeRatio >= 1.5 &&
     Number.isFinite(cs) &&
     cs >= 0.55;
 
+  // CONFIRMED_BREAKOUT (atas instruksi user): cukup volume ratio>=1.5 +
+  // breakout confirmed. TIDAK ADA syarat slopePercent atau cs — closing
+  // strength & volume acceleration dinilai sebagai POIN di blok scoring
+  // di atas, bukan syarat lolos/tidak di sini.
   const validBreakout =
-    Boolean(breakout?.isBreakout) &&
-    volumeRatio >= 1.5 &&
-    Number.isFinite(cs) &&
-    cs >= 0.55;
+    isConfirmedBreakout &&
+    volumeRatio >= 1.5;
 
   const validContinuation =
     distancePercent >= -3 &&
