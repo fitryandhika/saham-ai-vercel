@@ -85,21 +85,46 @@
 // per quintile/bucket dari analisa tsb (bukan linear), supaya nilai
 // poin merefleksikan bentuk kurva aslinya (mis. breakout_distance_pct
 // punya titik terlemah di -5%..-2%, BUKAN di ujung positif).
+// RE-KALIBRASI (21 Agustus 2026): re-test terhadap 8.950 baris
+// scan_history_export_2026-08-21 dengan bin 3% (bukan cuma 5 titik
+// kasar seperti sebelumnya) menunjukkan pola sebenarnya BUKAN "makin
+// negatif makin bagus lalu datar" — tapi bentuk U: pullback dalam
+// bagus, dekat resistance dari bawah paling jelek, TAPI begitu sudah
+// TEMBUS resistance (distancePct POSITIF) win rate naik lagi dengan
+// kuat & hampir monoton: (0,3]=31,0% n=252, (3,6]=39,4% n=104,
+// (6,9]=51,2% n=41, (9,12]=65,0% n=20. Skema lama menyamaratakan
+// SEMUA distancePct>-2 (termasuk breakout +12%) jadi 4 poin flat —
+// justru menghukum saham yang JELAS-JELAS sudah breakout kuat
+// sama seperti yang baru mepet resistance & belum tembus. Ini
+// persis kasus scoring kelewat ketat yang bikin emiten berpotensi
+// naik tinggi malah dibuang.
 function breakoutDistancePoints(distancePct) {
   if (typeof distancePct !== "number" || Number.isNaN(distancePct)) return 6; // fallback netral
-  if (distancePct <= -14) return 15; // oversold dalam - win rate tertinggi (39,2%)
-  if (distancePct <= -8) return 10;
-  if (distancePct <= -5) return 6;
-  if (distancePct <= -2) return 2; // titik terlemah: dekat resistance, belum tembus (19,5%)
-  return 4; // dekat/di atas breakout level
+  if (distancePct <= -15) return 14; // pullback dalam - 38-49%
+  if (distancePct <= -9) return 11; // 29-38%
+  if (distancePct <= -6) return 8; // 29,3%
+  if (distancePct <= -3) return 4; // 21,2%
+  if (distancePct <= 0) return 2; // titik terlemah: mepet resistance, belum tembus (16,8%)
+  if (distancePct <= 3) return 7; // baru tembus - 31,0%
+  if (distancePct <= 6) return 11; // 39,4%
+  return 15; // breakout terkonfirmasi jauh - 51-65% (n kecil di ekor, jangan lebih tinggi dari cap lain)
 }
 
+// RE-KALIBRASI (21 Agustus 2026): re-test bin 0.1 terhadap 8.950 baris
+// scan_history_export_2026-08-21 — dua ujungnya (sangat lemah vs
+// sangat kuat) tetap konsisten dengan skema lama, TAPI zona tengah
+// (0.4-1.0) ternyata TIDAK monoton turun seperti diasumsikan — 0.4-0.5
+// (23,0%) justru sedikit LEBIH JELEK dari 0.8-1.0 (24,4-25,4%), lalu
+// naik lagi di 0.5-0.6 (27,2%) dan 0.7-0.8 (29,0%) — noise, bukan tren.
+// Skema lama membedakan "0.4-0.8" (6 poin) vs ">0.8" (4 poin) padahal
+// datanya tidak mendukung pembedaan itu. Disederhanakan jadi 1 pita
+// netral supaya tidak menghukum saham closing_strength tinggi lebih
+// keras dari yang datanya benarkan.
 function closingStrengthPoints(closingStrength) {
   if (typeof closingStrength !== "number" || Number.isNaN(closingStrength)) return 8; // fallback netral
-  if (closingStrength <= 0.2) return 15; // close lemah - win rate tertinggi (34,0%)
-  if (closingStrength <= 0.4) return 10;
-  if (closingStrength <= 0.8) return 6;
-  return 4; // close kuat, dekat high harian - win rate terendah (25,0%)
+  if (closingStrength <= 0.2) return 15; // close lemah - 39-44%
+  if (closingStrength <= 0.4) return 11; // 29-34%
+  return 5; // 0.4-1.0 flat/noisy (23-29%), tidak monoton — 1 pita netral
 }
 
 function marketRegimePoints(marketRegimeScore) {
