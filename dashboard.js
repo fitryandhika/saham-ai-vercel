@@ -113,6 +113,36 @@ async function loadRegimeBadge() {
 loadRegimeBadge();
 
 // ==========================
+// Scan health banner
+// ==========================
+// Ditambahkan 21 Agustus 2026 setelah insiden scan 20 Agustus kosong
+// (baru ketahuan sehari kemudian lewat Riwayat AI). Cek /api/dashboard-data
+// ?type=scanhealth setiap buka Dashboard, tampilkan banner merah kalau
+// scan hari bursa terakhir masih 0 baris sesudah jam 17:00 WIB.
+async function loadScanHealth() {
+  const el = document.getElementById("scanHealthBanner");
+  if (!el) return;
+
+  try {
+    const res = await fetch("/api/dashboard-data?type=scanhealth");
+    const json = await res.json();
+    if (!json.success) return;
+
+    const { checkDate, warning } = json.data;
+    if (warning) {
+      el.style.display = "flex";
+      el.innerHTML = `⚠️ Scan untuk ${checkDate} belum ada datanya — cron kemungkinan gagal/belum jalan. Cek log Vercel atau jalankan <code>/api/scan?force=true</code> manual.`;
+    } else {
+      el.style.display = "none";
+    }
+  } catch (e) {
+    // Best-effort — jangan ganggu dashboard kalau cek ini sendiri gagal.
+  }
+}
+
+loadScanHealth();
+
+// ==========================
 // Helpers
 // ==========================
 
