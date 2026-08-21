@@ -761,18 +761,33 @@ async function batchScanSemua() {
       return;
     }
 
+    // UPDATE 21 Agustus 2026 — respons ke laporan user: 6 kode HIGH di
+    // ringkasan (renderNextDaySummary) susah dicari di daftar, karena
+    // urutan lama pakai decisionRank (BUY_NOW/WAIT_PULLBACK/WATCH/AVOID)
+    // sebagai kunci utama. Itu artinya kode ber-label HIGH tapi
+    // entryDecision-nya WAIT_PULLBACK/WATCH (harga sudah naik duluan,
+    // chase risk tinggi — lihat catatan "Opportunity vs Entry Quality"
+    // di engine/nextDayOpportunity.js) malah TENGGELAM di bawah kode
+    // MODERATE/LOW yang kebetulan entryDecision-nya BUY_NOW.
+    //
+    // Sekarang diurutkan dari opportunity SCORE tertinggi ke terendah
+    // dulu (ini yang bikin label HIGH/MODERATE/LOW), baru decisionRank
+    // & base score dipakai cuma sebagai tie-breaker kalau skornya sama
+    // persis. Jadi 6 kode HIGH akan selalu tampil paling atas, sesuai
+    // urutan yang diminta user — Entry Quality/Chase Risk tetap terlihat
+    // di tiap card, cuma bukan lagi kunci urutan utama.
     const rankedForNextDay = [...json.data].sort((a, b) => {
       const aN = getNextDayOpportunityMeta(a);
       const bN = getNextDayOpportunityMeta(b);
-      const decisionRank = { BUY_NOW: 4, WAIT_PULLBACK: 3, WATCH: 2, AVOID: 1, NO_SETUP: 0 };
-
-      const aRank = decisionRank[aN.entryDecision] ?? 0;
-      const bRank = decisionRank[bN.entryDecision] ?? 0;
-      if (aRank !== bRank) return bRank - aRank;
 
       if ((aN.score ?? -1) !== (bN.score ?? -1)) {
         return (bN.score ?? -1) - (aN.score ?? -1);
       }
+
+      const decisionRank = { BUY_NOW: 4, WAIT_PULLBACK: 3, WATCH: 2, AVOID: 1, NO_SETUP: 0 };
+      const aRank = decisionRank[aN.entryDecision] ?? 0;
+      const bRank = decisionRank[bN.entryDecision] ?? 0;
+      if (aRank !== bRank) return bRank - aRank;
 
       return (b.score ?? -1) - (a.score ?? -1);
     });
