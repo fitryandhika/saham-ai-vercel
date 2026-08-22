@@ -125,6 +125,42 @@ function calculateEntryQuality({
   return { score, label, chaseRisk, decision, entryEligible, reasons };
 }
 
+// ============================================================
+// KALIBRASI PROBABILITAS (22 Agustus 2026, atas instruksi user, DIREVISI
+// setelah backtest kedua atas scan_history_export_2026-08-20 — lihat
+// catatan lengkap di blok LABEL di bawah untuk kenapa breakpoint pindah
+// dari 90/80/60 ke 80/60/20)
+// ============================================================
+//
+// opportunityScore (0-100) itu HASIL PENJUMLAHAN POIN, bukan probabilitas
+// — score 65 TIDAK berarti "65% peluang berhasil". Fungsi ini
+// menerjemahkan raw score ke estimasi probabilitas SEBENARNYA berdasar
+// data historis (scan_history_export_2026-08-20, 8.942 baris close-
+// labeled, target next_day_high_3pct_realized OR next_day_close_2pct_
+// realized):
+//   score <20   -> 28,4%
+//   score 20-59 -> 30,1%
+//   score 60-79 -> 35,6%
+//   score >=80  -> 44,1%
+//
+// dipakai UNTUK TAMPILAN/interpretasi ("kira-kira X% peluang"), BUKAN
+// untuk ranking/sorting — ranking tetap pakai opportunityScore mentah.
+const PROBABILITY_CALIBRATION_TABLE = [
+  { minScore: 0, maxScore: 19, probability: 28.4 },
+  { minScore: 20, maxScore: 59, probability: 30.1 },
+  { minScore: 60, maxScore: 79, probability: 35.6 },
+  { minScore: 80, maxScore: 100, probability: 44.1 }
+];
+
+export function estimateOpportunityProbability(score) {
+  if (typeof score !== "number" || Number.isNaN(score)) return null;
+  const clamped = Math.max(0, Math.min(100, score));
+  const bucket = PROBABILITY_CALIBRATION_TABLE.find(
+    (b) => clamped >= b.minScore && clamped <= b.maxScore
+  );
+  return bucket ? bucket.probability : null;
+}
+
 export function calculateNextDayOpportunity({
   score = null,
   volume = {},
@@ -250,23 +286,34 @@ export function calculateNextDayOpportunity({
 
   // ------------------------------------------------------------
   // 3. VOLUME ACCELERATION
+  //
+  // RE-KALIBRASI (22 Agustus 2026, atas instruksi user): faktor ini
+  // ternyata korelasinya PALING LEMAH dari semua faktor lain (r=0,063
+  // vs volume_ratio r=0,113, breakout_distance r=0,118, closing_strength
+  // r=0,079 — diuji ke 8.942 baris close-labeled scan_history_export_
+  // 2026-08-21), tapi dapat bobot TERBESAR (-8 s/d +12, swing 20 poin).
+  // Polanya juga TIDAK monoton: tier "0-10%" (18,9% win rate) justru
+  // lebih jelek dari tier "menurun/<0%" (28,2%) — kemungkinan noise di
+  // sekitar slope≈0 (saham yang "baru mulai stall", bukan benar-benar
+  // pola bermakna). Bobot diturunkan jadi -3 s/d +5 (~40% dari sebelum-
+  // nya, proporsional ke kekuatan korelasinya), dan tier disederhanakan
+  // dari 5 jadi 3 supaya tidak berpura-pura presisi padahal sinyalnya
+  // lemah & agak berisik.
   // ------------------------------------------------------------
-  if (slopePercent >= 50) {
-    opportunityScore += 12;
-    addBreakdown(breakdown, "VERY_HIGH_VOLUME_ACCELERATION", 12);
-  } else if (slopePercent >= 34) {
-    opportunityScore += 10;
-    addBreakdown(breakdown, "HIGH_VOLUME_ACCELERATION", 10);
-  } else if (slopePercent >= 20) {
-    opportunityScore += 6;
-    addBreakdown(breakdown, "POSITIVE_VOLUME_ACCELERATION", 6);
+  if (slopePercent >= 34) {
+    opportunityScore += 5;
+    addBreakdown(breakdown, "HIGH_VOLUME_ACCELERATION", 5);
   } else if (slopePercent >= 10) {
     opportunityScore += 2;
-    addBreakdown(breakdown, "MILD_VOLUME_ACCELERATION", 2);
+    addBreakdown(breakdown, "POSITIVE_VOLUME_ACCELERATION", 2);
   } else if (slopePercent < 0) {
-    opportunityScore -= 8;
-    addBreakdown(breakdown, "DECLINING_VOLUME_ACCELERATION", -8);
-    blockers.push("Volume acceleration menurun");
+    // TIDAK lagi hard blocker (22 Agustus 2026) — data menunjukkan
+    // tier "menurun" (<0%, 28,2% win rate) justru LEBIH BAIK dari tier
+    // "0-10%" (18,9%, yang malah tidak dapat penalti/blocker sama
+    // sekali). Sinyal ini terlalu berisik untuk jadi dasar diskualifikasi
+    // — dikembalikan jadi penalti poin ringan saja.
+    opportunityScore -= 3;
+    addBreakdown(breakdown, "DECLINING_VOLUME_ACCELERATION", -3);
   }
 
   // ------------------------------------------------------------
@@ -563,6 +610,25 @@ export function calculateNextDayOpportunity({
 
   // ------------------------------------------------------------
   // LABEL
+  //
+  // RE-KALIBRASI (22 Agustus 2026, atas instruksi user): threshold lama
+  // (80/65/50) dipilih tanpa validasi data.
+  //
+  // REVISI KEDUA (22 Agustus 2026, backtest ulang atas scan_history_
+  // export_2026-08-20): percobaan pertama (HIGH>=90/MODERATE>=80/
+  // WATCH>=60) TERLALU KETAT — di antara 2.579 baris yang beneran naik
+  // (big_move), threshold itu cuma menangkap 82 sebagai HIGH/MODERATE
+  // (turun 70% dari versi lama yang menangkap 272!). Direvisi ke:
+  //   score < 20   -> LOW      (28,4% win rate, n=444)
+  //   score 20-59  -> WATCH    (30,1%, n=1.432)
+  //   score 60-79  -> MODERATE (35,6%, n=762)
+  //   score >= 80  -> HIGH     (44,1%, n=186 — gabung bucket 80-90 &
+  //                             90-100 lama, karena 90-100 sample-nya
+  //                             cuma n=40, kelewat kecil buat jadi
+  //                             ambang HIGH sendirian)
+  // Threshold ini FULLY MONOTON (44,1 > 35,6 > 30,1 > 28,4) DAN
+  // menangkap 353/2.579 winners (13,7%) sebagai HIGH/MODERATE — lebih
+  // banyak dari versi lama (272) maupun percobaan pertama (82).
   // ------------------------------------------------------------
   let label = "LOW";
   let expectedMoveBand = "LOW";
@@ -570,10 +636,10 @@ export function calculateNextDayOpportunity({
   if (opportunityScore >= 80) {
     label = "HIGH";
     expectedMoveBand = "HIGH";
-  } else if (opportunityScore >= 65) {
+  } else if (opportunityScore >= 60) {
     label = "MODERATE";
     expectedMoveBand = "MODERATE";
-  } else if (opportunityScore >= 50) {
+  } else if (opportunityScore >= 20) {
     label = "WATCH";
     expectedMoveBand = "WATCH";
   }
@@ -585,9 +651,12 @@ export function calculateNextDayOpportunity({
     expectedMoveBand = "MODERATE";
   }
 
+  // Ambang score>=72 diikutkan naik jadi >=80 (22 Agustus 2026, direvisi
+  // dari percobaan pertama >=90 yang kelewat ketat — lihat catatan LABEL
+  // di atas) supaya konsisten dengan breakpoint HIGH final.
   const eligible =
     uniqueBlockers.length === 0 &&
-    opportunityScore >= 72 &&
+    opportunityScore >= 80 &&
     (
       validPreBreakout ||
       validBreakout ||
@@ -626,6 +695,7 @@ export function calculateNextDayOpportunity({
   return {
     version: "v2-calibrated",
     opportunityScore,
+    opportunityProbability: estimateOpportunityProbability(opportunityScore),
     opportunityLabel: label,
     expectedMoveBand,
     coreSetup,
