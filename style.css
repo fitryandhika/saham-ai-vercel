@@ -1,38 +1,50 @@
 /* ==========================================================
-   SahamAI — Design System
-   Terminal saham profesional: base gelap ala meja trading,
-   angka selalu monospace tabular, aksen amber seperti lampu
-   ticker-tape lama. Konsisten dipakai di index/portfolio/news/
-   dashboard — file ini jadi satu-satunya sumber warna & tipografi.
+   Stockgz — Design System
+   DRAFT REDESIGN (21 Agustus 2026) — migrasi dari tema gelap
+   "terminal trading" ke tema terang ala referensi Polyburg: header
+   gelap tetap, tapi body/card jadi krem-putih, sudut lebih rounded,
+   tombol pill. Variabel warna lama TIDAK dihapus total — beberapa
+   nama var dipertahankan (--surface, --border, dst) supaya seluruh
+   komponen di bawah yang sudah pakai var(--xxx) otomatis ikut
+   berubah tanpa perlu diedit satu-satu. Angka tetap monospace.
+   Ini DRAFT — belum di-deploy, review dulu sebelum "terapkan".
    ========================================================== */
 
 :root{
-  --bg:#0A0D12;
-  --surface:#12171F;
-  --surface-2:#1A212B;
-  --surface-3:#222A36;
-  --border:#232D3A;
-  --border-soft:#1B2430;
-  --text:#E7EDF3;
-  --muted:#8494A3;
-  --muted-2:#5C6A79;
-  --green:#22C55E;
-  --green-dim:rgba(34,197,94,.15);
-  --red:#EF4444;
-  --red-dim:rgba(239,68,68,.15);
+  /* Body & card — terang/krem, bukan gelap lagi */
+  --bg:#F3EFE6;
+  --surface:#FFFFFF;
+  --surface-2:#F7F4EC;
+  --surface-3:#EFEAE0;
+  --border:#E4DFD2;
+  --border-soft:#EDE9DE;
+  --text:#1C1B18;
+  --muted:#6B675E;
+  --muted-2:#8F8B80;
+
+  /* Header TETAP gelap (beda dari body) — dipakai khusus .topbar */
+  --header-bg:#14141A;
+  --header-text:#F3EFE6;
+  --header-muted:#9A98A3;
+
+  --green:#1E8E5A;
+  --green-dim:rgba(30,142,90,.12);
+  --red:#D8453A;
+  --red-dim:rgba(216,69,58,.12);
   --amber:#E3A23D;
   --amber-dim:rgba(227,162,61,.15);
-  --violet:#8B7CF6;
-  --violet-dim:rgba(139,124,246,.15);
-  --gradient-accent:linear-gradient(135deg,#8B7CF6 0%,#E3A23D 100%);
+  --violet:#6C5CE0;
+  --violet-dim:rgba(108,92,224,.12);
+  --gradient-accent:linear-gradient(135deg,#6C5CE0 0%,#E3A23D 100%);
 
   --font-display:'Space Grotesk',sans-serif;
   --font-body:'Inter',sans-serif;
   --font-mono:'JetBrains Mono',monospace;
 
-  --radius-sm:8px;
-  --radius-md:12px;
-  --radius-lg:16px;
+  /* Sudut lebih rounded dari tema lama (8/12/16) buat kesan "pill/card" */
+  --radius-sm:10px;
+  --radius-md:16px;
+  --radius-lg:22px;
 
   --max-content:1180px;
 }
@@ -78,7 +90,8 @@ input[type="text"], .card-kode{
   position:sticky;
   top:0;
   z-index:30;
-  background:var(--bg);
+  background:var(--header-bg);
+  color:var(--header-text);
 }
 
 .brand{
@@ -89,13 +102,14 @@ input[type="text"], .card-kode{
   font-weight:700;
   font-size:19px;
   letter-spacing:-0.02em;
+  color:var(--header-text);
 }
 
 .brand-mark{color:var(--amber);}
 
 .clock{
   font-family:var(--font-mono);
-  color:var(--muted);
+  color:var(--header-muted);
   font-size:13px;
 }
 
@@ -110,6 +124,10 @@ input[type="text"], .card-kode{
   overflow:hidden;
 }
 
+/* Ditambahkan 21 Agustus 2026: dulu statis dengan overflow-x:auto (harus
+   di-swipe manual, teks panjang seperti status "Market Tutup" jadi
+   terpotong di layar sempit) — sekarang auto-scroll jalan terus (marquee)
+   supaya teks panjang tetap kebaca tanpa perlu interaksi user. */
 .ticker-track{
   display:flex;
   align-items:center;
@@ -118,9 +136,25 @@ input[type="text"], .card-kode{
   font-family:var(--font-mono);
   font-size:12px;
   color:var(--muted);
-  overflow-x:auto;
-  scrollbar-width:none;
   white-space:nowrap;
+  width:max-content;
+  animation:ticker-scroll 18s linear infinite;
+}
+
+@keyframes ticker-scroll{
+  0%{transform:translateX(100%);}
+  100%{transform:translateX(-100%);}
+}
+
+/* Hormati preferensi user yang sensitif ke animasi — balik ke perilaku
+   lama (manual scroll, diam) kalau reduced-motion aktif di device. */
+@media (prefers-reduced-motion: reduce){
+  .ticker-track{
+    animation:none;
+    width:auto;
+    overflow-x:auto;
+    scrollbar-width:none;
+  }
 }
 
 .ticker-track::-webkit-scrollbar{display:none;}
@@ -179,7 +213,7 @@ input[type="text"], .card-kode{
   justify-content:center;
   gap:2px;
   text-align:center;
-  padding:8px 0 6px;
+  padding:8px 10px 6px;
   font-size:11px;
   font-weight:600;
   color:var(--muted);
@@ -190,7 +224,18 @@ input[type="text"], .card-kode{
 .nav-icon{font-size:18px;line-height:1;}
 .nav-text{font-size:11px;}
 
-.nav-tab.active{color:var(--amber);}
+/* DRAFT (21 Agustus 2026): item aktif dikasih background pill terang
+   ala referensi Polyburg. FIX presisi (21 Agustus 2026, revisi): pill
+   sebelumnya melebar penuh ke seluruh kolom flex (edge-to-edge, ikut
+   lebar kolom .nav-tab) — sekarang dikasih margin supaya pill-nya inset,
+   pas mengikuti ukuran icon+label, bukan lebar kolom. */
+.nav-tab.active{
+  color:var(--amber);
+  background:var(--amber-dim);
+  border-radius:999px;
+  border-top-color:transparent;
+  margin:6px 6px 4px;
+}
 
 /* Mobile: nav jadi bar fixed di bawah, gampang dijangkau jempol */
 @media (max-width:860px){
@@ -207,8 +252,9 @@ input[type="text"], .card-kode{
   }
 
   .nav-tab.active{
-    border-top-color:var(--amber);
-    background:var(--surface-2);
+    border-top-color:transparent;
+    background:var(--amber-dim);
+    margin:6px 6px 4px;
   }
 }
 
@@ -246,12 +292,10 @@ input[type="text"], .card-kode{
   border-radius:var(--radius-lg);
   padding:22px 20px;
   margin-bottom:16px;
-  background:
-    radial-gradient(circle at 100% 0%, rgba(139,124,246,.35), transparent 55%),
-    radial-gradient(circle at 0% 100%, rgba(227,162,61,.25), transparent 55%),
-    var(--surface);
+  background:var(--surface);
   border:1px solid var(--border);
   overflow:hidden;
+  box-shadow:0 1px 3px rgba(28,27,24,.04), 0 8px 24px rgba(28,27,24,.06);
 }
 
 .page-hero-eyebrow{
@@ -363,6 +407,7 @@ input[type="text"], .card-kode{
   display:flex;
   flex-direction:column;
   min-width:0;
+  box-shadow:0 1px 3px rgba(28,27,24,.04), 0 8px 24px rgba(28,27,24,.06);
 }
 
 .widget-head{
@@ -541,6 +586,7 @@ button{
   grid-template-columns:1fr;
   gap:14px;
   align-items:start;
+  margin-top:18px;
 }
 
 @media (min-width:640px){
@@ -565,6 +611,7 @@ button{
   display:flex;
   flex-direction:column;
   width:100%;
+  box-shadow:0 1px 3px rgba(28,27,24,.04), 0 8px 24px rgba(28,27,24,.06);
 }
 
 @media (min-width:640px){
