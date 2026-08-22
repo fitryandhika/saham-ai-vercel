@@ -450,6 +450,14 @@ export async function getLabeledRowsForStats({ sinceDate, kode, maxRows = 50000 
     "kode", "sector", "scan_date", "score", "signal", "rsi",
     "breakout_level", "closing_strength", "volume_signal",
     "gap_outlook", "next_day_return_pct", "gap_up_realized", "rs_label",
+    // FIX (21 Agustus 2026): kolom ini sempat lupa ditambahkan waktu
+    // win_rate di kartu ringkasan diganti basisnya ke
+    // next_day_high_3pct_realized (lihat engine/evaluationStats.js) —
+    // akibatnya computeSummary() selalu dapat undefined untuk field ini
+    // di SETIAP baris (walau datanya ada & terisi di Supabase), jadi
+    // total_labeled selalu 0 dan Riwayat AI nunjukkin "Belum ada data
+    // yang sudah dilabel" padahal datanya ada.
+    "next_day_high_3pct_realized",
     // Kolom strategi "beli sore -> jual pagi/close" (Next-Day Opportunity
     // Engine + label Tahap 2 dari api/label-outcomes-close.js) — dipakai
     // computeSummary() untuk kalibrasi yang benar-benar mencerminkan
