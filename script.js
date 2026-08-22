@@ -302,7 +302,8 @@ function getNextDayOpportunityMeta(d) {
       score: null, label: "UNAVAILABLE", expectedMoveBand: "UNAVAILABLE", setup: "NONE",
       eligible: false, entryEligible: false, entryQualityScore: null, entryQualityLabel: "UNAVAILABLE",
       chaseRisk: "UNAVAILABLE", entryDecision: "NO_SETUP", tradeDecision: "NO_SETUP", blockers: [],
-      volumeAcceleration: null, volumeRatio: null, breakoutDistance: null, rsLabel: null
+      volumeAcceleration: null, volumeRatio: null, breakoutDistance: null, rsLabel: null,
+      opportunityProbability: null
     };
   }
 
@@ -322,7 +323,12 @@ function getNextDayOpportunityMeta(d) {
     volumeAcceleration: Number.isFinite(Number(n.inputs?.volumeAccelerationPercent)) ? Number(n.inputs.volumeAccelerationPercent) : null,
     volumeRatio: Number.isFinite(Number(n.inputs?.volumeRatio)) ? Number(n.inputs.volumeRatio) : null,
     breakoutDistance: Number.isFinite(Number(n.inputs?.breakoutDistancePercent)) ? Number(n.inputs.breakoutDistancePercent) : null,
-    rsLabel: n.inputs?.relativeStrengthLabel || null
+    rsLabel: n.inputs?.relativeStrengthLabel || null,
+    // Ditambahkan 22 Agustus 2026 — lihat estimateOpportunityProbability()
+    // di engine/nextDayOpportunity.js. Estimasi peluang aktual berdasar
+    // data historis, BUKAN opportunityScore mentah yang cuma hasil
+    // penjumlahan poin.
+    opportunityProbability: Number.isFinite(Number(n.opportunityProbability)) ? Number(n.opportunityProbability) : null
   };
 }
 
@@ -388,8 +394,9 @@ function renderNextDayOpportunity(d) {
           <div class="nextday-title">${decisionIcon} ${decision}</div>
         </div>
         <div class="nextday-score-wrap">
-          <span class="nextday-score">${n.score}</span>
+          <span class="nextday-score">${n.opportunityProbability !== null && n.opportunityProbability !== undefined ? "≈" + n.opportunityProbability + "%" : n.score}</span>
           <span class="nextday-label">${n.label}</span>
+          <small class="nextday-score-caption">estimasi historis${n.score !== null ? " · peringkat " + n.score : ""}</small>
         </div>
       </div>
 
@@ -422,9 +429,18 @@ function renderNextDayOpportunity(d) {
           <span>Opportunity H+1</span>
           <strong>${n.eligible ? "VALID — " + n.label : "TIDAK VALID"}</strong>
         </div>
+        <!-- Entry Quality BUKAN skor prediksi return (22 Agustus 2026,
+             atas instruksi user) — ini gauge chase-risk/timing entry
+             ("apakah harga sekarang masih layak dibeli", bukan "berapa
+             peluang saham ini naik"). Sengaja TIDAK ditampilkan sebagai
+             angka bare "75 · FAIR" lagi (bisa dikira skor prediksi yang
+             sejajar dengan Opportunity Score di atas) — label kualitatif
+             (FAIR/GOOD/POOR) sekarang jadi yang utama, angka jadi info
+             sekunder kecil. -->
         <div>
-          <span>Entry Quality</span>
-          <strong>${n.entryQualityScore === null ? "—" : `${n.entryQualityScore} · ${n.entryQualityLabel}`}</strong>
+          <span>Entry Quality (timing, bukan prediksi)</span>
+          <strong>${n.entryQualityLabel === "UNAVAILABLE" ? "—" : n.entryQualityLabel}</strong>
+          ${n.entryQualityScore === null ? "" : `<small style="display:block;color:var(--muted);font-weight:400;">skor internal: ${n.entryQualityScore}</small>`}
         </div>
         <div>
           <span>Chase Risk</span>
