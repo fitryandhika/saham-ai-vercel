@@ -39,13 +39,13 @@ function updateClockAndWindow() {
 
   if (minutesNow >= buyWindowStart && minutesNow < marketClose) {
     barEl.classList.add("buy-window");
-    labelEl.textContent = "🟡 Jendela Beli Sore — siapkan entry overnight sebelum tutup";
+    labelEl.textContent = "🟡 Jendela Beli Sore — Siapkan Entry Overnight Sebelum Tutup";
   } else if (minutesNow >= marketOpen && minutesNow < buyWindowStart) {
     barEl.classList.add("market-open");
-    labelEl.textContent = "Market berjalan — belum masuk jendela beli sore";
+    labelEl.textContent = "Market Berjalan — Belum Masuk Jendela Beli Sore";
   } else if (minutesNow >= preMarket && minutesNow < marketOpen) {
     barEl.classList.add("market-open");
-    labelEl.textContent = "Pra-market — bursa belum buka";
+    labelEl.textContent = "Pra-market — Bursa Belum Buka";
   } else {
     barEl.classList.add("overnight");
     labelEl.textContent = "🌙 Market Tutup - Pastikan Screener Di Jalan Pada Waktu 15:30-15:45";
