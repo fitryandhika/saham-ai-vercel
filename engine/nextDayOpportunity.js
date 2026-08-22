@@ -504,12 +504,9 @@ export function calculateNextDayOpportunity({
       opportunityScore += 2;
       addBreakdown(breakdown, "RR_GE_1_5", 2);
     } else if (rr < 1) {
-      // RE-KALIBRASI (22 Agustus 2026): re-test terhadap scan_history_
-      // export_2026-08-20 — RR<1 (27,1%) cuma beda 3,6 poin dari tier
-      // 1-1,5 (28,5%), tidak cukup ekstrem untuk hard blocker. Penalti
-      // poin dipertahankan, blocker dihapus.
       opportunityScore -= 6;
       addBreakdown(breakdown, "RR_LT_1", -6);
+      blockers.push("Risk/reward < 1");
     }
   }
 
