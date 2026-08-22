@@ -408,6 +408,13 @@ input[type="text"], .card-kode{
   flex-direction:column;
   min-width:0;
   box-shadow:0 1px 3px rgba(28,27,24,.04), 0 8px 24px rgba(28,27,24,.06);
+  margin-bottom:14px;
+}
+
+/* Di dalam .widget-grid (Dashboard), jarak sudah diatur lewat grid gap —
+   margin-bottom di atas dimatikan di sini supaya tidak dobel jaraknya. */
+.widget-grid .widget-card{
+  margin-bottom:0;
 }
 
 .widget-head{
