@@ -25,6 +25,24 @@ function winRate(rows) {
   return wins / labeled.length;
 }
 
+// Ditambahkan 21 Agustus 2026 (atas instruksi user) — dipakai KHUSUS untuk
+// win_rate di kartu ringkasan atas Riwayat AI (computeSummary().overall).
+// gap_up_realized (winRate() di atas) cuma menghitung gap PERSIS di
+// pembukaan H+1, terlalu ketat untuk strategi beli-sore-jual-pagi yang
+// bisa eksekusi kapan saja sepanjang sesi 1 — analisis 8.950 baris
+// scan_history_export_2026-08-21 menunjukkan 72-75% dari puncak harga
+// H+1 terjadi di sesi 1 (bukan cuma di pembukaan), jadi gap_up_realized
+// bikin win rate kelihatan jauh lebih rendah dari performa sebenarnya.
+// next_day_high_3pct_realized = harga SEMPAT naik >=3% kapan saja di H+1.
+function winRateHigh3pct(rows) {
+  const labeled = rows.filter(
+    (r) => r.next_day_high_3pct_realized !== null && r.next_day_high_3pct_realized !== undefined
+  );
+  if (labeled.length === 0) return null;
+  const wins = labeled.filter((r) => r.next_day_high_3pct_realized === true).length;
+  return wins / labeled.length;
+}
+
 function round(n, digits = 2) {
   if (n === null || n === undefined) return null;
   const f = Math.pow(10, digits);
@@ -92,11 +110,21 @@ export function computeSummary(rows) {
     (r) => r.gap_up_realized !== null && r.gap_up_realized !== undefined
   );
 
+  // Basis KHUSUS untuk kartu ringkasan atas (total_labeled + win_rate) —
+  // lihat catatan di winRateHigh3pct() di atas. bySignal/byScoreBucket/
+  // byBreakout di bawah SENGAJA tetap pakai `labeled` (basis lama,
+  // gap_up_realized) supaya tidak mengubah semantik tabel lain yang
+  // masih dihitung di response API ini walau sudah tidak ditampilkan
+  // di UI (dihapus dari Riwayat AI sebelumnya).
+  const labeledHigh3pct = rows.filter(
+    (r) => r.next_day_high_3pct_realized !== null && r.next_day_high_3pct_realized !== undefined
+  );
+
   const overall = {
     total_scan: rows.length,
-    total_labeled: labeled.length,
-    win_rate: round((winRate(labeled) ?? 0) * 100),
-    avg_return_pct: round(avg(labeled.map((r) => r.next_day_return_pct)))
+    total_labeled: labeledHigh3pct.length,
+    win_rate: round((winRateHigh3pct(labeledHigh3pct) ?? 0) * 100),
+    avg_return_pct: round(avg(labeledHigh3pct.map((r) => r.next_day_return_pct)))
   };
 
   // Per signal (STRONG BUY / BUY / HOLD / SELL / STRONG SELL)
