@@ -394,9 +394,8 @@ function renderNextDayOpportunity(d) {
           <div class="nextday-title">${decisionIcon} ${decision}</div>
         </div>
         <div class="nextday-score-wrap">
-          <span class="nextday-score">${n.opportunityProbability !== null && n.opportunityProbability !== undefined ? "≈" + n.opportunityProbability + "%" : n.score}</span>
+          <span class="nextday-score">${n.score}</span>
           <span class="nextday-label">${n.label}</span>
-          <small class="nextday-score-caption">estimasi historis${n.score !== null ? " · peringkat " + n.score : ""}</small>
         </div>
       </div>
 
