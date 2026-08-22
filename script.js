@@ -434,10 +434,49 @@ function renderNextDayOpportunity(d) {
 
       ${blockers}
 
-      <div class="nextday-note">
-        <strong>Aturan baru:</strong> Opportunity menjawab “seberapa menarik peluang H+1?”, sedangkan Entry Quality menjawab “apakah harga sekarang layak dibeli?”.
-        Jadi Opportunity HIGH tidak otomatis berarti BUY SORE. Jika harga sudah terlalu naik, keputusan menjadi WAIT PULLBACK atau JANGAN ENTRY.
-      </div>
+      ${renderSimpleReason(d, n)}
+    </div>
+  `;
+}
+
+// Ditambahkan 21 Agustus 2026 (atas instruksi user), menggantikan teks
+// metodologi "Aturan baru" yang dianggap terlalu teknis — sekarang
+// menjelaskan ALASAN SEDERHANA kenapa saham ini menarik secara teknikal,
+// dibangun dari data yang sama (breakout, volume, relative strength, tren)
+// supaya orang awam gampang paham tanpa perlu ngerti istilah scoring.
+function renderSimpleReason(d, n) {
+  const reasons = [];
+
+  if (d.breakout && d.breakout.isBreakout) {
+    reasons.push(
+      `harga baru saja <strong>menembus level resistance</strong> dengan volume ${n.volumeRatio ? n.volumeRatio.toFixed(1) + "x" : "tinggi"} dari rata-rata — tanda minat beli sedang kuat`
+    );
+  } else if (n.breakoutDistance !== null && n.breakoutDistance < 0 && n.breakoutDistance >= -12) {
+    reasons.push(
+      `harga masih dekat di bawah level resistance (${Math.abs(n.breakoutDistance).toFixed(1)}% lagi) — berpotensi tembus kalau momentumnya lanjut`
+    );
+  }
+
+  if (d.marketTrend === "BULLISH") {
+    reasons.push(`tren harga beberapa hari terakhir sedang <strong>naik (bullish)</strong>`);
+  }
+
+  if (d.relativeStrength && (d.relativeStrength.label === "OUTPERFORM" || d.relativeStrength.label === "JAUH OUTPERFORM")) {
+    reasons.push(`pergerakannya lebih kuat dibanding IHSG & sektornya (${d.relativeStrength.label.toLowerCase()}) — artinya saham ini lebih diminati dibanding saham lain saat ini`);
+  }
+
+  if (n.volumeAcceleration !== null && n.volumeAcceleration >= 20) {
+    reasons.push(`volume transaksinya sedang naik cepat (+${n.volumeAcceleration.toFixed(0)}%) — tanda makin banyak yang tertarik beli`);
+  }
+
+  const intro = reasons.length
+    ? `Saham ini menarik secara teknikal karena ${reasons.join("; ")}.`
+    : `Belum ada alasan teknikal kuat yang menonjol untuk saham ini saat ini — sinyalnya masih lemah/campuran.`;
+
+  return `
+    <div class="nextday-note">
+      ${intro}
+      Ini bukan jaminan — tetap cek Entry Quality & Chase Risk di atas sebelum entry, dan gunakan stop loss.
     </div>
   `;
 }
@@ -499,6 +538,12 @@ function renderCard(d) {
 
       ${renderNextDayOpportunity(d)}
 
+      <!-- DIHAPUS atas instruksi user (21 Agustus 2026): Trade Decision,
+           Outlook Multi-Hari, Gap/Signal/Confidence/Momentum grid, dan
+           Stop Loss/ATR row — dianggap redundan/membingungkan karena
+           sudah terwakili di kartu Next-Day Opportunity di atasnya.
+           TP1-3 dan estimasi ARA/ARB di bawah TETAP ada, tidak disentuh.
+
       <div class="verdict-box ${nextDayDecision.className}">
         <div class="verdict-label">${nextDayDecision.label}</div>
         <div class="verdict-text">${nextDayDecision.text}</div>
@@ -540,6 +585,7 @@ function renderCard(d) {
           ${d.atr.toLocaleString("id-ID")}
         </div>
       </div>
+      -->
 
       <div class="tp-grid">
         <div class="tp-item">
@@ -561,7 +607,11 @@ function renderCard(d) {
 
       ${renderAraArb(d.close)}
 
-      ${warningsHtml}
+      ${/* DIHAPUS atas instruksi user (21 Agustus 2026): daftar bullet
+          warning teknikal (STRONG BUY rawan profit-taking, RSI overbought,
+          ATR tinggi, fundamental tidak tersedia, dst). warningsHtml tetap
+          dihitung di atas (dipertahankan kalau nanti mau dipakai lagi),
+          cuma tidak dirender di sini lagi. */ ""}
 
       ${renderFundamentalSection(d.fundamental)}
 
