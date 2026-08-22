@@ -48,7 +48,7 @@ function updateClockAndWindow() {
     labelEl.textContent = "Pra-market — bursa belum buka";
   } else {
     barEl.classList.add("overnight");
-    labelEl.textContent = "🌙 Market tutup — evaluasi posisi untuk jual pagi";
+    labelEl.textContent = "🌙 Market Tutup - Pastikan Screener Di Jalan Pada Waktu 15:30-15:45";
   }
 }
 
