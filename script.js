@@ -361,19 +361,32 @@ function renderNextDayOpportunity(d) {
     `;
   }
 
-  const decision = n.entryDecision === "BUY_NOW" && n.entryEligible
-    ? "PRIORITAS — BUY SORE"
-    : n.entryDecision === "WAIT_PULLBACK"
-      ? "WAIT PULLBACK — JANGAN KEJAR"
-      : n.entryDecision === "WATCH"
-        ? "PANTAU — ENTRY BELUM IDEAL"
-        : n.eligible
-          ? "JANGAN ENTRY — CHASE RISK TINGGI"
-          : "TIDAK ADA SETUP H+1 VALID";
+  // FIX (22 Agustus 2026): dulu teks headline ini MURNI dari entryDecision
+  // (Entry Quality/Chase Risk — jawab "harga sekarang layak dibeli?"),
+  // TIDAK mempertimbangkan n.label (Opportunity — jawab "besok berpotensi
+  // naik tinggi?") sama sekali. Akibatnya saham dengan Opportunity RENDAH
+  // (WATCH/LOW) tapi Entry Quality bagus tetap dibilang "PRIORITAS — BUY
+  // SORE" (kelihatan seperti vonis kuat, padahal cuma "harga sekarang
+  // wajar", bukan "besok pasti naik") — user report kasus ASRI (score 39
+  // WATCH tapi headline PRIORITAS BUY SORE) vs VERN (score 92 HIGH tapi
+  // headline cuma PANTAU). Sekarang headline mempertimbangkan DUA-duanya.
+  const opportunityGoodEnough = n.label === "HIGH" || n.label === "MODERATE";
 
-  const decisionIcon = n.entryDecision === "BUY_NOW" && n.entryEligible
+  const decision = n.entryDecision === "BUY_NOW" && n.entryEligible && opportunityGoodEnough
+    ? "PRIORITAS — BUY SORE"
+    : n.entryDecision === "BUY_NOW" && n.entryEligible && !opportunityGoodEnough
+      ? "ENTRY OK, TAPI OPPORTUNITY RENDAH"
+      : n.entryDecision === "WAIT_PULLBACK"
+        ? "WAIT PULLBACK — JANGAN KEJAR"
+        : n.entryDecision === "WATCH"
+          ? "PANTAU — ENTRY BELUM IDEAL"
+          : n.eligible
+            ? "JANGAN ENTRY — CHASE RISK TINGGI"
+            : "TIDAK ADA SETUP H+1 VALID";
+
+  const decisionIcon = n.entryDecision === "BUY_NOW" && n.entryEligible && opportunityGoodEnough
     ? "🟢"
-    : n.entryDecision === "WAIT_PULLBACK" || n.entryDecision === "WATCH"
+    : n.entryDecision === "BUY_NOW" || n.entryDecision === "WAIT_PULLBACK" || n.entryDecision === "WATCH"
       ? "🟡"
       : "🔴";
 
