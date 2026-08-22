@@ -497,13 +497,6 @@ async function loadSummary() {
   try {
     const { data } = await fetchJSON(url);
     renderOverall(data.overall);
-    renderOverallOpportunity(data.overall_opportunity);
-    renderMiniTable("byOpportunityLabel", data.by_opportunity_label, "opportunity_label", "Opportunity Label");
-    renderEligibleVsNot(data.eligible_vs_not_eligible);
-    renderMiniTable("bySignal", data.by_signal, "signal", "Signal");
-    renderMiniTable("byScoreBucket", data.by_score_bucket, "bucket", "Bucket Skor");
-    renderMiniTable("byBreakout", data.by_breakout_level, "breakout_level", "Breakout Level");
-    renderHcVsBaseline(data.high_conviction_vs_baseline);
     renderByDate(data.by_date);
   } catch (e) {
     document.getElementById("summaryOverall").innerHTML =
@@ -586,6 +579,29 @@ document.getElementById("btnSyncModel").addEventListener("click", async () => {
 document.getElementById("btnRefresh").addEventListener("click", loadSummary);
 document.getElementById("btnLoadTable").addEventListener("click", loadTable);
 document.getElementById("btnExportCsv").addEventListener("click", exportCsv);
+
+// DRAFT (21 Agustus 2026, atas instruksi user): isi TANGGAL SCAN dengan
+// tanggal hari ini (WIB) secara default begitu halaman dibuka — dulu
+// kosong, jadi orang tidak langsung sadar field itu untuk filter tanggal.
+// Pakai Intl dgn timeZone Asia/Jakarta (bukan local device time) supaya
+// konsisten walau device user di zona waktu lain.
+function todayWibDateInputValue() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Jakarta",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(new Date());
+  const y = parts.find(p => p.type === "year").value;
+  const m = parts.find(p => p.type === "month").value;
+  const d = parts.find(p => p.type === "day").value;
+  return `${y}-${m}-${d}`;
+}
+
+const dateFilterEl = document.getElementById("dateFilter");
+if (dateFilterEl && !dateFilterEl.value) {
+  dateFilterEl.value = todayWibDateInputValue();
+}
 
 loadSummary();
 loadTable();
