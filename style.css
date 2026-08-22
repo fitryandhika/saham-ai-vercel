@@ -1112,6 +1112,11 @@ button{
 .nextday-score{display:block;font-family:var(--font-mono);font-size:24px;line-height:1;font-weight:700;}
 .nextday-box.high .nextday-score{color:var(--green);}
 .nextday-box.moderate .nextday-score{color:var(--amber);}
+/* Ditambahkan 22 Agustus 2026 — angka utama sekarang estimasi
+   probabilitas terkalibrasi (≈X%), bukan opportunityScore mentah lagi
+   (yang cuma peringkat/ranking). Caption kecil ini menjelaskan bedanya
+   supaya tidak dikira jaminan/prediksi presisi. */
+.nextday-score-caption{display:block;font-size:9px;color:var(--muted-2);font-weight:400;margin-top:2px;}
 .nextday-box.watch .nextday-score,.nextday-box.low .nextday-score,.nextday-box.unavailable .nextday-score{color:var(--muted);}
 .nextday-label{display:block;margin-top:4px;font-family:var(--font-mono);font-size:9px;font-weight:700;color:var(--muted);}
 .nextday-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:12px;}
