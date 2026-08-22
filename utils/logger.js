@@ -1,7 +1,7 @@
 export function log(message) {
-  console.log(`[SahamAI] ${message}`);
+  console.log(`[Stockgz] ${message}`);
 }
 
 export function error(message) {
-  console.error(`[SahamAI ERROR] ${message}`);
+  console.error(`[Stockgz ERROR] ${message}`);
 }
