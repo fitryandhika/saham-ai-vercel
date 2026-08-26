@@ -722,6 +722,44 @@ export function calculateNextDayOpportunity({
     expectedMoveBand = "MODERATE";
   }
 
+  // ------------------------------------------------------------
+  // CLOSE-HOLD PATTERN (26 Agustus 2026, atas instruksi user)
+  //
+  // Temuan dari backtest 405 baris HIGH-tier (data 16 Jul - 21 Agu):
+  // di dalam bucket HIGH sendiri, saham yang scan-day-nya SUDAH berada
+  // di/atas resistance (distancePercent >= 0) DAN closing_strength-nya
+  // sudah kuat (>=0.55) — cenderung "gap-up lalu ambruk": peak biasanya
+  // sudah tercapai pagi jam 09:00-09:45 lalu ambles ke close negatif.
+  // Saham dengan distancePercent < 0 (masih ada jarak ke resistance) DAN
+  // closing_strength < 0.55 (tutup belum "penuh") jauh lebih sering naik
+  // & BERTAHAN sampai close: close-positive 42%->54%, avg return next-
+  // day-close +0,65% -> +1,86% pada sample 405 itu.
+  //
+  // VALIDASI OUT-OF-SAMPLE (data 24-25 Agustus, 47 saham HIGH): pola ini
+  // TIDAK terkonfirmasi pada satu hari itu — filter justru sedikit lebih
+  // buruk (18,5% vs 27,7% baseline). Root cause: 24-25 Agustus adalah
+  // hari market-wide selloff (88% dari SELURUH 390 saham yang di-scan,
+  // bukan cuma yang HIGH, closenya turun keesokan harinya; market_regime
+  // sepanjang hari itu tetap konstan "NEUTRAL"/55 — regime classifier
+  // gagal menangkap pelemahan itu). Pada hari selloff market-wide, hampir
+  // semua saham individual ikut turun terlepas dari kualitas setup-nya,
+  // jadi satu hari ini TIDAK CUKUP untuk menyimpulkan pola ini salah.
+  //
+  // Karena baru divalidasi 1 sample besar (historis) + 1 hari out-of-
+  // sample yang campur (didominasi efek market, bukan stock-picking),
+  // field ini dipasang sebagai INFORMASI TAMBAHAN saja — TIDAK dipakai
+  // untuk menaikkan/menurunkan score atau label. Perlu dipantau beberapa
+  // minggu lagi sebelum dijadikan filter keras.
+  // ------------------------------------------------------------
+  let closeHoldPattern = "NOT_APPLICABLE";
+  if (label === "HIGH" || label === "MODERATE") {
+    const favorableHold =
+      distancePercent < 0 && Number.isFinite(cs) && cs < 0.55;
+    closeHoldPattern = favorableHold
+      ? "FAVORABLE_HOLD_TO_CLOSE"
+      : "CAUTION_GAP_DUMP_RISK";
+  }
+
   let coreSetup = "NONE";
   if (validPreBreakout) {
     coreSetup = "PRE_BREAKOUT_ACCUMULATION";
@@ -754,6 +792,7 @@ export function calculateNextDayOpportunity({
     expectedMoveBand,
     coreSetup,
     eligible,
+    closeHoldPattern,
 
     // Layer entry terpisah: tidak mengubah Opportunity Score.
     entryQualityScore: entryQuality.score,
