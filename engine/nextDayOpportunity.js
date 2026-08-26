@@ -126,40 +126,41 @@ function calculateEntryQuality({
 }
 
 // ============================================================
-// KALIBRASI PROBABILITAS (24 Agustus 2026, atas instruksi user, DIREVISI
-// setelah recalibration besar ketiga — lihat catatan lengkap di blok
-// LABEL di bawah)
+// KALIBRASI PROBABILITAS (26 Agustus 2026, atas instruksi user, DIREVISI
+// setelah recalibration keempat — bobot market trend dikoreksi & ambang
+// naik dari 68 ke 72; lihat catatan lengkap di blok PRICE/MARKET
+// STRUCTURE dan blok LABEL di bawah)
 // ============================================================
 //
 // opportunityScore (0-100) itu HASIL PENJUMLAHAN POIN, bukan probabilitas
 // — score 65 TIDAK berarti "65% peluang berhasil". Fungsi ini
 // menerjemahkan raw score ke estimasi probabilitas SEBENARNYA berdasar
-// data historis (scan_history_export_2026-08-24, 8.952 baris close-
-// labeled 16 Jul - 21 Agu 2026), target next_day_max_gain_from_close_pct
-// >= 3%:
-//   score <35   -> 16,8% (n=2.607)
-//   score 35-54 -> 27,9% (n=4.202)
-//   score 55-67 -> 40,4% (n=1.738)
-//   score >=68  -> 55,8% (n=405)
+// data historis (scan_history_export_2026-08-26, 9.351 baris close-
+// labeled 16 Jul - 24 Agu 2026, sudah termasuk bobot market-trend yang
+// dikoreksi), target next_day_max_gain_from_close_pct >= 3%:
+//   score <38   -> 18,9% (n=3.438)
+//   score 38-58 -> 28,3% (n=3.870)
+//   score 59-71 -> 40,9% (n=1.686)
+//   score >=72  -> 55,5% (n=357)
 //
 // dipakai UNTUK TAMPILAN/interpretasi ("kira-kira X% peluang naik >=3%"),
 // BUKAN untuk ranking/sorting — ranking tetap pakai opportunityScore
 // mentah. Target >=5% ada di estimateOpportunityProbability5Pct di bawah
 // untuk saham yang mengincar gain lebih besar.
 const PROBABILITY_CALIBRATION_TABLE = [
-  { minScore: 0, maxScore: 34, probability: 16.8 },
-  { minScore: 35, maxScore: 54, probability: 27.9 },
-  { minScore: 55, maxScore: 67, probability: 40.4 },
-  { minScore: 68, maxScore: 100, probability: 55.8 }
+  { minScore: 0, maxScore: 37, probability: 18.9 },
+  { minScore: 38, maxScore: 58, probability: 28.3 },
+  { minScore: 59, maxScore: 71, probability: 40.9 },
+  { minScore: 72, maxScore: 100, probability: 55.5 }
 ];
 
 // Probabilitas peluang naik >=5% (bukan cuma >=3%) — sama pembagian
 // bucket-nya, dihitung dari kolom next_day_max_gain_from_close_pct >=5%.
 const PROBABILITY_CALIBRATION_TABLE_5PCT = [
-  { minScore: 0, maxScore: 34, probability: 8.6 },
-  { minScore: 35, maxScore: 54, probability: 14.0 },
-  { minScore: 55, maxScore: 67, probability: 23.9 },
-  { minScore: 68, maxScore: 100, probability: 39.3 }
+  { minScore: 0, maxScore: 37, probability: 9.8 },
+  { minScore: 38, maxScore: 58, probability: 14.1 },
+  { minScore: 59, maxScore: 71, probability: 24.7 },
+  { minScore: 72, maxScore: 100, probability: 38.9 }
 ];
 
 export function estimateOpportunityProbability5Pct(score) {
@@ -221,16 +222,42 @@ export function calculateNextDayOpportunity({
 
   // ------------------------------------------------------------
   // 1. PRICE / MARKET STRUCTURE
+  //
+  // RE-KALIBRASI (26 Agustus 2026, atas instruksi user setelah curiga
+  // HIGH kebanyakan): blok ini TIDAK IKUT divalidasi saat rekalibrasi
+  // 24 Agustus karena data teknikal (sma20/sma50/ema9/ema20) tidak ada
+  // di CSV export saat itu. Sekarang, dengan export yang menyertakan
+  // kolom itu, ternyata trend (fungsi getMarketTrend — sebenarnya
+  // trend TEKNIKAL PER SAHAM dari SMA/EMA/MACD saham itu sendiri,
+  // BUKAN indeks pasar/IHSG) mengklasifikasikan 66-76% dari SEMUA
+  // saham sebagai "BULLISH" di hampir semua hari (lagging indicator —
+  // SMA20/50 tetap di atas walau harga baru mulai turun). Bobot lama
+  // (+8/+2/-10) memberi +8 gratis ke mayoritas populasi TANPA
+  // divalidasi, dan terbukti INI PENYEBAB UTAMA HIGH JADI KEBANYAKAN:
+  // di 24 & 26 Agustus, 55-73% dari saham berlabel HIGH HANYA lolos
+  // ambang 68 karena numpang bonus +8 ini — skor "asli" mereka (tanpa
+  // bonus trend) di bawah 68.
+  //
+  // Backtest ulang (9.351 baris, 26 hari) membandingkan win rate
+  // aktual per kategori trend vs baseline (28,1%): BULLISH cuma
+  // 30,5% (lift +2,4pp), SIDEWAYS 27,2% (lift -0,9pp), BEARISH 22,4%
+  // (lift -5,7pp) — jauh lebih kecil dari swing 18 poin (+8 ke -10)
+  // yang dipakai sebelumnya. Bobot diturunkan proporsional ke lift
+  // yang sebenarnya: +3/0/-7. Threshold HIGH juga dinaikkan dari 68
+  // ke 72 untuk mengkompensasi rata-rata skor yang sekarang naik
+  // sedikit karena term ini ikut dihitung (lihat blok LABEL di bawah).
+  // Hasil setelah dikalibrasi ulang: HIGH kembali ke ~3,8% populasi
+  // (semula melar ke 13,5%), win3=55,5%, win5=38,9% — sesuai target
+  // awal (55,2%/38,6%).
   // ------------------------------------------------------------
   if (trend === "BULLISH") {
-    opportunityScore += 8;
-    addBreakdown(breakdown, "BULLISH_MARKET_STRUCTURE", 8);
+    opportunityScore += 3;
+    addBreakdown(breakdown, "BULLISH_MARKET_STRUCTURE", 3);
   } else if (trend === "SIDEWAYS") {
-    opportunityScore += 2;
-    addBreakdown(breakdown, "SIDEWAYS_STRUCTURE", 2);
+    addBreakdown(breakdown, "SIDEWAYS_STRUCTURE", 0);
   } else if (trend === "BEARISH") {
-    opportunityScore -= 10;
-    addBreakdown(breakdown, "BEARISH_MARKET_STRUCTURE", -10);
+    opportunityScore -= 7;
+    addBreakdown(breakdown, "BEARISH_MARKET_STRUCTURE", -7);
     blockers.push("Market trend bearish");
   }
 
@@ -661,44 +688,33 @@ export function calculateNextDayOpportunity({
   // ------------------------------------------------------------
   // LABEL
   //
-  // RE-KALIBRASI BESAR KETIGA (24 Agustus 2026, atas instruksi user,
-  // backtest scan_history_export_2026-08-24, 8.952 baris close-labeled,
-  // target next_day_high_3pct_realized / next_day_close_2pct_realized
-  // via kolom next_day_max_gain_from_close_pct >=3% dan >=5%):
-  //
-  // Formula skor di atas SEKARANG dihitung ulang (bobot CS/RSI/RS/jarak
-  // resistance sudah dikoreksi sesuai catatan masing-masing) dan skor
-  // hasilnya diuji ulang terhadap outcome sebenarnya. Hasilnya jauh
-  // lebih monoton & lebih terpisah dibanding formula lama:
-  //   score <35   -> LOW      (16,8% >=3%  /  8,6% >=5%,  n=2.607)
-  //   score 35-54 -> WATCH    (27,9% >=3%  / 14,0% >=5%,  n=4.202)
-  //   score 55-67 -> MODERATE (40,4% >=3%  / 23,9% >=5%,  n=1.738)
-  //   score >=68  -> HIGH     (55,8% >=3%  / 39,3% >=5%,  n=405, ~4,5%
-  //                            dari populasi -> realistis muncul rutin
-  //                            tiap hari scan, bukan 0-1 saham/hari)
-  // Ambang HIGH turun dari 80 ke 68 KARENA skalanya sudah berubah, bukan
-  // dibuat longgar tanpa alasan — skor lama jarang tembus 80 sekalipun
-  // untuk saham yang benar-benar bagus (lihat catatan HARD ELIGIBILITY
-  // di atas soal kenapa). Divalidasi silang: pada 21 Agustus saja,
-  // formula baru ini menghasilkan 18 saham HIGH dengan win rate 55,6%
-  // (>=3%) / 44,4% (>=5%) — konsisten dengan backtest agregat.
-  //
-  // CATATAN KETERBATASAN: backtest ini TIDAK memodelkan kontribusi
-  // marketTrend (BULLISH/SIDEWAYS/BEARISH) maupun exhaustion/distribution
-  // karena field tsb tidak ada di file export yang dipakai. Bobotnya di
-  // atas TIDAK diubah pada pass ini. Perlu backtest lanjutan begitu ada
-  // export yang menyertakan kedua field itu.
+  // RE-KALIBRASI KEEMPAT (26 Agustus 2026, atas instruksi user: HIGH
+  // kebanyakan). Threshold naik dari 68 ke 72 KARENA bobot market
+  // trend (blok PRICE/MARKET STRUCTURE di atas) sekarang ikut
+  // disertakan dalam skor — sebelumnya threshold 68 dikalibrasi dari
+  // formula yang skip term itu sama sekali (data teknikal belum ada
+  // saat itu). Divalidasi ulang di 9.351 baris (26 hari, 16 Jul-24
+  // Agu), termasuk bobot trend yang sudah dikoreksi (lihat catatan di
+  // blok PRICE/MARKET STRUCTURE):
+  //   score <38   -> LOW      (18,9% >=3%,  9,8% >=5%,  n=3.438)
+  //   score 38-58 -> WATCH    (28,3% >=3%, 14,1% >=5%,  n=3.870)
+  //   score 59-71 -> MODERATE (40,9% >=3%, 24,7% >=5%,  n=1.686)
+  //   score >=72  -> HIGH     (55,5% >=3%, 38,9% >=5%,  n=357, 3,8%
+  //                            dari populasi — balik ke target awal;
+  //                            semula melar ke 13,5% populasi & win3
+  //                            turun ke 46,6% gara-gara bug bobot
+  //                            trend +8/+2/-10 yang tidak divalidasi)
   // ------------------------------------------------------------
   let label = "LOW";
   let expectedMoveBand = "LOW";
 
-  if (opportunityScore >= 68) {
+  if (opportunityScore >= 72) {
     label = "HIGH";
     expectedMoveBand = "HIGH";
-  } else if (opportunityScore >= 55) {
+  } else if (opportunityScore >= 59) {
     label = "MODERATE";
     expectedMoveBand = "MODERATE";
-  } else if (opportunityScore >= 35) {
+  } else if (opportunityScore >= 38) {
     label = "WATCH";
     expectedMoveBand = "WATCH";
   }
@@ -714,7 +730,7 @@ export function calculateNextDayOpportunity({
   // "eligible" sekarang murni skor + blocker nyata — TIDAK LAGI
   // mensyaratkan salah satu dari 3 coreSetup (lihat catatan HARD
   // ELIGIBILITY di atas kenapa syarat itu dihapus).
-  const eligible = uniqueBlockers.length === 0 && opportunityScore >= 68;
+  const eligible = uniqueBlockers.length === 0 && opportunityScore >= 72;
 
   // Eligible yang gagal karena score tetap tidak boleh disebut HIGH.
   if (label === "HIGH" && !eligible) {
