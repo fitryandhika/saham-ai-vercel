@@ -1,5 +1,6 @@
 import { getRealtimeIntradayOHLCV } from "../services/realtimeIntradayService.js";
 import { getZapiRawDebug } from "../services/zapiService.js";
+import { calculateIntradayExit } from "../engine/indicators/intradayExit.js";
 
 export default async function handler(req, res) {
 
@@ -23,10 +24,15 @@ export default async function handler(req, res) {
 
       const data = await getRealtimeIntradayOHLCV(kode);
 
+      const exitReasoning = calculateIntradayExit({
+        candles: data && data.candles ? data.candles : []
+      });
+
       return res.status(200).json({
         success: true,
         mode: "realtime-intraday-test",
-        ...data
+        ...data,
+        exitReasoning
       });
 
     } catch (e) {
