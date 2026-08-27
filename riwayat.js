@@ -399,6 +399,38 @@ function patternBadges(row) {
   return badges.length ? badges.join(" ") : "–";
 }
 
+// ==========================
+// Watchlist Besok — tombol ➕ per baris
+// ==========================
+// Key sama dengan yang dipakai watchlist.js, supaya item yang
+// ditambahkan dari sini langsung muncul di halaman Watchlist Besok.
+
+const WATCHLIST_KEY = "sahamai_watchlist_besok";
+
+function addToWatchlist(kode, scanDate, closePrice) {
+  let list = [];
+  try {
+    const raw = localStorage.getItem(WATCHLIST_KEY);
+    list = raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    list = [];
+  }
+
+  list.unshift({
+    id: `${kode}_${scanDate}_${Date.now()}`,
+    kode: String(kode).toUpperCase().trim(),
+    scan_date: scanDate,
+    entry_price: Number(closePrice) || null,
+    added_at: new Date().toISOString(),
+    status: "WATCHING",
+    exit_price: null,
+    exit_time: null,
+    last: null
+  });
+
+  localStorage.setItem(WATCHLIST_KEY, JSON.stringify(list));
+}
+
 function renderHistoryTable(rows) {
   const el = document.getElementById("historyTableWrap");
 
@@ -424,6 +456,7 @@ function renderHistoryTable(rows) {
         <td>${regimeBadge(r.market_regime)}</td>
         <td>${patternBadges(r)}</td>
         <td>${statusPill(r)}</td>
+        <td><button class="btn-mini btn-add-watchlist" data-kode="${r.kode}" data-scandate="${r.scan_date}" data-close="${r.close ?? ""}" title="Tambah ke Watchlist Besok">➕</button></td>
       </tr>
     `)
     .join("");
@@ -436,7 +469,7 @@ function renderHistoryTable(rows) {
             <th>Tanggal</th><th>Kode</th><th>Opportunity</th><th>Signal</th><th>Score</th><th>Entry Quality</th>
             <th>Close (beli sore)</th><th>High H+1</th><th>Close H+1</th>
             <th>Max Gain% (sesi 1)</th><th>Return% (sampai close)</th>
-            <th>Regime</th><th>Pola</th><th>Hasil</th>
+            <th>Regime</th><th>Pola</th><th>Hasil</th><th>Aksi</th>
           </tr>
         </thead>
         <tbody>${body}</tbody>
@@ -605,3 +638,25 @@ if (dateFilterEl && !dateFilterEl.value) {
 
 loadSummary();
 loadTable();
+
+// Delegated click handler untuk tombol ➕ tambah ke Watchlist Besok
+// (event delegation di document supaya tetap jalan walau tabel
+// di-render ulang tiap ganti filter).
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest(".btn-add-watchlist");
+  if (!btn) return;
+
+  const kode = btn.dataset.kode;
+  const scanDate = btn.dataset.scandate;
+  const close = btn.dataset.close;
+
+  addToWatchlist(kode, scanDate, close);
+
+  const original = btn.textContent;
+  btn.textContent = "✅";
+  btn.disabled = true;
+  setTimeout(() => {
+    btn.textContent = original;
+    btn.disabled = false;
+  }, 1200);
+});
