@@ -21,9 +21,10 @@
 
 .watchlist-card-head{
   display:flex;
+  flex-wrap:wrap;
   justify-content:space-between;
   align-items:flex-start;
-  gap:10px;
+  gap:8px 10px;
   margin-bottom:10px;
 }
 
@@ -154,12 +155,71 @@
 
 .watchlist-form{
   display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:10px;
+  grid-template-columns:1fr;
+  gap:12px;
 }
 
-.watchlist-form input{grid-column:span 1;}
-
 @media (min-width:560px){
-  .watchlist-form{grid-template-columns:1fr 1fr 1fr auto;}
+  .watchlist-form{grid-template-columns:1fr 1fr;}
+}
+
+@media (min-width:900px){
+  .watchlist-form{grid-template-columns:1.1fr .9fr .9fr auto;align-items:end;}
+}
+
+.watchlist-form .field{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  min-width:0;
+}
+
+.watchlist-form .field-label{
+  font-size:10px;
+  color:var(--muted-2);
+  text-transform:uppercase;
+  letter-spacing:.05em;
+  padding-left:2px;
+}
+
+.watchlist-form .field-label-ghost{
+  visibility:hidden;
+}
+
+@media (max-width:899px){
+  .watchlist-form .field-label-ghost{display:none;}
+}
+
+.watchlist-form .field-actions .btn-primary{
+  margin-top:0;
+  white-space:nowrap;
+}
+
+.watchlist-form input[type="text"],
+.watchlist-form input[type="number"],
+.watchlist-form input[type="date"]{
+  width:100%;
+  padding:12px 14px;
+  font-size:14px;
+  font-family:var(--font-mono);
+  background:var(--surface-2);
+  border:1px solid var(--border);
+  border-radius:10px;
+  color:var(--text);
+  appearance:none;
+  -webkit-appearance:none;
+  -moz-appearance:none;
+}
+
+.watchlist-form input[type="text"]{text-transform:uppercase;}
+
+.watchlist-form input:focus{
+  outline:2px solid var(--amber);
+  outline-offset:1px;
+}
+
+.watchlist-form input[type="date"]::-webkit-calendar-picker-indicator{
+  filter:invert(30%) sepia(20%) saturate(400%) hue-rotate(360deg);
+  cursor:pointer;
+  opacity:.85;
 }
