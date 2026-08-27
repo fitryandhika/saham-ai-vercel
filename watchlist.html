@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Watchlist Besok — Stockgz</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="watchlist.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-name">Stockgz</span>
+  </div>
+  <div class="clock" id="clock">--:--</div>
+</header>
+
+<div id="tickerBar" class="ticker-bar">
+  <div class="ticker-track">
+    <span class="ticker-item ticker-ihsg" id="tickerIhsg">IHSG —</span>
+    <span class="ticker-sep">·</span>
+    <span class="ticker-item" id="windowLabel">Memuat status market…</span>
+    <span class="ticker-sep">·</span>
+    <span class="ticker-item"><span id="regimeBadge" class="regime-badge neutral">⚪ Memuat regime…</span></span>
+  </div>
+</div>
+
+<nav class="nav-tabs">
+  <a href="dashboard.html" class="nav-tab"><span class="nav-icon">🏠</span><span class="nav-text">Dashboard</span></a>
+  <a href="index.html" class="nav-tab"><span class="nav-icon">📊</span><span class="nav-text">Analisa</span></a>
+  <a href="portfolio.html" class="nav-tab"><span class="nav-icon">💼</span><span class="nav-text">Portofolio</span></a>
+  <a href="riwayat.html" class="nav-tab"><span class="nav-icon">📈</span><span class="nav-text">Riwayat AI</span></a>
+  <a href="watchlist.html" class="nav-tab active"><span class="nav-icon">🎯</span><span class="nav-text">Watchlist</span></a>
+</nav>
+
+<main class="container">
+
+  <section class="page-hero">
+    <span class="page-hero-eyebrow">Eksekusi Besok</span>
+    <h1 class="page-hero-title">Watchlist Besok</h1>
+    <p class="page-hero-sub">Saham yang kamu pilih dari scan sore, dipantau real-time besok dengan alasan berbasis data (VWAP, jarak dari high sesi, momentum, volume) — bukan tebakan kapan harus exit atau hold.</p>
+  </section>
+
+  <section class="widget-card">
+    <div class="widget-head">
+      <span class="widget-title">➕ Tambah Manual ke Watchlist</span>
+    </div>
+    <div class="watchlist-form">
+      <input id="wlKode" type="text" placeholder="Kode saham (BBCA)" autocomplete="off">
+      <input id="wlHarga" type="number" placeholder="Harga close (entry)" inputmode="decimal">
+      <input id="wlTanggal" type="date">
+      <button class="btn-primary" id="btnTambahWatchlist">Tambah</button>
+    </div>
+    <p class="disclaimer">Saham dari Riwayat AI bisa langsung ditambahkan lewat tombol ➕ di tabel riwayat — form ini untuk tambah manual kalau perlu.</p>
+  </section>
+
+  <section class="widget-card">
+    <div class="widget-head">
+      <span class="widget-title">🎯 Sedang Dipantau</span>
+      <button class="btn-mini" id="btnRefreshWatchlist">🔄 Update Harga</button>
+    </div>
+    <div id="watchlistActive" class="watchlist-list"></div>
+  </section>
+
+  <section class="widget-card">
+    <div class="widget-head">
+      <span class="widget-title">✅ Sudah Dijual</span>
+    </div>
+    <div id="watchlistSold" class="watchlist-list"></div>
+  </section>
+
+  <p class="disclaimer">
+    Watchlist tersimpan hanya di HP ini (tidak sinkron ke perangkat lain).
+    Verdict HOLD/WASPADA/EXIT dihitung dari candle intraday real-time (ZAPI/Yahoo) —
+    baru dipasang, belum divalidasi dari data outcome nyata, jadi tetap gunakan penilaian sendiri sebagai pertimbangan akhir.
+  </p>
+
+</main>
+
+<script src="watchlist.js"></script>
+</body>
+</html>
