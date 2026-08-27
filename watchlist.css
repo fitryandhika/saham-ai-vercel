@@ -1,0 +1,165 @@
+/* ==========================
+   Watchlist Besok — kartu posisi & verdict engine
+   ========================== */
+
+.watchlist-list{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:14px;
+}
+
+@media (min-width:760px){
+  .watchlist-list{grid-template-columns:repeat(2,1fr);}
+}
+
+.watchlist-card{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:16px;
+  padding:16px;
+}
+
+.watchlist-card-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:10px;
+  margin-bottom:10px;
+}
+
+.watchlist-kode{
+  font-family:'JetBrains Mono',monospace;
+  font-weight:700;
+  font-size:18px;
+  color:var(--text);
+}
+
+.watchlist-meta{
+  font-size:12px;
+  color:var(--muted);
+  margin-top:2px;
+}
+
+.watchlist-verdict{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:5px 12px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:700;
+  white-space:nowrap;
+}
+
+.watchlist-verdict.hold{background:var(--green-dim);color:var(--green);}
+.watchlist-verdict.waspada{background:var(--amber-dim);color:var(--amber);}
+.watchlist-verdict.exit{background:var(--red-dim);color:var(--red);}
+.watchlist-verdict.unknown{background:var(--surface-3);color:var(--muted);}
+
+.watchlist-price-row{
+  display:flex;
+  justify-content:space-between;
+  align-items:baseline;
+  margin:10px 0;
+  padding:10px;
+  background:var(--surface-2);
+  border-radius:10px;
+}
+
+.watchlist-price-current{
+  font-family:'JetBrains Mono',monospace;
+  font-size:20px;
+  font-weight:700;
+  color:var(--text);
+}
+
+.watchlist-price-change{
+  font-family:'JetBrains Mono',monospace;
+  font-size:13px;
+  font-weight:600;
+}
+
+.watchlist-price-change.positive{color:var(--green);}
+.watchlist-price-change.negative{color:var(--red);}
+
+.watchlist-stats{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:8px;
+  margin-bottom:10px;
+}
+
+.watchlist-stat{
+  text-align:center;
+  padding:8px 4px;
+  background:var(--surface-2);
+  border-radius:8px;
+}
+
+.watchlist-stat-label{
+  font-size:10px;
+  color:var(--muted-2);
+  text-transform:uppercase;
+  letter-spacing:.03em;
+}
+
+.watchlist-stat-value{
+  font-family:'JetBrains Mono',monospace;
+  font-size:13px;
+  font-weight:700;
+  color:var(--text);
+  margin-top:2px;
+}
+
+.watchlist-reasons{
+  list-style:none;
+  padding:0;
+  margin:0 0 12px;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+
+.watchlist-reasons li{
+  font-size:12.5px;
+  line-height:1.45;
+  color:var(--muted);
+  padding-left:16px;
+  position:relative;
+}
+
+.watchlist-reasons li::before{
+  content:"—";
+  position:absolute;
+  left:0;
+  color:var(--muted-2);
+}
+
+.watchlist-card-actions{
+  display:flex;
+  gap:8px;
+}
+
+.watchlist-card-actions button{flex:1;}
+
+.watchlist-sold-badge{
+  display:inline-block;
+  margin-top:6px;
+  font-size:12px;
+  color:var(--muted);
+  background:var(--surface-3);
+  padding:4px 10px;
+  border-radius:8px;
+}
+
+.watchlist-form{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+}
+
+.watchlist-form input{grid-column:span 1;}
+
+@media (min-width:560px){
+  .watchlist-form{grid-template-columns:1fr 1fr 1fr auto;}
+}
