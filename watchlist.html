@@ -50,10 +50,22 @@
       <span class="widget-title">➕ Tambah Manual ke Watchlist</span>
     </div>
     <div class="watchlist-form">
-      <input id="wlKode" type="text" placeholder="Kode saham (BBCA)" autocomplete="off">
-      <input id="wlHarga" type="number" placeholder="Harga close (entry)" inputmode="decimal">
-      <input id="wlTanggal" type="date">
-      <button class="btn-primary" id="btnTambahWatchlist">Tambah</button>
+      <div class="field">
+        <label class="field-label" for="wlKode">Kode saham</label>
+        <input id="wlKode" type="text" placeholder="Contoh: BBCA" autocomplete="off">
+      </div>
+      <div class="field">
+        <label class="field-label" for="wlHarga">Harga close (entry)</label>
+        <input id="wlHarga" type="number" placeholder="Contoh: 1470" inputmode="decimal">
+      </div>
+      <div class="field">
+        <label class="field-label" for="wlTanggal">Tanggal scan</label>
+        <input id="wlTanggal" type="date" autocomplete="off">
+      </div>
+      <div class="field field-actions">
+        <span class="field-label field-label-ghost">&nbsp;</span>
+        <button class="btn-primary" id="btnTambahWatchlist">Tambah</button>
+      </div>
     </div>
     <p class="disclaimer">Saham dari Riwayat AI bisa langsung ditambahkan lewat tombol ➕ di tabel riwayat — form ini untuk tambah manual kalau perlu.</p>
   </section>
