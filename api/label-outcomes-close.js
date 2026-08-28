@@ -54,7 +54,7 @@ export const config = {
   maxDuration: 60
 };
 
-const CONCURRENCY = 8;
+const CONCURRENCY = 12;
 
 // ============================================================
 // MODE BATCH LINTAS TANGGAL
@@ -84,11 +84,28 @@ const CONCURRENCY = 8;
 // ?date=YYYY-MM-DD tetap memaksa mode satu tanggal seperti dulu,
 // supaya pemanggilan manual untuk investigasi tidak berubah.
 
-const MAX_DATES_PER_RUN = 5;
+const MAX_DATES_PER_RUN = 3;
+
+// Batas keras jumlah baris per invocation. Tiap baris memicu beberapa
+// panggilan jaringan (peak intraday + update Supabase), jadi tanpa batas
+// ini satu run bisa mencoba ribuan baris sekaligus dan mati kena
+// timeout/memori — yang di Vercel muncul sebagai FUNCTION_INVOCATION_FAILED,
+// bukan sebagai JSON error dari catch di bawah.
+const MAX_ROWS_PER_RUN = 300;
 
 // maxDuration 60s. Sisakan ruang untuk merangkai response &
 // menutup koneksi — berhenti melempar kerja baru di 45s.
-const TIME_BUDGET_MS = 45000;
+const TIME_BUDGET_MS = 38000;
+
+// Batas terpisah, lebih ketat, khusus untuk pengambilan peak intraday.
+// Peak adalah METADATA TAMBAHAN (jam harga tertinggi), bukan inti
+// pelabelan. Tapi biayanya 1 panggilan jaringan per baris dan tidak
+// bisa di-cache antar baris (kode+tanggal selalu unik) — inilah beban
+// terbesar saat mengejar backlog. Lewat ambang ini, peak dilewati dan
+// baris TETAP dilabel lengkap; peak bisa diisi belakangan lewat
+// api/relabel-high-low.js. Lebih baik 300 baris terlabel tanpa jam peak
+// daripada seluruh invocation mati kena timeout dan 0 baris tersimpan.
+const PEAK_TIME_BUDGET_MS = 25000;
 
 // ============================================================
 // THRESHOLD
@@ -357,7 +374,45 @@ export default async function handler(req, res) {
     const datesSet = new Set(datesThisRun);
     pending = pending.filter(r => datesSet.has(r.scan_date));
 
+    // Potong di batas keras baris. Sisanya tetap pending dan terambil
+    // di invocation berikutnya — aman karena urutannya stabil (tertua dulu).
+    const rowsBeforeCap = pending.length;
+    if (pending.length > MAX_ROWS_PER_RUN) {
+      pending = pending.slice(0, MAX_ROWS_PER_RUN);
+    }
+    const rowsDeferred = rowsBeforeCap - pending.length;
+
     const datesDeferred = datesInQueue.length - datesThisRun.length;
+
+    // ============================================================
+    // DRY RUN — DIAGNOSTIK
+    // ============================================================
+    //
+    // ?dryRun=1 berhenti di sini: antrean sudah diambil dari database,
+    // tapi belum ada satu pun fetch harga / update baris. Dipakai untuk
+    // memisahkan dua kemungkinan penyebab crash:
+    //   - kalau dryRun BERHASIL -> query antrean aman, masalahnya ada di
+    //     loop pelabelan (kemungkinan besar timeout / terlalu banyak baris)
+    //   - kalau dryRun ikut CRASH -> masalahnya di query antrean itu
+    //     sendiri atau di konfigurasi Supabase, bukan di volume kerja
+    if (req.query.dryRun) {
+
+      const perDate = {};
+      for (const r of pending) {
+        perDate[r.scan_date] = (perDate[r.scan_date] || 0) + 1;
+      }
+
+      return res.status(200).json({
+        success: true,
+        dryRun: true,
+        datesInQueue,
+        datesThisRun,
+        datesDeferred,
+        rowsThisRun: pending.length,
+        rowsPerDate: perDate,
+        elapsedMs: Date.now() - startedAt
+      });
+    }
 
     // ============================================================
     // LABEL
@@ -711,8 +766,14 @@ export default async function handler(req, res) {
           // ======================================================
 
           let peak = null;
+          let peakSkipped = false;
 
           try {
+
+            if (Date.now() - startedAt > PEAK_TIME_BUDGET_MS) {
+              peakSkipped = true;
+              throw new Error("PEAK_BUDGET_EXCEEDED");
+            }
 
             peak =
               await getIntradayPeakTime(
@@ -726,10 +787,12 @@ export default async function handler(req, res) {
 
           } catch (e) {
 
-            console.error(
-              `Peak ${row.kode} gagal:`,
-              e.message
-            );
+            if (!peakSkipped) {
+              console.error(
+                `Peak ${row.kode} gagal:`,
+                e.message
+              );
+            }
 
             peak = null;
           }
@@ -866,6 +929,8 @@ export default async function handler(req, res) {
             peakSource:
               peak?.source ??
               null,
+
+            peakSkipped,
 
             status:
               "OK"
@@ -1013,6 +1078,11 @@ export default async function handler(req, res) {
       datesProcessed: datesThisRun,
 
       datesDeferred,
+
+      rowsDeferred,
+
+      peakSkippedCount:
+        results.filter(r => r && r.peakSkipped).length,
 
       skippedTimeBudget:
         results.filter(
