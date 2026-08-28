@@ -287,6 +287,7 @@ export async function getAllScanHistoryRows({
   scanDate,
   kode,
   onlyLabeled = false,
+  pattern, // ikut diteruskan supaya export CSV menghormati filter "Pola"
   maxRows = 50000 // batas pengaman supaya tidak looping tanpa henti / timeout
 } = {}) {
   const PAGE_SIZE = 1000; // samakan dengan max-rows Supabase supaya tiap halaman penuh
@@ -298,6 +299,7 @@ export async function getAllScanHistoryRows({
       scanDate,
       kode,
       onlyLabeled,
+      pattern,
       limit: PAGE_SIZE,
       offset
     });
