@@ -63,12 +63,60 @@ function calculateEntryQuality({
     else if (dcp >= 2) { score -= 3; }
   }
 
+  // ============================================================
+  // JARAK KE RESISTANCE — TANGGA DUA SISI
+  // ============================================================
+  //
+  // ROOT CAUSE (ditemukan 28 Agustus 2026, dari export 10.148 baris
+  // berlabel / 30 hari perdagangan):
+  //
+  // Tangga lama HANYA punya cabang untuk distance > 0. Seluruh rentang
+  // negatif — dari -1% sampai -30% — jatuh ke "tidak ada penalti", jadi
+  // sama-sama menerima skor penuh. Padahal dua ujung rentang itu
+  // berlawanan hasilnya (win rate naik >=5% di H+1):
+  //
+  //   distance <= -10%  -> 23.0%   (n=3494)  <- terbaik di sisi bawah
+  //   -10% s/d -5%      -> 13.5%   (n=2814)
+  //   -5%  s/d -2%      ->  9.5%   (n=2002)
+  //   -2%  s/d  0%      ->  9.3%   (n=1306)  <- ZONA MATI, tapi dulu
+  //                                             dapat skor 100 penuh
+  //   di atas resistance-> 25.6%   (n= 532)  <- dulu justru DIHUKUM -30
+  //
+  // Akibatnya entry_quality_score jadi TERBALIK terhadap hasil nyata:
+  // korelasi -0.102 terhadap max gain H+1; di atas median win rate
+  // 13.1%, di bawah median 22.4%. Kolom yang tugasnya menyaring entry
+  // justru menyingkirkan pemenang.
+  //
+  // FIX: tangga dibuat dua sisi, mengikuti bentuk-U yang terbukti
+  // konsisten di 27 dari 30 hari (median selisih 12.2 poin persentase).
   if (Number.isFinite(distance)) {
-    if (distance > 8) { score -= 30; reasons.push(`Harga sudah ${distance}% di atas resistance`); }
-    else if (distance > 5) { score -= 20; reasons.push(`Harga ${distance}% di atas resistance`); }
-    else if (distance > 3) { score -= 12; reasons.push(`Harga ${distance}% di atas resistance`); }
-    else if (distance > 1.5) { score -= 6; }
-    else if (distance > 0) { score -= 2; }
+    if (distance > 0) {
+      // Sudah di atas resistance. Secara statistik ini zona terbaik,
+      // TAPI lihat gate anti-chasing di bawah: atas instruksi user,
+      // posisi entry tidak diizinkan membeli di atas resistance.
+      // Penalti di sini dibuat ringan saja supaya skornya jujur
+      // mencerminkan kualitas setup; yang memblokir pembelian adalah
+      // gate eksplisit, bukan skor yang dipaksa jelek.
+      if (distance > 8) { score -= 12; reasons.push(`Harga sudah ${distance}% di atas resistance`); }
+      else if (distance > 5) { score -= 8; reasons.push(`Harga ${distance}% di atas resistance`); }
+      else if (distance > 3) { score -= 5; reasons.push(`Harga ${distance}% di atas resistance`); }
+      else { score -= 2; }
+    } else if (distance > -2) {
+      score -= 22;
+      reasons.push(`Menempel resistance (${distance}%) — zona tersangkut, historis win rate terendah`);
+    } else if (distance > -5) {
+      score -= 20;
+      reasons.push(`Dekat resistance (${distance}%) — ruang naik terbatas sebelum tertahan`);
+    } else if (distance > -10) {
+      score -= 10;
+      reasons.push(`Jarak ke resistance ${distance}% — ruang gerak sedang`);
+    } else {
+      // Pullback dalam: ruang pemulihan lebar, tidak ada resistance
+      // terdekat yang menahan. Diberi bonus kecil, bukan sekadar
+      // "tanpa penalti", supaya benar-benar terangkat di atas zona mati.
+      score += 5;
+      reasons.push(`Jauh di bawah resistance (${distance}%) — ruang pemulihan lebar`);
+    }
   }
 
   if (Number.isFinite(rsiValue)) {
@@ -120,9 +168,41 @@ function calculateEntryQuality({
     label = dcp >= 10 ? "POOR" : "CAUTION";
   }
 
-  const entryEligible = score >= 65 && decision === "BUY_NOW";
+  // ============================================================
+  // GATE: JANGAN BELI DI ATAS RESISTANCE
+  // ============================================================
+  //
+  // Atas instruksi user (28 Agustus 2026): posisi entry tidak boleh
+  // membeli saham yang harganya sudah berada di atas level resistance-nya.
+  //
+  // CATATAN JUJUR SOAL TRADE-OFF — supaya keputusan ini bisa ditinjau
+  // ulang nanti dengan angka, bukan dari ingatan:
+  // Secara statistik zona di atas resistance justru berkinerja BAIK
+  // (win rate 25.6%, n=532, tertinggi dari semua zona). Memblokirnya
+  // berarti melepas 136 dari 1.630 pemenang di dataset 30 hari, sekitar
+  // 8% dari total pemenang. Yang ditukar adalah eksposur chase: entry di
+  // atas resistance tidak punya level tersangkut yang jelas di bawahnya,
+  // jadi kalau gagal, tidak ada acuan support terdekat untuk cut loss.
+  //
+  // Gate ini sengaja HANYA mematikan kelayakan entry (entryEligible /
+  // decision), TIDAK menyentuh opportunityScore — supaya saham seperti
+  // ini tetap terlihat di ranking sebagai kandidat pantauan, dan
+  // efeknya bisa diukur terpisah di evaluasi.
+  let aboveResistanceBlocked = false;
+  if (Number.isFinite(distance) && distance > 0) {
+    aboveResistanceBlocked = true;
+    decision = "WAIT_PULLBACK";
+    reasons.push(
+      `Harga sudah ${distance}% di atas resistance — entry ditahan, tunggu pullback ke bawah level`
+    );
+  }
 
-  return { score, label, chaseRisk, decision, entryEligible, reasons };
+  const entryEligible =
+    score >= 65 &&
+    decision === "BUY_NOW" &&
+    !aboveResistanceBlocked;
+
+  return { score, label, chaseRisk, decision, entryEligible, aboveResistanceBlocked, reasons };
 }
 
 // ============================================================
@@ -816,6 +896,7 @@ export function calculateNextDayOpportunity({
     chaseRisk: entryQuality.chaseRisk,
     entryDecision: entryQuality.decision,
     entryEligible: entryQuality.entryEligible,
+    aboveResistanceBlocked: entryQuality.aboveResistanceBlocked,
     entryQualityReasons: entryQuality.reasons,
     tradeDecision,
 
