@@ -172,6 +172,69 @@ export async function getPendingCloseSnapshots(scanDate) {
   return res.json();
 }
 
+// ==========================
+// Antrean close-labeling LINTAS TANGGAL
+// ==========================
+//
+// getOldestOpenLabeledDate() + getPendingCloseSnapshots() di atas hanya
+// bisa melayani SATU tanggal per pemanggilan. Karena cron close-labeling
+// jalan sekali per hari kerja, throughput-nya jadi 1 tanggal/hari —
+// padahal setiap hari kerja juga MENAMBAH 1 tanggal baru. Artinya
+// backlog tidak pernah menyusut (impas di kasus terbaik), dan satu
+// tanggal yang macet (mis. emiten delisting yang candle H+1-nya tidak
+// pernah ketemu) memblokir SEMUA tanggal yang lebih baru sampai
+// GIVE_UP_AFTER_DAYS terlampaui.
+//
+// Fungsi ini mengambil baris pending langsung lintas tanggal, diurutkan
+// dari yang tertua, jadi caller bisa memproses beberapa tanggal sekaligus
+// dalam satu invocation. Loop paginasi dipakai karena PostgREST punya
+// batas max-rows server-side (default 1000).
+//
+// beforeDate: batas eksklusif (scan_date < beforeDate) — dipakai untuk
+// membuang scan hari ini yang memang belum punya candle H+1.
+export async function getPendingCloseSnapshotsAcrossDates({
+  beforeDate,
+  maxRows = 4000
+} = {}) {
+  const cfg = getConfig();
+  if (!cfg) return [];
+
+  const PAGE_SIZE = 1000;
+  let offset = 0;
+  let all = [];
+
+  while (all.length < maxRows) {
+    const params = new URLSearchParams();
+    params.set("select", "id,kode,scan_date,close,actual_next_open");
+    params.set("labeled_at", "not.is.null");
+    params.set("close_labeled_at", "is.null");
+    params.set("order", "scan_date.asc,kode.asc");
+    params.set("limit", String(Math.min(PAGE_SIZE, maxRows - all.length)));
+    params.set("offset", String(offset));
+
+    if (beforeDate) params.set("scan_date", `lt.${beforeDate}`);
+
+    const res = await fetch(`${cfg.url}/rest/v1/scan_history?${params.toString()}`, {
+      headers: {
+        apikey: cfg.key,
+        Authorization: `Bearer ${cfg.key}`
+      }
+    });
+
+    if (!res.ok) {
+      throw new Error(`Supabase select gagal (${res.status}): ${await res.text()}`);
+    }
+
+    const page = await res.json();
+    all = all.concat(page);
+
+    if (page.length < PAGE_SIZE) break;
+    offset += PAGE_SIZE;
+  }
+
+  return all;
+}
+
 // Update satu baris (by id) dengan hasil aktual keesokan harinya.
 export async function updateLabel(id, patch) {
   const cfg = getConfig();
