@@ -435,7 +435,14 @@ function renderHistoryTable(rows) {
   const el = document.getElementById("historyTableWrap");
 
   if (!rows || rows.length === 0) {
-    el.innerHTML = `<div class="empty-state">Tidak ada data untuk filter ini.</div>`;
+    const dateEl = document.getElementById("dateFilter");
+    const activeDate = dateEl?.value || "";
+    el.innerHTML = activeDate
+      ? `<div class="empty-state">
+           Tidak ada data scan untuk tanggal ${activeDate}.
+           <br><button class="btn-mini" id="btnShowAllDates" style="margin-top:8px">Tampilkan semua tanggal</button>
+         </div>`
+      : `<div class="empty-state">Tidak ada data untuk filter ini.</div>`;
     return;
   }
 
@@ -561,9 +568,12 @@ function exportCsv() {
   const kode = document.getElementById("kodeFilter").value.trim();
   const date = document.getElementById("dateFilter").value;
 
+  const pattern = document.getElementById("patternFilter")?.value || "";
+
   const params = new URLSearchParams({ view: "table", format: "csv" });
   if (kode) params.set("kode", kode);
   if (date) params.set("date", date);
+  if (pattern) params.set("pattern", pattern);
 
   // Navigasi langsung (bukan fetch) supaya browser yang urus proses
   // download & Content-Disposition filename, termasuk di HP.
@@ -571,7 +581,20 @@ function exportCsv() {
 }
 
 document.getElementById("patternFilter")?.addEventListener("change", loadTable);
-document.getElementById("dateFilter")?.addEventListener("change", loadTable);
+document.getElementById("dateFilter")?.addEventListener("change", () => {
+  showTableDateNotice("");
+  loadTable();
+});
+
+// Tombol di empty-state: kosongkan filter tanggal lalu muat ulang, supaya
+// user tidak perlu menghapus isi input tanggal secara manual di HP.
+document.addEventListener("click", (e) => {
+  if (!e.target.closest("#btnShowAllDates")) return;
+  const dateEl = document.getElementById("dateFilter");
+  if (dateEl) dateEl.value = "";
+  showTableDateNotice("");
+  loadTable();
+});
 document.getElementById("btnSyncModel").addEventListener("click", async () => {
   const date = document.getElementById("dateFilter").value;
   const kode = document.getElementById("kodeFilter").value.trim().toUpperCase();
@@ -613,11 +636,16 @@ document.getElementById("btnRefresh").addEventListener("click", loadSummary);
 document.getElementById("btnLoadTable").addEventListener("click", loadTable);
 document.getElementById("btnExportCsv").addEventListener("click", exportCsv);
 
-// DRAFT (21 Agustus 2026, atas instruksi user): isi TANGGAL SCAN dengan
-// tanggal hari ini (WIB) secara default begitu halaman dibuka — dulu
-// kosong, jadi orang tidak langsung sadar field itu untuk filter tanggal.
-// Pakai Intl dgn timeZone Asia/Jakarta (bukan local device time) supaya
-// konsisten walau device user di zona waktu lain.
+// Isi TANGGAL SCAN secara default begitu halaman dibuka, supaya orang
+// langsung sadar field itu untuk filter tanggal.
+//
+// PENTING (perbaikan): dulu default-nya dipaksa ke tanggal HARI INI (WIB).
+// Padahal cron /api/scan baru jalan ~16:40 WIB dan tidak jalan di akhir
+// pekan/libur bursa — jadi setiap kali halaman dibuka pagi/siang, atau
+// Sabtu/Minggu, filter tanggal menunjuk ke hari yang memang belum punya
+// baris sama sekali, dan tabel selalu tampil "Tidak ada data untuk filter
+// ini" walau database-nya penuh. Sekarang tanggal default diambil dari
+// TANGGAL SCAN TERAKHIR yang benar-benar ada di database.
 function todayWibDateInputValue() {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Jakarta",
@@ -631,13 +659,70 @@ function todayWibDateInputValue() {
   return `${y}-${m}-${d}`;
 }
 
-const dateFilterEl = document.getElementById("dateFilter");
-if (dateFilterEl && !dateFilterEl.value) {
-  dateFilterEl.value = todayWibDateInputValue();
+// Ambil tanggal scan paling baru yang ada di database. Query diurutkan
+// scan_date.desc di dataLogService, jadi cukup minta 1 baris.
+async function fetchLatestScanDate() {
+  try {
+    const { data } = await fetchJSON(`/api/history?view=table&limit=1`);
+    return data && data.length ? data[0].scan_date : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function showTableDateNotice(text) {
+  const el = document.getElementById("tableDateNotice");
+  if (!el) return;
+  if (!text) {
+    el.style.display = "none";
+    el.textContent = "";
+    return;
+  }
+  el.style.display = "";
+  el.textContent = text;
+}
+
+// Bootstrap tabel: tentukan tanggal default dari data nyata, baru muat tabel.
+async function initHistoryTable() {
+  const dateEl = document.getElementById("dateFilter");
+  const wrap = document.getElementById("historyTableWrap");
+  if (!dateEl) return;
+
+  if (wrap) wrap.innerHTML = `<div class="empty-state">Memuat…</div>`;
+
+  // Kalau user sudah sempat mengisi sendiri (mis. reload dengan value
+  // tersimpan browser), hormati pilihannya dan langsung muat.
+  if (dateEl.value) {
+    await loadTable();
+    return;
+  }
+
+  const latest = await fetchLatestScanDate();
+
+  if (!latest) {
+    // Belum ada data sama sekali — biarkan kosong supaya loadTable()
+    // menampilkan seluruh baris terbaru lintas tanggal (bukan 0 baris).
+    dateEl.value = "";
+    await loadTable();
+    return;
+  }
+
+  dateEl.value = latest;
+
+  const today = todayWibDateInputValue();
+  if (latest !== today) {
+    showTableDateNotice(
+      `Scan untuk ${today} belum tersedia — menampilkan data scan terakhir: ${latest}.`
+    );
+  } else {
+    showTableDateNotice("");
+  }
+
+  await loadTable();
 }
 
 loadSummary();
-loadTable();
+initHistoryTable();
 
 // Delegated click handler untuk tombol ➕ tambah ke Watchlist Besok
 // (event delegation di document supaya tetap jalan walau tabel
