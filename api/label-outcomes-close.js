@@ -37,6 +37,7 @@
 
 import {
   getPendingCloseSnapshots,
+  getPendingCloseSnapshotsAcrossDates,
   updateLabel,
   getOldestOpenLabeledDate
 } from "../services/dataLogService.js";
@@ -54,6 +55,40 @@ export const config = {
 };
 
 const CONCURRENCY = 8;
+
+// ============================================================
+// MODE BATCH LINTAS TANGGAL
+// ============================================================
+//
+// MASALAH STRUKTURAL (ditemukan 28 Agustus 2026):
+// Handler ini dulu hanya memproses SATU tanggal per invocation —
+// hasil getOldestOpenLabeledDate(), yaitu tanggal pending TERTUA.
+// Cron-nya jalan sekali per hari kerja, jadi kapasitasnya 1
+// tanggal/hari, sementara /api/scan menambah 1 tanggal baru
+// setiap hari kerja juga. Backlog karena itu tidak pernah bisa
+// menyusut — impas di kasus terbaik, dan bertambah permanen
+// setiap kali ada 1 hari cron gagal/libur tidak sinkron.
+//
+// Efek sampingnya lebih buruk lagi: satu tanggal tua yang macet
+// (mis. emiten yang candle H+1-nya tidak pernah ketemu) menahan
+// antrean sampai GIVE_UP_AFTER_DAYS = 10 hari terlampaui, dan
+// selama 10 hari itu SEMUA tanggal yang lebih baru ikut
+// tertahan walau datanya sebenarnya siap dilabel.
+//
+// FIX: proses beberapa tanggal sekaligus dalam satu invocation,
+// dari yang tertua, dibatasi oleh MAX_DATES_PER_RUN dan budget
+// waktu TIME_BUDGET_MS (di bawah maxDuration 60s). Sisa baris
+// yang belum sempat diproses tetap pending dan diambil lagi di
+// invocation berikutnya — tidak ada state yang hilang.
+//
+// ?date=YYYY-MM-DD tetap memaksa mode satu tanggal seperti dulu,
+// supaya pemanggilan manual untuk investigasi tidak berubah.
+
+const MAX_DATES_PER_RUN = 5;
+
+// maxDuration 60s. Sisakan ruang untuk merangkai response &
+// menutup koneksi — berhenti melempar kerja baru di 45s.
+const TIME_BUDGET_MS = 45000;
 
 // ============================================================
 // THRESHOLD
@@ -240,49 +275,57 @@ export default async function handler(req, res) {
     // TARGET DATE
     // ============================================================
 
-    const scanDate =
-      req.query.date ||
-      await getOldestOpenLabeledDate();
+    const startedAt = Date.now();
+    const today = todayWIB();
 
-    // ============================================================
-    // TIDAK ADA BACKLOG
-    // ============================================================
+    // Cache candle harian per kode, berlaku selama satu invocation.
+    // Wajib ada begitu kita memproses lintas tanggal: emiten yang sama
+    // muncul di setiap tanggal, dan tanpa cache getStockData() dipanggil
+    // ulang untuk tiap baris (500 emiten x 5 tanggal = 2500 fetch).
+    // Dengan cache, tetap 500 fetch — inilah yang membuat mode batch
+    // muat di dalam maxDuration 60s.
+    const candleCache = new Map();
 
-    if (!scanDate) {
+    async function getCandlesCached(kode) {
+      if (candleCache.has(kode)) return candleCache.get(kode);
 
-      return res.status(200).json({
-        success: true,
-        scanDate: null,
-        message:
-          "Tidak ada snapshot yang menunggu labeling close.",
-        labeled: 0
-      });
+      const promise = getStockData(kode, "3mo").catch(() => null);
+      candleCache.set(kode, promise);
+      return promise;
     }
 
-    // ============================================================
-    // JANGAN PROSES SCAN HARI INI
-    // ============================================================
+    const forcedDate = req.query.date || null;
 
-    if (scanDate === todayWIB()) {
+    // ============================================================
+    // AMBIL ANTREAN
+    // ============================================================
+    //
+    // Mode manual (?date=): tetap satu tanggal, seperti perilaku lama.
+    // Mode cron: lintas tanggal, tertua dulu, tanpa scan hari ini
+    // (scan_date < today) karena H+1-nya jelas belum ada.
 
-      return res.status(200).json({
-        success: true,
-        scanDate,
-        message:
-          "Scan hari ini belum mempunyai candle H+1.",
-        labeled: 0
+    let pending;
+
+    if (forcedDate) {
+
+      if (forcedDate === today) {
+        return res.status(200).json({
+          success: true,
+          scanDate: forcedDate,
+          message:
+            "Scan hari ini belum mempunyai candle H+1.",
+          labeled: 0
+        });
+      }
+
+      pending = await getPendingCloseSnapshots(forcedDate);
+
+    } else {
+
+      pending = await getPendingCloseSnapshotsAcrossDates({
+        beforeDate: today
       });
     }
-
-    // ============================================================
-    // AMBIL SNAPSHOT YANG SUDAH OPEN LABELED
-    // TAPI CLOSE BELUM
-    // ============================================================
-
-    const pending =
-      await getPendingCloseSnapshots(
-        scanDate
-      );
 
     if (
       !pending ||
@@ -291,12 +334,30 @@ export default async function handler(req, res) {
 
       return res.status(200).json({
         success: true,
-        scanDate,
+        scanDate: forcedDate,
         message:
-          "Tidak ada snapshot yang menunggu labeling close pada tanggal ini.",
+          "Tidak ada snapshot yang menunggu labeling close.",
         labeled: 0
       });
     }
+
+    // ============================================================
+    // BATASI JUMLAH TANGGAL PER RUN
+    // ============================================================
+    //
+    // pending sudah urut scan_date.asc dari query, jadi cukup ambil
+    // MAX_DATES_PER_RUN tanggal unik pertama (= yang paling tua).
+
+    const datesInQueue = [...new Set(pending.map(r => r.scan_date))];
+
+    const datesThisRun = forcedDate
+      ? datesInQueue
+      : datesInQueue.slice(0, MAX_DATES_PER_RUN);
+
+    const datesSet = new Set(datesThisRun);
+    pending = pending.filter(r => datesSet.has(r.scan_date));
+
+    const datesDeferred = datesInQueue.length - datesThisRun.length;
 
     // ============================================================
     // LABEL
@@ -311,11 +372,19 @@ export default async function handler(req, res) {
           // AMBIL DAILY DATA
           // ======================================================
 
+          // Budget waktu: kalau sudah mepet maxDuration, berhenti
+          // melempar kerja baru. Baris yang belum diproses tetap
+          // pending dan diambil lagi di invocation berikutnya.
+          if (Date.now() - startedAt > TIME_BUDGET_MS) {
+            return {
+              kode: row.kode,
+              scanDate: row.scan_date,
+              status: "SKIPPED_TIME_BUDGET"
+            };
+          }
+
           const stockData =
-            await getStockData(
-              row.kode,
-              "3mo"
-            );
+            await getCandlesCached(row.kode);
 
           if (
             !stockData ||
@@ -845,6 +914,14 @@ export default async function handler(req, res) {
           }
 
           if (
+            r.status === "SKIPPED_TIME_BUDGET"
+          ) {
+            // Bukan kegagalan — baris ini sengaja tidak disentuh
+            // dan masih pending untuk invocation berikutnya.
+            return null;
+          }
+
+          if (
             r.status !== "OK"
           ) {
 
@@ -928,7 +1005,22 @@ export default async function handler(req, res) {
 
       success: true,
 
-      scanDate,
+      // Mode batch memproses banyak tanggal, jadi laporkan daftarnya
+      // (scanDate tunggal dipertahankan untuk kompatibilitas pemanggil
+      // lama: diisi tanggal tertua yang diproses run ini).
+      scanDate: datesThisRun[0] ?? null,
+
+      datesProcessed: datesThisRun,
+
+      datesDeferred,
+
+      skippedTimeBudget:
+        results.filter(
+          r => r && r.status === "SKIPPED_TIME_BUDGET"
+        ).length,
+
+      elapsedMs:
+        Date.now() - startedAt,
 
       totalPending:
         pending.length,
