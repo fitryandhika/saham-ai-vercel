@@ -69,7 +69,8 @@ export default async function handler(req, res) {
         ? await getAllScanHistoryRows({
             scanDate: date,
             kode,
-            onlyLabeled: onlyLabeled === "true"
+            onlyLabeled: onlyLabeled === "true",
+            pattern
           })
         : await getScanHistoryRows({
             scanDate: date,
