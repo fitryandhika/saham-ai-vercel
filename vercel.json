@@ -1,9 +1,24 @@
 {
   "crons": [
-    { "path": "/api/macro-scan", "schedule": "20 9 * * 1-5" },
-    { "path": "/api/scan?highConviction=false", "schedule": "30 9 * * 1-5" },
-    { "path": "/api/label-outcomes", "schedule": "15 2 * * 1-5" },
-    { "path": "/api/label-outcomes-close", "schedule": "20 9 * * 1-5" },
-    { "path": "/api/universe-refresh", "schedule": "0 20 * * 0" }
+    {
+      "path": "/api/macro-scan",
+      "schedule": "20 9 * * 1-5"
+    },
+    {
+      "path": "/api/scan?highConviction=false",
+      "schedule": "30 9 * * 1-5"
+    },
+    {
+      "path": "/api/label-outcomes",
+      "schedule": "15 2 * * 1-5"
+    },
+    {
+      "path": "/api/label-outcomes-close",
+      "schedule": "*/20 9-13 * * 1-5"
+    },
+    {
+      "path": "/api/universe-refresh",
+      "schedule": "0 20 * * 0"
+    }
   ]
 }
