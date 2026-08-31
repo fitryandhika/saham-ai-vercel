@@ -1,45 +1,37 @@
 // ==========================
-// Label Outcomes — TAHAP 2: CLOSE / HIGH / LOW H+1
+// Label Outcomes — FINAL SELF-HEALING WORKER
 // ==========================
 //
-// Tahap 2 berjalan setelah Tahap 1 berhasil.
+// Tujuan:
+// 1. Setiap snapshot yang sudah jatuh tempo (scan_date < hari ini)
+//    dapat dilabel tanpa bergantung pada Tahap 1.
+// 2. Satu saham/tanggal yang gagal TIDAK boleh memblokir tanggal lain.
+// 3. Retry otomatis dengan backoff untuk error sementara.
+// 4. Saat candle H+1 ditemukan, worker ini mengisi OPEN + CLOSE/HIGH/LOW
+//    sekaligus. Jadi kegagalan cron pagi tidak dapat membuat Max Gain/Return
+//    kosong selamanya.
+// 5. Peak intraday adalah metadata tambahan; tidak boleh menghalangi
+//    labeling OHLC utama.
 //
-// Mengisi:
+// Strategi:
+//   scan_history (due & close_labeled_at NULL)
+//        -> fetch daily OHLC H+1
+//        -> isi seluruh outcome
+//        -> COMPLETE
 //
-//   actual_next_close
-//   actual_next_high
-//   actual_next_low
-//   next_day_close_return_from_close_pct
-//   next_day_max_gain_from_close_pct
-//   next_day_max_loss_from_close_pct
-//   next_day_high_3pct_realized
-//   next_day_close_2pct_realized
-//   next_day_success
-//   close_labeled_at
-//
-// Selain daily OHLC, fungsi ini juga mencoba mengambil:
-//
-//   peakTimeWIB
-//   peakHigh
-//   peakSessionPhase
-//   peak_source
-//
-// Untuk peak intraday:
-//
-//   ZAPI Stockbit -> Yahoo 15m fallback
+// Jika fetch gagal:
+//   -> RETRY + next_retry_at
+//   -> run berikutnya mengambil row tersebut kembali
 //
 // IMPORTANT:
-// Daily OHLC tetap menggunakan getStockData().
-// ZAPI intraday hanya digunakan untuk peak time.
-//
-// Jangan menggunakan candles.at(-1).
-// Selalu cari candle trading pertama SETELAH scan_date.
+// Jangan menggunakan candles.at(-1). Selalu cari candle trading pertama
+// SETELAH scan_date.
 
 import {
   getPendingCloseSnapshots,
   getPendingCloseSnapshotsAcrossDates,
   updateLabel,
-  getOldestOpenLabeledDate
+  markCloseLabelRetry
 } from "../services/dataLogService.js";
 
 import {
@@ -54,1095 +46,424 @@ export const config = {
   maxDuration: 60
 };
 
-const CONCURRENCY = 24;
-
-// ============================================================
-// MODE BATCH LINTAS TANGGAL
-// ============================================================
-//
-// MASALAH STRUKTURAL (ditemukan 28 Agustus 2026):
-// Handler ini dulu hanya memproses SATU tanggal per invocation —
-// hasil getOldestOpenLabeledDate(), yaitu tanggal pending TERTUA.
-// Cron-nya jalan sekali per hari kerja, jadi kapasitasnya 1
-// tanggal/hari, sementara /api/scan menambah 1 tanggal baru
-// setiap hari kerja juga. Backlog karena itu tidak pernah bisa
-// menyusut — impas di kasus terbaik, dan bertambah permanen
-// setiap kali ada 1 hari cron gagal/libur tidak sinkron.
-//
-// Efek sampingnya lebih buruk lagi: satu tanggal tua yang macet
-// (mis. emiten yang candle H+1-nya tidak pernah ketemu) menahan
-// antrean sampai GIVE_UP_AFTER_DAYS = 10 hari terlampaui, dan
-// selama 10 hari itu SEMUA tanggal yang lebih baru ikut
-// tertahan walau datanya sebenarnya siap dilabel.
-//
-// FIX: proses beberapa tanggal sekaligus dalam satu invocation,
-// dari yang tertua, dibatasi oleh MAX_DATES_PER_RUN dan budget
-// waktu TIME_BUDGET_MS (di bawah maxDuration 60s). Sisa baris
-// yang belum sempat diproses tetap pending dan diambil lagi di
-// invocation berikutnya — tidak ada state yang hilang.
-//
-// ?date=YYYY-MM-DD tetap memaksa mode satu tanggal seperti dulu,
-// supaya pemanggilan manual untuk investigasi tidak berubah.
-
-const MAX_DATES_PER_RUN = 2;
-
-// Batas keras jumlah baris per invocation. Kapasitas dinaikkan agar satu
-// hari normal (~400-500 emiten) dapat habis dalam satu run. Jika masih ada
-// sisa, cron berikutnya mengambil sisa yang sama karena query stabil by
-// scan_date,kode. Ini mencegah backlog tumbuh hanya karena kapasitas pas-pasan.
-const MAX_ROWS_PER_RUN = 700;
-
-// maxDuration 60s. Sisakan ruang untuk merangkai response &
-// menutup koneksi — berhenti melempar kerja baru di 45s.
+const CONCURRENCY = 16;
+const MAX_ROWS_PER_RUN = 300;
 const TIME_BUDGET_MS = 48000;
-
-// Batas terpisah, lebih ketat, khusus untuk pengambilan peak intraday.
-// Peak adalah METADATA TAMBAHAN (jam harga tertinggi), bukan inti
-// pelabelan. Tapi biayanya 1 panggilan jaringan per baris dan tidak
-// bisa di-cache antar baris (kode+tanggal selalu unik) — inilah beban
-// terbesar saat mengejar backlog. Lewat ambang ini, peak dilewati dan
-// baris TETAP dilabel lengkap; peak bisa diisi belakangan lewat
-// api/relabel-high-low.js. Lebih baik 300 baris terlabel tanpa jam peak
-// daripada seluruh invocation mati kena timeout dan 0 baris tersimpan.
-const PEAK_TIME_BUDGET_MS = 18000;
-
-// ============================================================
-// THRESHOLD
-// ============================================================
 
 const HIGH_TARGET_PCT = 3;
 const CLOSE_TARGET_PCT = 2;
 
-// ============================================================
-// MARKET CLOSE
-// ============================================================
-//
-// Jangan melabel candle hari berjalan sebelum market selesai.
-// Dipakai hanya kalau H+1 ternyata adalah hari ini.
-//
-// ROOT CAUSE (audit ZAPI-skip):
-// Candle harian dari Yahoo/IDX Official belum tentu SUDAH TERBIT
-// persis jam 16:00:00 WIB — publikasinya punya delay beberapa
-// menit dari jam tutup resmi. Kalau cron jalan tepat jam 16:00
-// dan candle H+1 belum terbit, findTradingDayCandleAfter() tidak
-// menemukan apa-apa (NEXT_CANDLE_NOT_FOUND) untuk hari itu.
-// Baris tersebut baru berhasil dilabel BESOK, dan saat itu
-// targetDate (nextDate) sudah bukan lagi todayWIB() lagi — jadi
-// gate "ZAPI — PRIORITAS" (targetDate === todayWIB()) di
-// getIntradayPeakTime() selalu bernilai false, dan peak SELALU
-// jatuh ke fallback Yahoo. Ini bukan Yahoo yang "lebih baik",
-// tapi ZAPI yang tidak pernah kebagian giliran mencoba.
-//
-// FIX: beri buffer publikasi setelah jam tutup resmi (16:00),
-// supaya saat candle dicek, datanya sudah tersedia PADA HARI
-// YANG SAMA. Dengan begitu targetDate === todayWIB() bisa benar
-// tercapai, dan ZAPI benar-benar dicoba dulu sebagai sumber
-// pertama sesuai desain awal.
-//
-// PENTING — WAJIB DIIKUTI SAAT DEPLOY:
-// Jadwal cron endpoint ini di vercel.json juga harus digeser
-// mundur supaya selaras dengan buffer ini, misalnya dari
-// "0 9 * * 1-5" (= 16:00 WIB) menjadi "20 9 * * 1-5" (= 16:20
-// WIB). Tanpa perubahan itu, cron akan tetap jalan jam 16:00,
-// isAfterMarketCloseWIB() akan selalu false saat itu, dan
-// snapshot hari ini akan selalu berstatus WAIT_MARKET_CLOSE
-// pada satu-satunya kesempatan cron jalan hari itu — sehingga
-// tetap baru kelabel besok (masalah yang sama, tidak terfix).
-// ============================================================
-
+// Daily candle perlu buffer setelah market close resmi. 16:20 WIB
+// dipakai agar candle harian tidak dilabel terlalu dini.
 const MARKET_CLOSE_HOUR = 16;
 const MARKET_CLOSE_MINUTE = 20;
 
-// ============================================================
-// GIVE UP THRESHOLD
-// ============================================================
-//
-// Sama seperti di api/label-outcomes.js (lihat catatan di sana) — kalau
-// baris gagal cari candle H+1 dan scan_date-nya sudah lebih tua dari
-// GIVE_UP_AFTER_DAYS hari, tulis close_labeled_at supaya baris ini
-// keluar dari antrean getOldestOpenLabeledDate() dan tidak menyumbat
-// tanggal-tanggal baru selamanya.
-const GIVE_UP_AFTER_DAYS = 10;
+function isAfterMarketCloseWIB() {
+  const now = new Date();
+  const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const wibMinutes = (utcMinutes + 7 * 60) % (24 * 60);
+  const hour = Math.floor(wibMinutes / 60);
+  const minute = wibMinutes % 60;
 
-function daysSince(dateStr) {
-  const then = new Date(dateStr + "T00:00:00Z").getTime();
-  const now = new Date(todayWIB() + "T00:00:00Z").getTime();
-  return Math.floor((now - then) / 86400000);
+  return (
+    hour > MARKET_CLOSE_HOUR ||
+    (hour === MARKET_CLOSE_HOUR && minute >= MARKET_CLOSE_MINUTE)
+  );
 }
 
-async function giveUpIfStale(row) {
-  if (daysSince(row.scan_date) < GIVE_UP_AFTER_DAYS) {
-    return false;
-  }
-
-  await updateLabel(row.id, {
-    close_labeled_at: new Date().toISOString()
-  });
-
-  return true;
-}
-
-// ============================================================
-// CONCURRENCY POOL
-// ============================================================
-
-async function runPool(items, worker, concurrency) {
+function runPool(items, worker, concurrency) {
   const results = new Array(items.length);
   let cursor = 0;
 
   async function next() {
-    while (cursor < items.length) {
+    while (true) {
       const i = cursor++;
+      if (i >= items.length) return;
 
       try {
-        results[i] =
-          await worker(items[i], i);
+        results[i] = await worker(items[i], i);
       } catch (e) {
         results[i] = {
-          error:
-            e?.message ||
-            String(e)
+          status: "ERROR",
+          error: e?.message || String(e)
         };
       }
     }
   }
 
-  await Promise.all(
+  return Promise.all(
     Array.from(
-      {
-        length:
-          Math.min(
-            concurrency,
-            items.length
-          )
-      },
+      { length: Math.min(concurrency, items.length) },
       next
     )
-  );
-
-  return results;
+  ).then(() => results);
 }
 
-// ============================================================
-// CEK MARKET SUDAH CLOSE
-// ============================================================
-
-function isAfterMarketCloseWIB() {
-  const now = new Date();
-
-  const utcMinutes =
-    now.getUTCHours() * 60 +
-    now.getUTCMinutes();
-
-  // UTC + 7
-  const wibMinutes =
-    utcMinutes + 7 * 60;
-
-  const normalized =
-    wibMinutes % (24 * 60);
-
-  const hour =
-    Math.floor(
-      normalized / 60
-    );
-
-  const minute =
-    normalized % 60;
-
-  return (
-    hour > MARKET_CLOSE_HOUR ||
-    (
-      hour === MARKET_CLOSE_HOUR &&
-      minute >= MARKET_CLOSE_MINUTE
-    )
-  );
+function finitePositive(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-// ============================================================
-// HANDLER
-// ============================================================
+function pct(from, to) {
+  if (!Number.isFinite(from) || from <= 0 || !Number.isFinite(to)) {
+    return null;
+  }
+  return Number((((to - from) / from) * 100).toFixed(2));
+}
 
 export default async function handler(req, res) {
+  const startedAt = Date.now();
 
   try {
-
     // ============================================================
     // SECURITY
     // ============================================================
-
     if (process.env.CRON_SECRET) {
-
-      const auth =
-        req.headers.authorization;
-
-      if (
-        auth !==
-        `Bearer ${process.env.CRON_SECRET}` &&
-        !req.query.manual
-      ) {
+      const auth = req.headers.authorization;
+      if (auth !== `Bearer ${process.env.CRON_SECRET}` && !req.query.manual) {
         return res.status(401).json({
           success: false,
-          message: "Unauthorized. Tambahkan ?manual=1 kalau menjalankan manual dari browser."
+          message: "Unauthorized. Tambahkan ?manual=1 untuk menjalankan manual."
         });
       }
     }
 
-    // ============================================================
-    // TARGET DATE
-    // ============================================================
-
-    const startedAt = Date.now();
     const today = todayWIB();
+    const forcedDate = req.query.date || null;
 
-    // Cache candle harian per kode, berlaku selama satu invocation.
-    // Wajib ada begitu kita memproses lintas tanggal: emiten yang sama
-    // muncul di setiap tanggal, dan tanpa cache getStockData() dipanggil
-    // ulang untuk tiap baris (500 emiten x 5 tanggal = 2500 fetch).
-    // Dengan cache, tetap 500 fetch — inilah yang membuat mode batch
-    // muat di dalam maxDuration 60s.
-    const candleCache = new Map();
+    // Cache per kode. Satu invocation dapat mempunyai banyak tanggal untuk
+    // kode yang sama; jangan fetch Yahoo/ZAPI/IDX berulang-ulang.
+    const stockCache = new Map();
 
-    async function getCandlesCached(kode) {
-      if (candleCache.has(kode)) return candleCache.get(kode);
+    async function getStockCached(kode) {
+      const key = String(kode).trim().toUpperCase();
+      if (stockCache.has(key)) return stockCache.get(key);
 
-      const promise = getStockData(kode, "3mo").catch(() => null);
-      candleCache.set(kode, promise);
+      // 3mo cukup untuk dataset SahamAI saat ini dan jauh lebih ringan
+      // daripada melakukan fetch panjang untuk setiap row.
+      const promise = getStockData(key, "3mo").catch(error => {
+        return {
+          __error: error?.message || String(error),
+          candles: []
+        };
+      });
+
+      stockCache.set(key, promise);
       return promise;
     }
 
-    const forcedDate = req.query.date || null;
-
     // ============================================================
-    // AMBIL ANTREAN
+    // AMBIL ROW YANG BENAR-BENAR DUE
     // ============================================================
-    //
-    // Mode manual (?date=): tetap satu tanggal, seperti perilaku lama.
-    // Mode cron: lintas tanggal, tertua dulu, tanpa scan hari ini
-    // (scan_date < today) karena H+1-nya jelas belum ada.
-
     let pending;
 
     if (forcedDate) {
-
       if (forcedDate === today) {
         return res.status(200).json({
           success: true,
           scanDate: forcedDate,
-          message:
-            "Scan hari ini belum mempunyai candle H+1.",
-          labeled: 0
+          labeled: 0,
+          message: "Scan hari ini belum mempunyai candle H+1."
         });
       }
 
       pending = await getPendingCloseSnapshots(forcedDate);
-
     } else {
-
+      // TIDAK ada filter labeled_at. Close worker adalah worker mandiri.
       pending = await getPendingCloseSnapshotsAcrossDates({
-        beforeDate: today
+        beforeDate: today,
+        maxRows: MAX_ROWS_PER_RUN
       });
     }
 
-    if (
-      !pending ||
-      pending.length === 0
-    ) {
-
+    if (!Array.isArray(pending) || pending.length === 0) {
       return res.status(200).json({
         success: true,
         scanDate: forcedDate,
-        message:
-          "Tidak ada snapshot yang menunggu labeling close.",
-        labeled: 0
+        datesProcessed: [],
+        labeled: 0,
+        remainingHint: "Tidak ada snapshot due yang menunggu labeling."
       });
     }
 
-    // ============================================================
-    // BATASI JUMLAH TANGGAL PER RUN
-    // ============================================================
-    //
-    // pending sudah urut scan_date.asc dari query. Ambil maksimal dua tanggal
-    // tertua agar satu tanggal macet tidak menahan tanggal berikutnya.
-    // Karena MAX_ROWS_PER_RUN >= kapasitas normal satu hari, tanggal tertua
-    // biasanya selesai seluruhnya dalam satu invocation; tanggal kedua hanya
-    // ikut diproses jika masih ada kapasitas.
-
-    const datesInQueue = [...new Set(pending.map(r => r.scan_date))];
-
-    const datesThisRun = forcedDate
-      ? datesInQueue
-      : datesInQueue.slice(0, MAX_DATES_PER_RUN);
-
-    const datesSet = new Set(datesThisRun);
-    pending = pending.filter(r => datesSet.has(r.scan_date));
-
-    // Potong di batas keras baris. Sisanya tetap pending dan terambil
-    // di invocation berikutnya — aman karena urutannya stabil (tertua dulu).
-    const rowsBeforeCap = pending.length;
-    if (pending.length > MAX_ROWS_PER_RUN) {
-      pending = pending.slice(0, MAX_ROWS_PER_RUN);
-    }
-    const rowsDeferred = rowsBeforeCap - pending.length;
-
-    const datesDeferred = datesInQueue.length - datesThisRun.length;
+    const rows = pending.slice(0, MAX_ROWS_PER_RUN);
+    const datesProcessed = [...new Set(rows.map(r => r.scan_date))];
 
     // ============================================================
-    // DRY RUN — DIAGNOSTIK
+    // DRY RUN
     // ============================================================
-    //
-    // ?dryRun=1 berhenti di sini: antrean sudah diambil dari database,
-    // tapi belum ada satu pun fetch harga / update baris. Dipakai untuk
-    // memisahkan dua kemungkinan penyebab crash:
-    //   - kalau dryRun BERHASIL -> query antrean aman, masalahnya ada di
-    //     loop pelabelan (kemungkinan besar timeout / terlalu banyak baris)
-    //   - kalau dryRun ikut CRASH -> masalahnya di query antrean itu
-    //     sendiri atau di konfigurasi Supabase, bukan di volume kerja
     if (req.query.dryRun) {
-
       const perDate = {};
-      for (const r of pending) {
-        perDate[r.scan_date] = (perDate[r.scan_date] || 0) + 1;
+      for (const row of rows) {
+        perDate[row.scan_date] = (perDate[row.scan_date] || 0) + 1;
       }
 
       return res.status(200).json({
         success: true,
         dryRun: true,
-        datesInQueue,
-        datesThisRun,
-        datesDeferred,
-        rowsThisRun: pending.length,
+        today,
+        datesProcessed,
+        rowsThisRun: rows.length,
         rowsPerDate: perDate,
         elapsedMs: Date.now() - startedAt
       });
     }
 
     // ============================================================
-    // LABEL
+    // WORKER
     // ============================================================
+    const results = await runPool(
+      rows,
+      async row => {
+        // Jangan memulai network work baru ketika mendekati hard timeout.
+        // Row yang belum dimulai tetap pending untuk cron berikutnya.
+        if (Date.now() - startedAt >= TIME_BUDGET_MS) {
+          return {
+            kode: row.kode,
+            scanDate: row.scan_date,
+            status: "SKIPPED_TIME_BUDGET"
+          };
+        }
 
-    const results =
-      await runPool(
-        pending,
-        async (row) => {
+        try {
+          const stockData = await getStockCached(row.kode);
 
-          // ======================================================
-          // AMBIL DAILY DATA
-          // ======================================================
+          if (stockData?.__error) {
+            await markCloseLabelRetry(row.id, {
+              attempts: row.close_label_attempts,
+              error: `STOCK_DATA: ${stockData.__error}`
+            });
 
-          // Budget waktu: kalau sudah mepet maxDuration, berhenti
-          // melempar kerja baru. Baris yang belum diproses tetap
-          // pending dan diambil lagi di invocation berikutnya.
-          if (Date.now() - startedAt > TIME_BUDGET_MS) {
             return {
               kode: row.kode,
               scanDate: row.scan_date,
-              status: "SKIPPED_TIME_BUDGET"
+              status: "RETRY_STOCK_DATA",
+              error: stockData.__error
             };
           }
 
-          const stockData =
-            await getCandlesCached(row.kode);
-
-          if (
-            !stockData ||
-            !Array.isArray(
-              stockData.candles
-            ) ||
-            stockData.candles.length === 0
-          ) {
-
-            const gaveUp = await giveUpIfStale(row);
-            return {
-              kode: row.kode,
-              status: gaveUp ? "GIVEN_UP_NO_DATA" : "NO_DATA"
-            };
-          }
-
-          // ======================================================
-          // CARI H+1
-          // ======================================================
-
-          const nextCandle =
-            findTradingDayCandleAfter(
-              stockData.candles,
-              row.scan_date
-            );
-
-          if (!nextCandle) {
-
-            const gaveUp = await giveUpIfStale(row);
-            return {
-              kode: row.kode,
-              status:
-                gaveUp ? "GIVEN_UP_NEXT_CANDLE_NOT_FOUND" : "NEXT_CANDLE_NOT_FOUND",
-              scanDate:
-                row.scan_date
-            };
-          }
-
-          // ======================================================
-          // TANGGAL H+1
-          // ======================================================
-
-          const nextDate =
-            nextCandle.date?.slice(
-              0,
-              10
-            );
-
-          if (
-            !nextDate ||
-            nextDate <=
-              row.scan_date
-          ) {
-
-            const gaveUp = await giveUpIfStale(row);
-            return {
-              kode: row.kode,
-              status:
-                gaveUp ? "GIVEN_UP_INVALID_CANDLE_DATE" : "INVALID_CANDLE_DATE",
-              scanDate:
-                row.scan_date,
-              foundDate:
-                nextDate
-            };
-          }
-
-          // ======================================================
-          // JIKA H+1 ADALAH HARI INI,
-          // JANGAN LABEL SEBELUM MARKET CLOSE
-          // ======================================================
-
-          if (
-            nextDate ===
-              todayWIB() &&
-            !isAfterMarketCloseWIB()
-          ) {
+          if (!Array.isArray(stockData?.candles) || stockData.candles.length === 0) {
+            await markCloseLabelRetry(row.id, {
+              attempts: row.close_label_attempts,
+              error: "Tidak ada daily candle dari sumber data."
+            });
 
             return {
               kode: row.kode,
-              status:
-                "WAIT_MARKET_CLOSE",
-              nextDate
+              scanDate: row.scan_date,
+              status: "RETRY_NO_CANDLES"
             };
           }
 
-          // ======================================================
-          // AMBIL OHLC
-          // ======================================================
-
-          const nextOpen =
-            Number(
-              nextCandle.open
-            );
-
-          const nextHigh =
-            Number(
-              nextCandle.high
-            );
-
-          const nextLow =
-            Number(
-              nextCandle.low
-            );
-
-          const nextClose =
-            Number(
-              nextCandle.close
-            );
-
-          const previousClose =
-            Number(row.close);
-
-          // ======================================================
-          // VALIDASI
-          // ======================================================
-
-          if (
-            !Number.isFinite(
-              previousClose
-            ) ||
-            previousClose <= 0
-          ) {
-
-            return {
-              kode: row.kode,
-              status:
-                "INVALID_PREVIOUS_CLOSE",
-              previousClose:
-                row.close
-            };
-          }
-
-          if (
-            !Number.isFinite(
-              nextOpen
-            ) ||
-            nextOpen <= 0
-          ) {
-
-            return {
-              kode: row.kode,
-              status:
-                "INVALID_NEXT_OPEN",
-              nextDate,
-              nextOpen:
-                nextCandle.open
-            };
-          }
-
-          if (
-            !Number.isFinite(
-              nextHigh
-            ) ||
-            nextHigh <= 0
-          ) {
-
-            return {
-              kode: row.kode,
-              status:
-                "INVALID_NEXT_HIGH",
-              nextDate,
-              nextHigh:
-                nextCandle.high
-            };
-          }
-
-          if (
-            !Number.isFinite(
-              nextLow
-            ) ||
-            nextLow <= 0
-          ) {
-
-            return {
-              kode: row.kode,
-              status:
-                "INVALID_NEXT_LOW",
-              nextDate,
-              nextLow:
-                nextCandle.low
-            };
-          }
-
-          if (
-            !Number.isFinite(
-              nextClose
-            ) ||
-            nextClose <= 0
-          ) {
-
-            return {
-              kode: row.kode,
-              status:
-                "INVALID_NEXT_CLOSE",
-              nextDate,
-              nextClose:
-                nextCandle.close
-            };
-          }
-
-          // ======================================================
-          // RETURN CLOSE H+1 VS CLOSE H
-          // ======================================================
-
-          const closeReturnPct =
-            Number(
-              (
-                (
-                  (nextClose -
-                    previousClose) /
-                  previousClose
-                ) *
-                100
-              ).toFixed(2)
-            );
-
-          // ======================================================
-          // MAX GAIN DARI CLOSE H
-          //
-          // Mengukur seberapa tinggi harga H+1
-          // dibanding close saat snapshot.
-          // ======================================================
-
-          const maxGainFromClosePct =
-            Number(
-              (
-                (
-                  (nextHigh -
-                    previousClose) /
-                  previousClose
-                ) *
-                100
-              ).toFixed(2)
-            );
-
-          // ======================================================
-          // MAX LOSS DARI CLOSE H
-          // ======================================================
-
-          const maxLossFromClosePct =
-            Number(
-              (
-                (
-                  (nextLow -
-                    previousClose) /
-                  previousClose
-                ) *
-                100
-              ).toFixed(2)
-            );
-
-          // ======================================================
-          // MAX GAIN DARI OPEN H+1
-          //
-          // Beda dengan maxGainFromClosePct (basis close H):
-          // ini basis actual_next_open (beli di open H+1,
-          // jual di titik tertinggi hari yang sama).
-          //
-          // FIX (13 Agustus 2026): sebelumnya field ini HANYA
-          // dihitung di api/relabel-high-low.js (backfill manual,
-          // tidak ada di cron). Padahal riwayat.js dan CSV_COLUMNS
-          // di api/history.js membaca max_gain_from_open_pct —
-          // bukan next_day_max_gain_from_close_pct — jadi kolom
-          // "Max Gain%" di tabel Riwayat AI selalu kosong untuk
-          // baris baru. Dihitung juga di sini supaya terisi
-          // otomatis lewat cron harian, konsisten dengan komentar
-          // di db/schema.sql: "(high - open) / open * 100".
-          // ======================================================
-
-          const maxGainFromOpenPct =
-            Number(
-              (
-                (
-                  (nextHigh -
-                    nextOpen) /
-                  nextOpen
-                ) *
-                100
-              ).toFixed(2)
-            );
-
-          // ======================================================
-          // HIGH +3%
-          // ======================================================
-
-          const high3PctRealized =
-            maxGainFromClosePct >=
-            HIGH_TARGET_PCT;
-
-          // ======================================================
-          // CLOSE +2%
-          // ======================================================
-
-          const close2PctRealized =
-            closeReturnPct >=
-            CLOSE_TARGET_PCT;
-
-          // ======================================================
-          // SUCCESS
-          //
-          // Success utama:
-          // harga H+1 sempat mencapai +3%
-          // ATAU close H+1 minimal +2%.
-          //
-          // Ini menangkap strategi:
-          // beli sore -> jual pagi.
-          // ======================================================
-
-          const nextDaySuccess =
-            high3PctRealized ||
-            close2PctRealized;
-
-          // ======================================================
-          // INTRADAY PEAK
-          //
-          // ZAPI Stockbit:
-          // hanya untuk hari berjalan.
-          //
-          // Kalau tidak tersedia:
-          // Yahoo 15m menjadi fallback.
-          //
-          // Kalau data historis sudah tidak tersedia:
-          // hasil tetap dilabel tanpa peak time.
-          // ======================================================
-
-          let peak = null;
-          let peakSkipped = false;
-
-          try {
-
-            if (Date.now() - startedAt > PEAK_TIME_BUDGET_MS) {
-              peakSkipped = true;
-              throw new Error("PEAK_BUDGET_EXCEEDED");
-            }
-
-            peak =
-              await getIntradayPeakTime(
-                row.kode,
-                nextDate,
-                {
-                  range: "5d",
-                  interval: "15m"
-                }
-              );
-
-          } catch (e) {
-
-            if (!peakSkipped) {
-              console.error(
-                `Peak ${row.kode} gagal:`,
-                e.message
-              );
-            }
-
-            peak = null;
-          }
-
-          // ======================================================
-          // PATCH DATABASE
-          // ======================================================
-
-          const patch = {
-
-            actual_next_close:
-              nextClose,
-
-            actual_next_high:
-              nextHigh,
-
-            actual_next_low:
-              nextLow,
-
-            next_day_close_return_from_close_pct:
-              closeReturnPct,
-
-            next_day_max_gain_from_close_pct:
-              maxGainFromClosePct,
-
-            next_day_max_loss_from_close_pct:
-              maxLossFromClosePct,
-
-            max_gain_from_open_pct:
-              maxGainFromOpenPct,
-
-            next_day_high_3pct_realized:
-              high3PctRealized,
-
-            next_day_close_2pct_realized:
-              close2PctRealized,
-
-            next_day_success:
-              nextDaySuccess,
-
-            close_labeled_at:
-              new Date().toISOString()
-          };
-
-          // ======================================================
-          // SIMPAN PEAK KALAU TERSEDIA
-          // ======================================================
-
-          if (peak) {
-
-            patch.peak_time_wib =
-              peak.peakTimeWIB ??
-              null;
-
-            patch.peak_high =
-              Number.isFinite(
-                Number(
-                  peak.peakHigh
-                )
-              )
-                ? Number(
-                    peak.peakHigh
-                  )
-                : null;
-
-            patch.peak_session_phase =
-              peak.peakSessionPhase ??
-              null;
-
-            patch.peak_source =
-              peak.source ??
-              null;
-          }
-
-          // ======================================================
-          // UPDATE
-          // ======================================================
-
-          await updateLabel(
-            row.id,
-            patch
+          const nextCandle = findTradingDayCandleAfter(
+            stockData.candles,
+            row.scan_date
           );
 
-          // ======================================================
-          // RESPONSE PER SAHAM
-          // ======================================================
+          if (!nextCandle) {
+            await markCloseLabelRetry(row.id, {
+              attempts: row.close_label_attempts,
+              error: `Candle trading H+1 belum ditemukan setelah ${row.scan_date}.`
+            });
+
+            return {
+              kode: row.kode,
+              scanDate: row.scan_date,
+              status: "RETRY_NEXT_CANDLE_NOT_FOUND"
+            };
+          }
+
+          const nextDate = String(nextCandle.date || "").slice(0, 10);
+
+          if (!nextDate || nextDate <= row.scan_date) {
+            await markCloseLabelRetry(row.id, {
+              attempts: row.close_label_attempts,
+              error: `Tanggal candle H+1 tidak valid: ${nextDate}`
+            });
+
+            return {
+              kode: row.kode,
+              scanDate: row.scan_date,
+              status: "RETRY_INVALID_CANDLE_DATE"
+            };
+          }
+
+          // Jika H+1 adalah hari ini, jangan melabel sebelum market close.
+          if (nextDate === today && !isAfterMarketCloseWIB()) {
+            return {
+              kode: row.kode,
+              scanDate: row.scan_date,
+              nextDate,
+              status: "WAIT_MARKET_CLOSE"
+            };
+          }
+
+          const previousClose = finitePositive(row.close);
+          const nextOpen = finitePositive(nextCandle.open);
+          const nextHigh = finitePositive(nextCandle.high);
+          const nextLow = finitePositive(nextCandle.low);
+          const nextClose = finitePositive(nextCandle.close);
+
+          if (!previousClose) throw new Error("INVALID_PREVIOUS_CLOSE");
+          if (!nextOpen) throw new Error("INVALID_NEXT_OPEN");
+          if (!nextHigh) throw new Error("INVALID_NEXT_HIGH");
+          if (!nextLow) throw new Error("INVALID_NEXT_LOW");
+          if (!nextClose) throw new Error("INVALID_NEXT_CLOSE");
+
+          // ========================================================
+          // TAHAP 1 + TAHAP 2 SEKALIGUS
+          // ========================================================
+          const nextDayReturnPct = pct(previousClose, nextOpen);
+          const closeReturnPct = pct(previousClose, nextClose);
+          const maxGainFromClosePct = pct(previousClose, nextHigh);
+          const maxLossFromClosePct = pct(previousClose, nextLow);
+          const maxGainFromOpenPct = pct(nextOpen, nextHigh);
+
+          const gapUpRealized = nextDayReturnPct >= 2;
+          const high3PctRealized = maxGainFromClosePct >= HIGH_TARGET_PCT;
+          const close2PctRealized = closeReturnPct >= CLOSE_TARGET_PCT;
+          const nextDaySuccess = high3PctRealized || close2PctRealized;
+
+          const nowIso = new Date().toISOString();
+
+          const patch = {
+            // Tahap 1 — diisi juga jika cron pagi sebelumnya gagal.
+            actual_next_open: nextOpen,
+            next_day_return_pct: nextDayReturnPct,
+            gap_up_realized: gapUpRealized,
+            labeled_at: row.labeled_at || nowIso,
+
+            // Tahap 2.
+            actual_next_close: nextClose,
+            actual_next_high: nextHigh,
+            actual_next_low: nextLow,
+            next_day_close_return_from_close_pct: closeReturnPct,
+            next_day_max_gain_from_close_pct: maxGainFromClosePct,
+            next_day_max_loss_from_close_pct: maxLossFromClosePct,
+            max_gain_from_open_pct: maxGainFromOpenPct,
+            next_day_high_3pct_realized: high3PctRealized,
+            next_day_close_2pct_realized: close2PctRealized,
+            next_day_success: nextDaySuccess,
+
+            // Reliability state.
+            close_label_status: "COMPLETE",
+            close_label_last_error: null,
+            close_label_next_retry_at: null,
+            close_labeled_at: nowIso
+          };
+
+          // Peak hanya metadata. Untuk hari berjalan ZAPI bisa memberi
+          // peak realtime. Untuk historis, sengaja tidak dipanggil agar
+          // peak tidak menghambat outcome utama.
+          if (nextDate === today && isAfterMarketCloseWIB()) {
+            try {
+              const peak = await getIntradayPeakTime(
+                row.kode,
+                nextDate,
+                { range: "5d", interval: "15m" }
+              );
+
+              if (peak) {
+                patch.peak_time_wib = peak.peakTimeWIB ?? null;
+                patch.peak_high = Number.isFinite(Number(peak.peakHigh))
+                  ? Number(peak.peakHigh)
+                  : null;
+                patch.peak_session_phase = peak.peakSessionPhase ?? null;
+                patch.peak_source = peak.source ?? null;
+              }
+            } catch (peakError) {
+              // Peak bukan alasan untuk menggagalkan labeling utama.
+              console.warn(
+                `Peak ${row.kode} ${nextDate} dilewati:`,
+                peakError?.message || String(peakError)
+              );
+            }
+          }
+
+          await updateLabel(row.id, patch);
 
           return {
-
-            kode:
-              row.kode,
-
-            scanDate:
-              row.scan_date,
-
+            kode: row.kode,
+            scanDate: row.scan_date,
             nextDate,
-
             previousClose,
-
             nextOpen,
-
             nextHigh,
-
             nextLow,
-
             nextClose,
-
+            nextDayReturnPct,
             closeReturnPct,
-
             maxGainFromClosePct,
-
             maxLossFromClosePct,
-
             maxGainFromOpenPct,
-
-            high3PctRealized,
-
-            close2PctRealized,
-
             nextDaySuccess,
-
-            peakTimeWIB:
-              peak?.peakTimeWIB ??
-              null,
-
-            peakHigh:
-              peak?.peakHigh ??
-              null,
-
-            peakSessionPhase:
-              peak?.peakSessionPhase ??
-              null,
-
-            peakSource:
-              peak?.source ??
-              null,
-
-            peakSkipped,
-
-            status:
-              "OK"
+            status: "OK"
           };
-        },
-        CONCURRENCY
-      );
+        } catch (error) {
+          const message = error?.message || String(error);
 
-    // ============================================================
-    // HASIL
-    // ============================================================
-
-    const ok =
-      results.filter(
-        r =>
-          r &&
-          r.status === "OK"
-      );
-
-    const failed =
-      results
-        .map((r, i) => {
-
-          if (!r) {
-
-            return {
-              kode:
-                pending[i].kode,
-              status:
-                "ERROR",
-              error:
-                "Worker tidak menghasilkan result."
-            };
+          try {
+            await markCloseLabelRetry(row.id, {
+              attempts: row.close_label_attempts,
+              error: message
+            });
+          } catch (retryError) {
+            console.error(
+              `Gagal mencatat retry ${row.kode}:`,
+              retryError?.message || String(retryError)
+            );
           }
 
-          if (r.error) {
-
-            return {
-              kode:
-                pending[i].kode,
-              status:
-                "ERROR",
-              error:
-                r.error
-            };
-          }
-
-          if (
-            r.status === "SKIPPED_TIME_BUDGET"
-          ) {
-            // Bukan kegagalan — baris ini sengaja tidak disentuh
-            // dan masih pending untuk invocation berikutnya.
-            return null;
-          }
-
-          if (
-            r.status !== "OK"
-          ) {
-
-            return {
-              kode:
-                pending[i].kode,
-              status:
-                r.status,
-              detail:
-                r
-            };
-          }
-
-          return null;
-
-        })
-        .filter(Boolean);
-
-    // ============================================================
-    // STATISTIK
-    // ============================================================
-
-    const successCount =
-      ok.filter(
-        r =>
-          r.nextDaySuccess
-      ).length;
-
-    const high3PctCount =
-      ok.filter(
-        r =>
-          r.high3PctRealized
-      ).length;
-
-    const close2PctCount =
-      ok.filter(
-        r =>
-          r.close2PctRealized
-      ).length;
-
-    // ============================================================
-    // PEAK SOURCE STATISTICS
-    // ============================================================
-
-    const peakSourceStats = {
-      ZAPI_STOCKBIT_INTRADAY: 0,
-      YAHOO_15M: 0,
-      NONE: 0
-    };
-
-    for (const r of ok) {
-
-      if (
-        r.peakSource ===
-        "ZAPI_STOCKBIT_INTRADAY"
-      ) {
-
-        peakSourceStats
-          .ZAPI_STOCKBIT_INTRADAY++;
-
-      } else if (
-        r.peakSource
-          ?.toUpperCase()
-          .includes("YAHOO")
-      ) {
-
-        peakSourceStats
-          .YAHOO_15M++;
-
-      } else {
-
-        peakSourceStats.NONE++;
-      }
-    }
-
-    // ============================================================
-    // RESPONSE
-    // ============================================================
-
-    return res.status(200).json({
-
-      success: true,
-
-      // Mode batch memproses banyak tanggal, jadi laporkan daftarnya
-      // (scanDate tunggal dipertahankan untuk kompatibilitas pemanggil
-      // lama: diisi tanggal tertua yang diproses run ini).
-      scanDate: datesThisRun[0] ?? null,
-
-      datesProcessed: datesThisRun,
-
-      datesDeferred,
-
-      rowsDeferred,
-
-      peakSkippedCount:
-        results.filter(r => r && r.peakSkipped).length,
-
-      skippedTimeBudget:
-        results.filter(
-          r => r && r.status === "SKIPPED_TIME_BUDGET"
-        ).length,
-
-      elapsedMs:
-        Date.now() - startedAt,
-
-      totalPending:
-        pending.length,
-
-      // Berapa banyak baris yang masih tertinggal setelah run ini.
-      // Nilai ini penting untuk monitoring: cron berikutnya wajib terus
-      // menguras angka ini sampai 0.
-      remainingHint:
-        rowsDeferred + failed.length,
-
-      labeled:
-        ok.length,
-
-      failed:
-        failed.length,
-
-      successCount,
-
-      high3PctCount,
-
-      close2PctCount,
-
-      peakSourceStats,
-
-      failedDetail:
-        failed.slice(0, 20),
-
-      examples:
-        ok.slice(0, 10)
-
-    });
-
-  } catch (error) {
-
-    console.error(
-      "Label outcomes close error:",
-      error
+          return {
+            kode: row.kode,
+            scanDate: row.scan_date,
+            status: "RETRY_ERROR",
+            error: message
+          };
+        }
+      },
+      CONCURRENCY
     );
 
+    const ok = results.filter(r => r?.status === "OK");
+    const retry = results.filter(r => r?.status?.startsWith("RETRY_"));
+    const skipped = results.filter(r => r?.status === "SKIPPED_TIME_BUDGET");
+    const waiting = results.filter(r => r?.status === "WAIT_MARKET_CLOSE");
+
+    const successCount = ok.filter(r => r.nextDaySuccess).length;
+    const high3PctCount = ok.filter(r => r.maxGainFromClosePct >= HIGH_TARGET_PCT).length;
+    const close2PctCount = ok.filter(r => r.closeReturnPct >= CLOSE_TARGET_PCT).length;
+
+    return res.status(200).json({
+      success: true,
+      scanDate: datesProcessed[0] ?? null,
+      datesProcessed,
+      totalPending: pending.length,
+      rowsThisRun: rows.length,
+      labeled: ok.length,
+      retry: retry.length,
+      skippedTimeBudget: skipped.length,
+      waitingMarketClose: waiting.length,
+      successCount,
+      high3PctCount,
+      close2PctCount,
+      uniqueCodesFetched: stockCache.size,
+      elapsedMs: Date.now() - startedAt,
+      retryDetail: retry.slice(0, 20),
+      examples: ok.slice(0, 10),
+      remainingHint:
+        skipped.length > 0 || retry.length > 0 || pending.length >= MAX_ROWS_PER_RUN
+          ? "Masih ada row pending/retry. Cron berikutnya akan melanjutkan otomatis."
+          : "Batch due selesai diproses."
+    });
+  } catch (error) {
+    console.error("Label outcomes close error:", error);
+
     return res.status(500).json({
-
       success: false,
-
-      message:
-        "Close labeling gagal.",
-
-      error:
-        error?.message ||
-        String(error)
-
+      message: "Close labeling gagal.",
+      error: error?.message || String(error),
+      elapsedMs: Date.now() - startedAt
     });
   }
 }
