@@ -54,7 +54,7 @@ export const config = {
   maxDuration: 60
 };
 
-const CONCURRENCY = 12;
+const CONCURRENCY = 24;
 
 // ============================================================
 // MODE BATCH LINTAS TANGGAL
@@ -84,18 +84,17 @@ const CONCURRENCY = 12;
 // ?date=YYYY-MM-DD tetap memaksa mode satu tanggal seperti dulu,
 // supaya pemanggilan manual untuk investigasi tidak berubah.
 
-const MAX_DATES_PER_RUN = 3;
+const MAX_DATES_PER_RUN = 2;
 
-// Batas keras jumlah baris per invocation. Tiap baris memicu beberapa
-// panggilan jaringan (peak intraday + update Supabase), jadi tanpa batas
-// ini satu run bisa mencoba ribuan baris sekaligus dan mati kena
-// timeout/memori — yang di Vercel muncul sebagai FUNCTION_INVOCATION_FAILED,
-// bukan sebagai JSON error dari catch di bawah.
-const MAX_ROWS_PER_RUN = 300;
+// Batas keras jumlah baris per invocation. Kapasitas dinaikkan agar satu
+// hari normal (~400-500 emiten) dapat habis dalam satu run. Jika masih ada
+// sisa, cron berikutnya mengambil sisa yang sama karena query stabil by
+// scan_date,kode. Ini mencegah backlog tumbuh hanya karena kapasitas pas-pasan.
+const MAX_ROWS_PER_RUN = 700;
 
 // maxDuration 60s. Sisakan ruang untuk merangkai response &
 // menutup koneksi — berhenti melempar kerja baru di 45s.
-const TIME_BUDGET_MS = 38000;
+const TIME_BUDGET_MS = 48000;
 
 // Batas terpisah, lebih ketat, khusus untuk pengambilan peak intraday.
 // Peak adalah METADATA TAMBAHAN (jam harga tertinggi), bukan inti
@@ -105,7 +104,7 @@ const TIME_BUDGET_MS = 38000;
 // baris TETAP dilabel lengkap; peak bisa diisi belakangan lewat
 // api/relabel-high-low.js. Lebih baik 300 baris terlabel tanpa jam peak
 // daripada seluruh invocation mati kena timeout dan 0 baris tersimpan.
-const PEAK_TIME_BUDGET_MS = 25000;
+const PEAK_TIME_BUDGET_MS = 18000;
 
 // ============================================================
 // THRESHOLD
@@ -362,8 +361,11 @@ export default async function handler(req, res) {
     // BATASI JUMLAH TANGGAL PER RUN
     // ============================================================
     //
-    // pending sudah urut scan_date.asc dari query, jadi cukup ambil
-    // MAX_DATES_PER_RUN tanggal unik pertama (= yang paling tua).
+    // pending sudah urut scan_date.asc dari query. Ambil maksimal dua tanggal
+    // tertua agar satu tanggal macet tidak menahan tanggal berikutnya.
+    // Karena MAX_ROWS_PER_RUN >= kapasitas normal satu hari, tanggal tertua
+    // biasanya selesai seluruhnya dalam satu invocation; tanggal kedua hanya
+    // ikut diproses jika masih ada kapasitas.
 
     const datesInQueue = [...new Set(pending.map(r => r.scan_date))];
 
@@ -1094,6 +1096,12 @@ export default async function handler(req, res) {
 
       totalPending:
         pending.length,
+
+      // Berapa banyak baris yang masih tertinggal setelah run ini.
+      // Nilai ini penting untuk monitoring: cron berikutnya wajib terus
+      // menguras angka ini sampai 0.
+      remainingHint:
+        rowsDeferred + failed.length,
 
       labeled:
         ok.length,
