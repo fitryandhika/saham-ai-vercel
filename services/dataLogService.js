@@ -123,24 +123,20 @@ export async function getUnlabeledSnapshots(scanDate) {
 }
 
 // ==========================
-// Tahap 2 — Close Labeling (lihat api/label-outcomes-close.js)
+// Tahap 2 — Close Labeling
 // ==========================
-// Sama pola-nya dengan getOldestUnlabeledDate/getUnlabeledSnapshots di
-// atas (tahap 1), tapi filternya: SUDAH dilabel open (labeled_at not
-// null) TAPI BELUM dilabel close (close_labeled_at is null).
+//
+// Close labeling TIDAK boleh bergantung pada labeled_at (Tahap 1).
+// Jika worker pagi gagal, worker close tetap harus bisa menyelesaikan
+// seluruh OHLC H+1 sekaligus. Ini membuat pipeline self-healing.
 
 export async function getOldestOpenLabeledDate() {
   const cfg = getConfig();
   if (!cfg) return null;
 
   const res = await fetch(
-    `${cfg.url}/rest/v1/scan_history?labeled_at=not.is.null&close_labeled_at=is.null&select=scan_date&order=scan_date.asc&limit=1`,
-    {
-      headers: {
-        apikey: cfg.key,
-        Authorization: `Bearer ${cfg.key}`
-      }
-    }
+    `${cfg.url}/rest/v1/scan_history?close_labeled_at=is.null&select=scan_date&order=scan_date.asc&limit=1`,
+    { headers: { apikey: cfg.key, Authorization: `Bearer ${cfg.key}` } }
   );
 
   if (!res.ok) {
@@ -155,15 +151,15 @@ export async function getPendingCloseSnapshots(scanDate) {
   const cfg = getConfig();
   if (!cfg) return [];
 
-  const res = await fetch(
-    `${cfg.url}/rest/v1/scan_history?scan_date=eq.${scanDate}&labeled_at=not.is.null&close_labeled_at=is.null&select=id,kode,scan_date,close,actual_next_open`,
-    {
-      headers: {
-        apikey: cfg.key,
-        Authorization: `Bearer ${cfg.key}`
-      }
-    }
-  );
+  const params = new URLSearchParams();
+  params.set('scan_date', `eq.${scanDate}`);
+  params.set('close_labeled_at', 'is.null');
+  params.set('select', 'id,kode,scan_date,close,actual_next_open,labeled_at,close_label_status,close_label_attempts,close_label_next_retry_at');
+  params.set('order', 'kode.asc');
+
+  const res = await fetch(`${cfg.url}/rest/v1/scan_history?${params.toString()}`, {
+    headers: { apikey: cfg.key, Authorization: `Bearer ${cfg.key}` }
+  });
 
   if (!res.ok) {
     throw new Error(`Supabase select gagal (${res.status}): ${await res.text()}`);
@@ -172,53 +168,40 @@ export async function getPendingCloseSnapshots(scanDate) {
   return res.json();
 }
 
-// ==========================
-// Antrean close-labeling LINTAS TANGGAL
-// ==========================
+// Ambil SEMUA snapshot yang sudah jatuh tempo untuk close labeling.
+// Tidak memakai labeled_at sebagai syarat: close worker sekaligus dapat
+// mengisi Tahap 1 jika worker pagi sebelumnya gagal.
 //
-// getOldestOpenLabeledDate() + getPendingCloseSnapshots() di atas hanya
-// bisa melayani SATU tanggal per pemanggilan. Karena cron close-labeling
-// jalan sekali per hari kerja, throughput-nya jadi 1 tanggal/hari —
-// padahal setiap hari kerja juga MENAMBAH 1 tanggal baru. Artinya
-// backlog tidak pernah menyusut (impas di kasus terbaik), dan satu
-// tanggal yang macet (mis. emiten delisting yang candle H+1-nya tidak
-// pernah ketemu) memblokir SEMUA tanggal yang lebih baru sampai
-// GIVE_UP_AFTER_DAYS terlampaui.
-//
-// Fungsi ini mengambil baris pending langsung lintas tanggal, diurutkan
-// dari yang tertua, jadi caller bisa memproses beberapa tanggal sekaligus
-// dalam satu invocation. Loop paginasi dipakai karena PostgREST punya
-// batas max-rows server-side (default 1000).
-//
-// beforeDate: batas eksklusif (scan_date < beforeDate) — dipakai untuk
-// membuang scan hari ini yang memang belum punya candle H+1.
+// Retry-aware: row yang gagal sementara diberi next_retry_at sehingga
+// satu saham bermasalah tidak menghabiskan seluruh kapasitas setiap run.
 export async function getPendingCloseSnapshotsAcrossDates({
   beforeDate,
-  maxRows = 4000
+  maxRows = 3000
 } = {}) {
   const cfg = getConfig();
   if (!cfg) return [];
 
   const PAGE_SIZE = 1000;
   let offset = 0;
-  let all = [];
+  const all = [];
+  const nowIso = new Date().toISOString();
 
   while (all.length < maxRows) {
     const params = new URLSearchParams();
-    params.set("select", "id,kode,scan_date,close,actual_next_open");
-    params.set("labeled_at", "not.is.null");
-    params.set("close_labeled_at", "is.null");
-    params.set("order", "scan_date.asc,kode.asc");
-    params.set("limit", String(Math.min(PAGE_SIZE, maxRows - all.length)));
-    params.set("offset", String(offset));
+    params.set('select', 'id,kode,scan_date,close,actual_next_open,labeled_at,close_label_status,close_label_attempts,close_label_next_retry_at');
+    params.set('close_labeled_at', 'is.null');
+    params.set('order', 'scan_date.asc,kode.asc');
+    params.set('limit', String(Math.min(PAGE_SIZE, maxRows - all.length)));
+    params.set('offset', String(offset));
 
-    if (beforeDate) params.set("scan_date", `lt.${beforeDate}`);
+    if (beforeDate) params.set('scan_date', `lt.${beforeDate}`);
+
+    // Only retry rows whose retry window has arrived. Rows without a
+    // retry timestamp are immediately eligible.
+    params.set('or', `(close_label_next_retry_at.is.null,close_label_next_retry_at.lte.${nowIso})`);
 
     const res = await fetch(`${cfg.url}/rest/v1/scan_history?${params.toString()}`, {
-      headers: {
-        apikey: cfg.key,
-        Authorization: `Bearer ${cfg.key}`
-      }
+      headers: { apikey: cfg.key, Authorization: `Bearer ${cfg.key}` }
     });
 
     if (!res.ok) {
@@ -226,13 +209,29 @@ export async function getPendingCloseSnapshotsAcrossDates({
     }
 
     const page = await res.json();
-    all = all.concat(page);
+    all.push(...page);
 
     if (page.length < PAGE_SIZE) break;
     offset += PAGE_SIZE;
   }
 
   return all;
+}
+
+// Menandai kegagalan sementara tanpa mengeluarkan row dari dataset.
+// Exponential backoff dibatasi agar data yang sempat gagal akan kembali
+// dicoba otomatis, tetapi tidak bisa memblokir tanggal/emiten lain.
+export async function markCloseLabelRetry(id, { error, attempts = 0 } = {}) {
+  const nextAttempts = Number.isFinite(Number(attempts)) ? Number(attempts) + 1 : 1;
+  const delayMinutes = Math.min(360, Math.max(10, 10 * (2 ** Math.min(nextAttempts - 1, 5))));
+  const nextRetry = new Date(Date.now() + delayMinutes * 60 * 1000).toISOString();
+
+  return updateLabel(id, {
+    close_label_status: 'RETRY',
+    close_label_attempts: nextAttempts,
+    close_label_last_error: String(error || 'Unknown error').slice(0, 1000),
+    close_label_next_retry_at: nextRetry
+  });
 }
 
 // Update satu baris (by id) dengan hasil aktual keesokan harinya.
