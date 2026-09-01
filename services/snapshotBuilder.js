@@ -107,8 +107,14 @@ export function buildSnapshotRow(d, scanDate) {
 
     // Next-Day Opportunity
     next_day_opportunity_score: safeNumber(opportunity?.opportunityScore),
+    next_day_opportunity_probability_3pct: safeNumber(opportunity?.opportunityProbability),
+    next_day_opportunity_probability_5pct: safeNumber(opportunity?.opportunityProbability5Pct),
+    next_day_opportunity_probability_10pct: safeNumber(opportunity?.opportunityProbability10Pct),
+    next_day_close_2pct_probability: safeNumber(opportunity?.nextDayClose2PctProbability),
+    next_day_opportunity_model_version: opportunity?.version ?? null,
     next_day_opportunity_label: opportunity?.opportunityLabel ?? null,
     next_day_opportunity_setup: opportunity?.coreSetup ?? null,
+    next_day_opportunity_setup_detail: opportunity?.setupDetail ?? null,
     next_day_opportunity_eligible: opportunity?.eligible ?? false,
     next_day_entry_quality_score: safeNumber(opportunity?.entryQualityScore),
     next_day_entry_quality_label: opportunity?.entryQualityLabel ?? null,
