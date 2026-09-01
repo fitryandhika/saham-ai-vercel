@@ -374,9 +374,22 @@ function statusPill(row) {
 function opportunityPill(row) {
   const label = row.next_day_opportunity_label;
   if (!label) return `<span class="pattern-pill">–</span>`;
+
   const cls = label.toLowerCase();
   const star = row.next_day_opportunity_eligible ? " ⭐" : "";
-  return `<span class="opp-pill ${cls}">${label}${star}</span>`;
+
+  const p5 = Number(row.next_day_opportunity_probability_5pct);
+  const p10 = Number(row.next_day_opportunity_probability_10pct);
+
+  const p5Text = Number.isFinite(p5)
+    ? `P5 ${p5.toFixed(0)}%`
+    : "";
+
+  const p10Text = Number.isFinite(p10)
+    ? ` · P10 ${p10.toFixed(0)}%`
+    : "";
+
+  return `<span class="opp-pill ${cls}" title="${row.next_day_opportunity_setup_detail ?? ""}">${label}${star}<br><small>${p5Text}${p10Text}</small></span>`;
 }
 
 function regimeBadge(regime) {
