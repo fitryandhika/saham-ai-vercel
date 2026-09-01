@@ -40,7 +40,9 @@ import {
   getIntradayPeakTime
 } from "../services/stockService.js";
 
-import { todayWIB } from "../config/tradingCalendar.js";
+import { todayWIB, isTradingDay } from "../config/tradingCalendar.js";
+
+import { getZapiDailyCandle } from "../services/zapiService.js";
 
 export const config = {
   maxDuration: 60
@@ -58,8 +60,59 @@ const CLOSE_TARGET_PCT = 2;
 const MARKET_CLOSE_HOUR = 16;
 const MARKET_CLOSE_MINUTE = 20;
 
-function isAfterMarketCloseWIB() {
-  const now = new Date();
+// ============================================================
+// FALLBACK CANDLE H+1 LEWAT ZAPI (per tanggal)
+// ============================================================
+//
+// Ditambahkan 1 September 2026.
+//
+// getStockData() mengambil histori harian HANYA dari Yahoo; ZAPI &
+// IDX Official cuma menyumbang candle hari berjalan. Akibatnya kalau
+// Yahoo telat/bolong menerbitkan satu tanggal, findTradingDayCandleAfter()
+// mengembalikan null untuk SEMUA emiten sekaligus dan pelabelan macet
+// total — persis yang terjadi pada scan_date 2026-08-28.
+//
+// getZapiDailyCandle(kode, tanggal) menerima tanggal sembarang, jadi
+// bisa dipakai menambal lubang itu. Mahal (satu request per emiten per
+// tanggal), makanya cuma dipanggil saat Yahoo benar-benar gagal, dan
+// dibatasi maksimal MAX_FALLBACK_DAYS hari bursa ke depan.
+// ============================================================
+
+const MAX_FALLBACK_DAYS = 5;
+
+function nextTradingDaysAfter(dateStr, count = MAX_FALLBACK_DAYS) {
+  const out = [];
+  let d = new Date(`${String(dateStr).slice(0, 10)}T00:00:00Z`);
+
+  for (let i = 0; i < 14 && out.length < count; i++) {
+    d = new Date(d.getTime() + 24 * 60 * 60 * 1000);
+    const candidate = d.toISOString().slice(0, 10);
+    if (isTradingDay(candidate)) out.push(candidate);
+  }
+
+  return out;
+}
+
+async function findNextCandleViaZapi(kode, scanDate, today) {
+  for (const candidate of nextTradingDaysAfter(scanDate)) {
+    // Jangan ambil tanggal di masa depan.
+    if (candidate > today) break;
+
+    try {
+      const candle = await getZapiDailyCandle(kode, candidate);
+
+      if (candle && String(candle.date || "").slice(0, 10) > scanDate) {
+        return candle;
+      }
+    } catch {
+      // getZapiDailyCandle sudah selalu aman, tapi jaga-jaga.
+    }
+  }
+
+  return null;
+}
+
+function isAfterMarketCloseWIB() {  const now = new Date();
   const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
   const wibMinutes = (utcMinutes + 7 * 60) % (24 * 60);
   const hour = Math.floor(wibMinutes / 60);
@@ -255,10 +308,22 @@ export default async function handler(req, res) {
             };
           }
 
-          const nextCandle = findTradingDayCandleAfter(
+          let nextCandle = findTradingDayCandleAfter(
             stockData.candles,
             row.scan_date
           );
+
+          let candleSource = "DAILY_HISTORY";
+
+          if (!nextCandle) {
+            nextCandle = await findNextCandleViaZapi(
+              row.kode,
+              String(row.scan_date).slice(0, 10),
+              today
+            );
+
+            if (nextCandle) candleSource = "ZAPI_FALLBACK";
+          }
 
           if (!nextCandle) {
             await markCloseLabelRetry(row.id, {
@@ -397,6 +462,7 @@ export default async function handler(req, res) {
             maxLossFromClosePct,
             maxGainFromOpenPct,
             nextDaySuccess,
+            candleSource,
             status: "OK"
           };
         } catch (error) {
