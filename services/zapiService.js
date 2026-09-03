@@ -181,6 +181,91 @@ function normalizeISODate(date) {
   return null;
 }
 
+// ============================================================
+// CACHE RINGKASAN HARIAN SELURUH BURSA
+// ============================================================
+//
+// getZapiDailyCandle() dulu memanggil endpoint stock-summary SEKALI
+// PER EMITEN. Satu /api/scan menyentuh ~397 emiten, dan
+// /api/label-outcomes-close juga per emiten — satu hari bursa saja
+// bisa ≈400-800 request, cukup untuk menghabiskan kuota bulanan
+// ZAPI hanya dalam 1-2 hari (persis yang terjadi 1-3 September 2026,
+// kuota 600/bulan habis pada tanggal 3).
+//
+// Endpoint yang sama bisa dipanggil TANPA parameter code=, dan ia
+// mengembalikan SELURUH emiten IDX sekaligus (~10 request dengan
+// pageSize 100, lihat getAllIdxStockSummary di bawah — sudah dipakai
+// universe-refresh.js). Jadi biaya per hari turun dari ~397 request
+// menjadi ~10-20.
+//
+// Cache disimpan di level modul (per tanggal), berlaku selama satu
+// invocation serverless — persis rentang hidup satu /api/scan yang
+// memproses seluruh emiten. Kegagalan bulk ikut di-cache supaya
+// tidak dicoba berulang dan malah memperparah kuota; kalau bulk
+// gagal, jalur per-emiten lama tetap jalan sebagai cadangan.
+// ============================================================
+
+const bulkSummaryCache = new Map(); // "YYYYMMDD" -> Map(code -> row) | null
+
+async function getBulkSummaryMap(dateYYYYMMDD) {
+
+  if (bulkSummaryCache.has(dateYYYYMMDD)) {
+    return bulkSummaryCache.get(dateYYYYMMDD);
+  }
+
+  try {
+
+    const rows = await getAllIdxStockSummary({
+      pageSize: 100,
+      maxPages: 12,
+      date: dateYYYYMMDD
+    });
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+      bulkSummaryCache.set(dateYYYYMMDD, null);
+      return null;
+    }
+
+    const map = new Map();
+
+    for (const item of rows) {
+
+      const itemCode = String(
+        item.StockCode ??
+        item.Code ??
+        item.stock_code ??
+        item.kode ??
+        ""
+      )
+        .trim()
+        .toUpperCase();
+
+      if (itemCode) {
+        map.set(itemCode, item);
+      }
+    }
+
+    console.log(
+      `ZAPI bulk summary ${dateYYYYMMDD}: ${map.size} emiten dimuat ` +
+      `(menggantikan ~${map.size} request per-emiten)`
+    );
+
+    bulkSummaryCache.set(dateYYYYMMDD, map);
+    return map;
+
+  } catch (e) {
+
+    console.error(
+      `ZAPI bulk summary ${dateYYYYMMDD} gagal:`,
+      e?.message || String(e)
+    );
+
+    bulkSummaryCache.set(dateYYYYMMDD, null);
+    return null;
+
+  }
+}
+
 export async function getZapiDailyCandle(
   kode,
   targetDate
@@ -205,50 +290,80 @@ export async function getZapiDailyCandle(
     return null;
   }
 
-  const json = await tryFetchJson(
-    `/finance:idx/stock-summary` +
-    `?length=20` +
-    `&start=0` +
-    `&date=${dateYYYYMMDD}` +
-    `&code=${encodeURIComponent(code)}`
-  );
-
-  if (!json) {
-    return null;
-  }
-
-  // ----------------------------------------------------------
-  // Response normal:
-  //
-  // {
-  //   data: [
-  //     {
-  //       StockCode: "TRUK",
-  //       OpenPrice: 805,
-  //       High: 805,
-  //       Low: 805,
-  //       Close: 805,
-  //       Volume: ...
-  //     }
-  //   ]
-  // }
-  //
-  // Beberapa endpoint lama / wrapper bisa mengembalikan
-  // struktur nested. Kita support keduanya.
-  // ----------------------------------------------------------
-
   let rows = [];
 
-  if (Array.isArray(json.data)) {
-    rows = json.data;
-  } else if (
-    Array.isArray(json.data?.data)
-  ) {
-    rows = json.data.data;
-  } else if (
-    Array.isArray(json.results)
-  ) {
-    rows = json.results;
+  // --------------------------------------------------------
+  // JALUR UTAMA: ringkasan seluruh bursa yang sudah di-cache.
+  // Kalau emitennya ada di situ, TIDAK ada request baru sama
+  // sekali.
+  // --------------------------------------------------------
+
+  const bulk = await getBulkSummaryMap(dateYYYYMMDD);
+
+  if (bulk) {
+
+    const cached = bulk.get(code);
+
+    if (cached) {
+      rows = [cached];
+    } else {
+      // Emiten tidak ada di ringkasan hari itu (suspend, belum
+      // IPO, delisting). Bukan alasan menembak request per-emiten
+      // — hasilnya akan sama kosongnya. return null di bawah.
+      rows = [];
+    }
+
+  } else {
+
+    // --------------------------------------------------------
+    // JALUR CADANGAN: bulk gagal -> per-emiten seperti perilaku
+    // lama. Bulk tidak diulang (sudah di-cache sebagai null).
+    // --------------------------------------------------------
+
+    const json = await tryFetchJson(
+      `/finance:idx/stock-summary` +
+      `?length=20` +
+      `&start=0` +
+      `&date=${dateYYYYMMDD}` +
+      `&code=${encodeURIComponent(code)}`
+    );
+
+    if (!json) {
+      return null;
+    }
+
+    // ----------------------------------------------------------
+    // Response normal:
+    //
+    // {
+    //   data: [
+    //     {
+    //       StockCode: "TRUK",
+    //       OpenPrice: 805,
+    //       High: 805,
+    //       Low: 805,
+    //       Close: 805,
+    //       Volume: ...
+    //     }
+    //   ]
+    // }
+    //
+    // Beberapa endpoint lama / wrapper bisa mengembalikan
+    // struktur nested. Kita support keduanya.
+    // ----------------------------------------------------------
+
+    if (Array.isArray(json.data)) {
+      rows = json.data;
+    } else if (
+      Array.isArray(json.data?.data)
+    ) {
+      rows = json.data.data;
+    } else if (
+      Array.isArray(json.results)
+    ) {
+      rows = json.results;
+    }
+
   }
 
   if (rows.length === 0) {
