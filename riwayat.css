@@ -408,3 +408,40 @@ select option{
 }
 
 .btn-secondary:disabled{opacity:.55;cursor:wait;}
+
+/* Angka gap-up di baris tren — sengaja dibuat kecil & redup supaya
+   tidak terbaca sebagai win rate. Lihat catatan di
+   engine/evaluationStats.js soal kenapa gap_up_realized tidak boleh
+   jadi angka utama. */
+.trend-secondary{
+  display:block;
+  font-size:11px;
+  color:var(--muted);
+  font-weight:400;
+  margin-top:2px;
+}
+
+/* Teks kecil penjelas sumber data. Sengaja redup dan rapat supaya
+   memberi konteks tanpa ikut bersaing dengan angka utama. */
+.data-source{
+  font-size:11.5px;
+  line-height:1.5;
+  color:var(--muted);
+  opacity:.85;
+}
+
+.data-source code{
+  font-family:"JetBrains Mono",ui-monospace,monospace;
+  font-size:10.5px;
+  padding:1px 4px;
+  border-radius:4px;
+  background:rgba(132,148,163,.14);
+}
+
+/* Catatan kecil di bawah angka besar kartu ringkasan. */
+.stat-note{
+  font-size:11px;
+  color:var(--muted);
+  margin-top:4px;
+  line-height:1.4;
+}
