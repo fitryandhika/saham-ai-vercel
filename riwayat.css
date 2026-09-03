@@ -159,6 +159,10 @@
    sampai 4 kolom sejajar di layar lebar, tanpa bug tombol "menelan"
    lebar input (flex + width:100% dari .btn-secondary global). */
 
+/* Grid diperbesar 3 September 2026: jumlah filter naik dari 3 jadi 12.
+   auto-fit dipakai supaya kolom menyesuaikan lebar layar sendiri —
+   di HP tetap satu kolom, di laptop terisi rapat tanpa perlu
+   breakpoint baru tiap kali filter bertambah. */
 .filter-grid{
   display:grid;
   grid-template-columns:1fr;
@@ -167,11 +171,34 @@
 }
 
 @media (min-width:560px){
-  .filter-grid{grid-template-columns:1fr 1fr;}
+  .filter-grid{grid-template-columns:repeat(auto-fit,minmax(190px,1fr));}
 }
 
-@media (min-width:900px){
-  .filter-grid{grid-template-columns:1.1fr .9fr .9fr auto;align-items:end;}
+/* Baris tombol selalu memakai lebar penuh supaya tidak terjepit
+   di antara dua select. */
+.filter-grid .field-actions{
+  grid-column:1 / -1;
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  align-items:flex-end;
+}
+
+.filter-grid .field-actions .field-label-ghost{display:none;}
+
+.load-more-row{
+  display:flex;
+  justify-content:center;
+  margin:14px 0 4px;
+}
+
+.load-more-row .btn-secondary{
+  min-width:220px;
+}
+
+#rowCountNotice{
+  margin:0;
+  align-self:center;
 }
 
 .field{
@@ -208,6 +235,9 @@
 
 .filter-export-row{
   margin-top:12px;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
 }
 
 .filter-export-row .btn-ghost{
@@ -215,7 +245,7 @@
 }
 
 @media (min-width:560px){
-  .filter-export-row{display:flex;justify-content:flex-end;}
+  .filter-export-row{flex-direction:row;align-items:center;justify-content:space-between;}
   .filter-export-row .btn-ghost{width:auto;padding-left:20px;padding-right:20px;}
 }
 
