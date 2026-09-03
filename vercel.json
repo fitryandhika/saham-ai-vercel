@@ -1,17 +1,1 @@
-{
-  "$comment": [
-    "Blok \"crons\" DIHAPUS 3 September 2026.",
-    "",
-    "Akun Hobby Vercel dibatasi 2 cron job, dan tiap cron hanya boleh",
-    "dipicu SEKALI SEHARI — menit yang ditulis pun tidak dijamin, Vercel",
-    "cuma menjanjikan 'di dalam jam tersebut'. File lama berisi 5 cron,",
-    "salah satunya '*/20 9-13 * * 1-5' (15 kali sehari). Dua-duanya",
-    "melanggar batas, dan deployment ditolak sejak commit itu.",
-    "",
-    "Semua penjadwalan dipindah ke GitHub Actions",
-    "(.github/workflows/cron-jobs.yml) — gratis, tanpa batas jumlah,",
-    "menit bisa ditentukan, dan polanya sudah dipakai di repo ini lewat",
-    "scan-backup.yml. Kalau nanti pindah ke Vercel Pro, cron boleh",
-    "dikembalikan ke sini; sampai saat itu JANGAN tambahkan blok crons."
-  ]
-}
+{}
