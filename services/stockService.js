@@ -1661,12 +1661,53 @@ export function classifySessionPhase(
   // ----------------------------------------------------------
   // SESI 2 AKHIR
   // ----------------------------------------------------------
+  //
+  // DIPERBAIKI 3 September 2026. Batas lama di sini 15:15, padahal
+  // sesi reguler IDX berjalan sampai 15:49, disusul pre-closing
+  // 15:50-16:00 dan post-trading 16:05-16:15.
+  //
+  // Akibat batas lama: 524 baris di scan_history berlabel
+  // "SETELAH_TUTUP" — terbaca seperti puncak terjadi setelah bursa
+  // tutup, yang mustahil. Dicek satu per satu, SEMUA 524 baris itu
+  // punya peak_time_wib antara 15:18 dan 16:15, jadi semuanya masih
+  // di dalam jam perdagangan. Tiga waktu terbanyak: 15:30 (225 baris),
+  // 15:45 (153) dan 16:00 (131).
+  //
+  // Angka 16:00 itu penting untuk strategi: puncak di situ artinya
+  // harga tertinggi terjadi di LELANG PENUTUPAN, tidak bisa diambil
+  // intraday — makanya diberi fase sendiri, bukan digabung ke sesi 2.
 
   if (
-    minutes <= 15 * 60 + 15
+    minutes <= 15 * 60 + 49
   ) {
 
     return "SESI2_AKHIR";
+
+  }
+
+
+  // ----------------------------------------------------------
+  // PRE-CLOSING (lelang penutupan, 15:50-16:00)
+  // ----------------------------------------------------------
+
+  if (
+    minutes <= 16 * 60
+  ) {
+
+    return "PRA_PENUTUPAN";
+
+  }
+
+
+  // ----------------------------------------------------------
+  // POST-TRADING (16:05-16:15, hanya di harga penutupan)
+  // ----------------------------------------------------------
+
+  if (
+    minutes <= 16 * 60 + 15
+  ) {
+
+    return "PASCA_PENUTUPAN";
 
   }
 
