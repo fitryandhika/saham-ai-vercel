@@ -47,11 +47,6 @@
 
   <section class="panel">
     <label class="panel-label">Ringkasan akurasi prediksi vs hasil aktual</label>
-    <p class="hint-text data-source">
-      Data: <code>scan_history</code> — prediksi dari scan sore (<code>/api/scan</code>, ±16:40 WIB),
-      hasil aktual dari <code>/api/label-outcomes-close</code> H+1. Prediksi = tier PRIORITAS;
-      benar = <code>next_day_max_gain_from_close_pct</code> ≥ 5%.
-    </p>
     <div class="period-filter" id="periodFilter" role="group" aria-label="Filter periode">
       <button type="button" class="period-pill" data-days="7">7 Hari</button>
       <button type="button" class="period-pill" data-days="30">30 Hari</button>
@@ -188,6 +183,7 @@
       <button class="btn-ghost" id="btnExportCsv">⬇ Export CSV</button>
     </div>
     <p class="hint-text" id="tableDateNotice" style="display:none"></p>
+    <p class="hint-text">Filter dijalankan di server, jadi "Skor ≥75, urut max gain" mencari ke seluruh riwayat — bukan cuma 100 baris yang sedang tampil. Export CSV mengikuti filter yang sama.</p>
   </section>
 
   <section id="historyTableWrap" class="results"></section>
