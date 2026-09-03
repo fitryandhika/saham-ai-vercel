@@ -16,11 +16,23 @@
 //   &limit=&offset=           -> (view=table) paginasi
 //   &sinceDate=YYYY-MM-DD     -> (view=summary) batasi rentang untuk ringkasan
 //   &format=csv                -> (view=table) unduh sebagai file CSV, bukan JSON
-//                                  (limit default jadi lebih besar — lihat di bawah —
-//                                  supaya bisa export ribuan baris sekaligus untuk
-//                                  dianalisa manual di Excel/Google Sheets)
+//                                  (tanpa &limit, CSV menarik SEMUA baris yang
+//                                  cocok filter lewat loop paginasi)
+//
+// Filter tabel tambahan (3 September 2026) — semua opsional, semua
+// dieksekusi di Supabase, bukan di browser:
+//   &sinceDate=&untilDate=    -> rentang tanggal scan (diabaikan kalau &date= diisi)
+//   &tier=PRIMARY|SECONDARY|NONE
+//   &opportunity=HIGH|MODERATE|WATCH|LOW
+//   &minOpportunityScore=70   -> skor opportunity minimal
+//   &entryDecision=BUY_NOW|WAIT_PULLBACK|WATCH|AVOID
+//   &outcome=win5|win3|lossClose
+//   &sort=date|opp|gain|ret   -> urutan (default date)
+//
+// Response view=table sekarang juga membawa total/hasMore supaya UI
+// bisa menampilkan "100 dari 397" dan tombol muat lebih banyak.
 
-import { getScanHistoryRows, getAllScanHistoryRows, getLabeledRowsForStats } from "../services/dataLogService.js";
+import { getScanHistoryRows, getScanHistoryPage, getAllScanHistoryRows, getLabeledRowsForStats } from "../services/dataLogService.js";
 import { computeSummary } from "../engine/evaluationStats.js";
 import { rowsToCsv } from "../utils/csv.js";
 
@@ -50,38 +62,49 @@ const CSV_COLUMNS = [
   "next_day_chase_risk", "next_day_entry_decision", "next_day_entry_eligible",
   "next_day_close_return_from_close_pct", "next_day_max_gain_from_close_pct",
   "next_day_high_3pct_realized", "next_day_close_2pct_realized", "next_day_success",
+  // Opportunity V4 — 3 September 2026
+  "next_day_conviction_tier", "next_day_fade_risk", "next_day_exit_plan",
+  "atr_percent", "next_day_opportunity_probability_8pct",
   "close_labeled_at"
 ];
 
 export default async function handler(req, res) {
   try {
-    const { view = "summary", date, kode, onlyLabeled, pattern, limit, offset, sinceDate, format } = req.query;
+    const {
+      view = "summary", date, kode, onlyLabeled, pattern, limit, offset, sinceDate, format,
+      // Filter tabel baru — 3 September 2026. Lihat catatan di
+      // services/dataLogService.js soal kenapa filter ini harus di
+      // server: satu hari scan ±400 baris, jadi 100 baris teratas
+      // tanpa filter cuma potongan sembarang dari hari yang sama.
+      untilDate, tier, opportunity, minOpportunityScore, entryDecision, outcome, sort
+    } = req.query;
 
     if (view === "table") {
       const isCsv = format === "csv";
 
+      const filters = {
+        scanDate: date,
+        sinceDate,
+        untilDate,
+        kode,
+        onlyLabeled: onlyLabeled === "true",
+        pattern, // "reversal" | "capitulation" — lihat riwayat.js filter "Pola"
+        tier,
+        opportunity,
+        minOpportunityScore,
+        entryDecision,
+        outcome,
+        sort
+      };
+
       // Export CSV: kalau user TIDAK set limit manual, tarik SEMUA baris yang
       // cocok filter (loop paginasi per 1000 baris) — bukan cuma 1 halaman.
-      // Ini supaya "Kosongkan tanggal" benar-benar menampilkan semua data
-      // yang sudah dilabel, tidak kepotong di batas max-rows Supabase (1000).
       // Kalau user set &limit= manual, tetap dihormati (single page, seperti semula).
-      const rows = isCsv && !limit
-        ? await getAllScanHistoryRows({
-            scanDate: date,
-            kode,
-            onlyLabeled: onlyLabeled === "true",
-            pattern
-          })
-        : await getScanHistoryRows({
-            scanDate: date,
-            kode,
-            onlyLabeled: onlyLabeled === "true",
-            pattern, // "reversal" | "capitulation" — lihat riwayat.js filter "Pola"
-            limit: limit ? parseInt(limit, 10) : 200,
-            offset: offset ? parseInt(offset, 10) : 0
-          });
-
       if (isCsv) {
+        const rows = limit
+          ? await getScanHistoryRows({ ...filters, limit: parseInt(limit, 10), offset: offset ? parseInt(offset, 10) : 0 })
+          : await getAllScanHistoryRows(filters);
+
         const csv = rowsToCsv(rows, CSV_COLUMNS);
         const filename = `scan_history_${date || kode || "export"}_${new Date().toISOString().slice(0, 10)}.csv`;
 
@@ -92,7 +115,27 @@ export default async function handler(req, res) {
         return res.status(200).send("\uFEFF" + csv);
       }
 
-      return res.status(200).json({ success: true, view: "table", count: rows.length, data: rows });
+      // JSON: pakai versi ber-count supaya UI bisa bilang "100 dari 397"
+      // dan tahu kapan tombol "Muat lebih banyak" perlu ditampilkan.
+      const pageSize = limit ? parseInt(limit, 10) : 100;
+      const pageOffset = offset ? parseInt(offset, 10) : 0;
+
+      const { rows, total } = await getScanHistoryPage({
+        ...filters,
+        limit: pageSize,
+        offset: pageOffset
+      });
+
+      return res.status(200).json({
+        success: true,
+        view: "table",
+        count: rows.length,
+        total,
+        offset: pageOffset,
+        limit: pageSize,
+        hasMore: pageOffset + rows.length < total,
+        data: rows
+      });
     }
 
     // view === "summary"
