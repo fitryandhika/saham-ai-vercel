@@ -436,6 +436,17 @@ export function analyzeStock(data) {
   // ==========================
   const nextDayOpportunity = calculateNextDayOpportunity({
     score,
+    // Empat input di bawah BARU untuk Opportunity V4 (3 Sep 2026).
+    // V3 tidak punya fitur volatilitas maupun level harga sama sekali,
+    // padahal atr_pct adalah prediktor terkuat untuk "naik >=5% besok"
+    // (Spearman +0,36; semua fitur lain <0,17) dan level harga
+    // menentukan berapa persen satu tick bergerak di IDX.
+    // Variabel-variabelnya sudah ada di scope: close (baris ~80),
+    // sma20/sma50 (~114-115), atr (~154).
+    close,
+    atr,
+    sma20,
+    sma50,
     volume,
     volumeAcceleration,
     breakout,
