@@ -346,7 +346,31 @@ export function calculateNextDayOpportunity({
   if (blockers.length > 0 && opportunityLabel === "HIGH") opportunityLabel = "MODERATE";
 
   const expectedMoveBand = opportunityLabel;
-  const eligible = opportunityLabel === "HIGH" && blockers.length === 0;
+
+  // ============================================================
+  // ELIGIBLE + CONVICTION TIER
+  // ============================================================
+  // Sebelumnya `eligible` hanya bernilai true untuk HIGH, sementara
+  // headline di script.js punya ambangnya sendiri (HIGH ATAU MODERATE).
+  // Akibatnya satu kartu bisa menampilkan "PRIORITAS — BUY SORE" di
+  // atas dan "Opportunity H+1: TIDAK VALID" tepat di bawahnya (kasus
+  // SQMI, 3 Sep 2026). Sekarang ambangnya cuma satu, di sini, dan
+  // perbedaan bobot dinyatakan lewat convictionTier — bukan lewat
+  // dua definisi "valid" yang berbeda.
+  //
+  // Kenapa MODERATE tetap "eligible" tapi bukan PRIMARY (OOS 18 Ags –
+  // 1 Sep): HIGH win >=5% 42,2% / median peak 4,02% / EV target +3%
+  // +0,66%. MODERATE 29,8% / 2,64% / +0,22%. Ada setup, tapi setelah
+  // fee IDX (±0,3%) EV-nya praktis nol — layak posisi kecil, tidak
+  // layak disebut prioritas.
+  const eligible =
+    (opportunityLabel === "HIGH" || opportunityLabel === "MODERATE") &&
+    blockers.length === 0;
+
+  const convictionTier =
+    !eligible ? "NONE"
+      : opportunityLabel === "HIGH" ? "PRIMARY"
+        : "SECONDARY";
 
   // FADE RISK — kolom baru, memisahkan dua hal yang selama ini
   // tercampur: peluang MENYENTUH target versus peluang MEMPERTAHANKANNYA.
@@ -411,6 +435,7 @@ export function calculateNextDayOpportunity({
     coreSetup: setup,
     setupDetail: setupDetail(setup),
     eligible,
+    convictionTier,
     fadeRisk,
     exitPlan,
     atrPercent: Math.round(features.atr_pct * 100) / 100,
