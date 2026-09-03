@@ -395,13 +395,21 @@ async function handleOpportunityBackfill(req, res) {
 
       const opportunity = calculateNextDayOpportunity({
         score: row.score,
+        // Input V4 (3 Sep 2026) — sama seperti di handleModelSync.
+        // Tanpa ini, baris hasil backfill dihitung dengan atr_pct
+        // fallback dan rs = 0, jadi skornya beda dari scan live untuk
+        // saham yang sama.
+        close: row.close,
+        atr: row.atr,
+        sma20: row.sma20,
+        sma50: row.sma50,
         volume: { ratio: row.volume_ratio },
         volumeAcceleration: { slopePercent: row.volume_accel_slope_pct },
         breakout: {
           isBreakout: reconstructIsBreakout(row.breakout_level),
           distancePercent: row.breakout_distance_pct
         },
-        relativeStrength: { label: row.rs_label },
+        relativeStrength: { label: row.rs_label, vsIhsg: row.rs_vs_ihsg },
         exhaustion: { exhaustionScore: row.exhaustion_score },
         distribution: { distributionScore: row.distribution_score },
         liquidity: { illiquid: row.illiquid },
@@ -417,12 +425,24 @@ async function handleOpportunityBackfill(req, res) {
         next_day_opportunity_score: opportunity.opportunityScore,
         next_day_opportunity_label: opportunity.opportunityLabel,
         next_day_opportunity_setup: opportunity.coreSetup,
+        next_day_opportunity_setup_detail: opportunity.setupDetail,
         next_day_opportunity_eligible: opportunity.eligible,
         next_day_entry_quality_score: opportunity.entryQualityScore,
         next_day_entry_quality_label: opportunity.entryQualityLabel,
         next_day_chase_risk: opportunity.chaseRisk,
         next_day_entry_decision: opportunity.entryDecision,
-        next_day_entry_eligible: opportunity.entryEligible
+        next_day_entry_eligible: opportunity.entryEligible,
+
+        // Kolom V4 — tanpa ini baris hasil backfill tidak punya tier,
+        // dan tren harian di Riwayat jatuh ke cadangan label HIGH.
+        next_day_conviction_tier: opportunity.convictionTier,
+        next_day_fade_risk: opportunity.fadeRisk,
+        next_day_exit_plan: opportunity.exitPlan,
+        atr_percent: opportunity.atrPercent,
+        next_day_opportunity_probability_5pct: opportunity.opportunityProbability5Pct,
+        next_day_opportunity_probability_8pct: opportunity.opportunityProbability8Pct,
+        next_day_close_2pct_probability: opportunity.nextDayClose2PctProbability,
+        next_day_opportunity_model_version: opportunity.version
       });
 
       return { id: row.id, ok: true };
