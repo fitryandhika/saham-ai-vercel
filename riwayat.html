@@ -47,6 +47,11 @@
 
   <section class="panel">
     <label class="panel-label">Ringkasan akurasi prediksi vs hasil aktual</label>
+    <p class="hint-text data-source">
+      Data: <code>scan_history</code> — prediksi dari scan sore (<code>/api/scan</code>, ±16:40 WIB),
+      hasil aktual dari <code>/api/label-outcomes-close</code> H+1. Prediksi = tier PRIORITAS;
+      benar = <code>next_day_max_gain_from_close_pct</code> ≥ 5%.
+    </p>
     <div class="period-filter" id="periodFilter" role="group" aria-label="Filter periode">
       <button type="button" class="period-pill" data-days="7">7 Hari</button>
       <button type="button" class="period-pill" data-days="30">30 Hari</button>
@@ -63,7 +68,19 @@
   <section id="summaryOverall" class="results"></section>
 
   <section class="panel">
-    <label class="panel-label">Tren win rate harian</label>
+    <label class="panel-label">Akurasi prediksi harian · target +5%</label>
+    <p class="hint-text">
+      Dari saham yang diberi tier <strong>PRIORITAS</strong> sore itu, berapa persen yang besoknya
+      <strong>sempat menyentuh +5%</strong> dari harga close — inilah yang diukur, bukan kondisi pasar.
+      <br>
+      <span class="data-source">Data: <code>next_day_conviction_tier</code> (prediksi, dari scan sore) vs
+      <code>next_day_max_gain_from_close_pct</code> (hasil aktual, dilabel <code>/api/label-outcomes-close</code>).
+      Baris sebelum 3 Sep 2026 belum punya tier, jadi memakai <code>next_day_opportunity_label = HIGH</code>.</span>
+      <br>
+      <span class="data-source">Angka kecil "vs pasar" adalah persentase <em>seluruh</em> saham yang discan hari itu
+      yang menyentuh +5%. Selisihnya yang mengukur model — hit rate mentah lebih banyak mengukur ramai-sepinya bursa.
+      Di bawah 10 prediksi, satu saham bisa menggeser angka belasan poin, jadi hari seperti itu ditandai dan tidak diwarnai.</span>
+    </p>
     <div id="byDate" class="trend-list"></div>
   </section>
 
@@ -71,8 +88,13 @@
 
   <section class="panel">
     <div class="riwayat-filter-row">
-      <span class="filter-label">Filter kode &amp; tanggal</span>
+      <span class="filter-label">Filter tabel riwayat</span>
     </div>
+    <p class="hint-text data-source">
+      Data: tabel <code>scan_history</code> di Supabase — satu baris per emiten per hari scan.
+      Kolom prediksi diisi saat scan sore; kolom hasil (<code>actual_next_*</code>,
+      <code>next_day_*_from_close_pct</code>) diisi H+1 oleh cron pelabelan.
+    </p>
     <div class="filter-grid">
       <div class="field">
         <label class="field-label" for="kodeFilter">Kode saham</label>
