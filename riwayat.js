@@ -376,20 +376,43 @@ function opportunityPill(row) {
   if (!label) return `<span class="pattern-pill">–</span>`;
 
   const cls = label.toLowerCase();
-  const star = row.next_day_opportunity_eligible ? " ⭐" : "";
+
+  // Bintang dulu dipasang dari next_day_opportunity_eligible, yang
+  // sebelum V4 hanya bernilai true untuk HIGH — jadi MODERATE yang
+  // sebenarnya punya setup tampil polos. Sekarang tier yang menentukan.
+  const tier = row.next_day_conviction_tier;
+  const star = tier === "PRIMARY" ? " ⭐" : tier === "SECONDARY" ? " ·" : "";
 
   const p5 = Number(row.next_day_opportunity_probability_5pct);
+  // V4 mengganti target 10% dengan 8%; baris lama masih pakai kolom
+  // 10pct, jadi dua-duanya dibaca supaya riwayat lama tetap terbaca.
+  const p8 = Number(row.next_day_opportunity_probability_8pct);
   const p10 = Number(row.next_day_opportunity_probability_10pct);
 
-  const p5Text = Number.isFinite(p5)
-    ? `P5 ${p5.toFixed(0)}%`
-    : "";
+  const p5Text = Number.isFinite(p5) ? `P5 ${p5.toFixed(0)}%` : "";
+  const bigText = Number.isFinite(p8)
+    ? ` · P8 ${p8.toFixed(0)}%`
+    : Number.isFinite(p10)
+      ? ` · P10 ${p10.toFixed(0)}%`
+      : "";
 
-  const p10Text = Number.isFinite(p10)
-    ? ` · P10 ${p10.toFixed(0)}%`
-    : "";
+  return `<span class="opp-pill ${cls}" title="${row.next_day_opportunity_setup_detail ?? ""}">${label}${star}<br><small>${p5Text}${bigText}</small></span>`;
+}
 
-  return `<span class="opp-pill ${cls}" title="${row.next_day_opportunity_setup_detail ?? ""}">${label}${star}<br><small>${p5Text}${p10Text}</small></span>`;
+function fadeRiskPill(row) {
+  const risk = row.next_day_fade_risk;
+  if (!risk) return `<span class="pattern-pill">–</span>`;
+
+  const cls = risk === "HIGH" ? "low" : risk === "MODERATE" ? "watch" : "moderate";
+  const plan = row.next_day_exit_plan === "JUAL_DI_TARGET"
+    ? "jual di target"
+    : row.next_day_exit_plan === "BOLEH_TAHAN_SAMPAI_CLOSE"
+      ? "boleh ditahan"
+      : row.next_day_exit_plan === "JUAL_SEPARUH_DI_TARGET"
+        ? "jual separuh"
+        : "";
+
+  return `<span class="opp-pill ${cls}">${risk}${plan ? `<br><small>${plan}</small>` : ""}</span>`;
 }
 
 function regimeBadge(regime) {
@@ -473,6 +496,7 @@ function renderHistoryTable(rows) {
         <td>${r.actual_next_close ?? "–"}</td>
         <td class="${retClass(r.next_day_max_gain_from_close_pct)}">${fmtPct(r.next_day_max_gain_from_close_pct)}</td>
         <td class="${retClass(r.next_day_close_return_from_close_pct)}">${fmtPct(r.next_day_close_return_from_close_pct)}</td>
+        <td>${fadeRiskPill(r)}</td>
         <td>${regimeBadge(r.market_regime)}</td>
         <td>${patternBadges(r)}</td>
         <td>${statusPill(r)}</td>
@@ -488,7 +512,8 @@ function renderHistoryTable(rows) {
           <tr>
             <th>Tanggal</th><th>Kode</th><th>Opportunity</th><th>Signal</th><th>Score</th><th>Entry Quality</th>
             <th>Close (beli sore)</th><th>High H+1</th><th>Close H+1</th>
-            <th>Max Gain% (sesi 1)</th><th>Return% (sampai close)</th>
+            <th>Max Gain% (peak H+1)</th><th>Return% (sampai close)</th>
+            <th>Fade Risk</th>
             <th>Regime</th><th>Pola</th><th>Hasil</th><th>Aksi</th>
           </tr>
         </thead>
@@ -557,47 +582,156 @@ async function loadSummary() {
   }
 }
 
-async function loadTable() {
-  const kode = document.getElementById("kodeFilter").value.trim();
-  const pattern = document.getElementById("patternFilter")?.value || "";
-  const date = document.getElementById("dateFilter")?.value || "";
-  const params = new URLSearchParams({ view: "table", limit: "100" });
-  if (kode) params.set("kode", kode);
-  if (pattern) params.set("pattern", pattern);
-  if (date) params.set("date", date);
+// ==========================
+// Filter tabel riwayat (3 September 2026)
+// ==========================
+//
+// MASALAH YANG DIPERBAIKI: tabel dulu selalu memanggil
+// /api/history?view=table&limit=100 diurutkan tanggal terbaru. Satu
+// hari scan berisi ±400 emiten, jadi 100 baris itu potongan sembarang
+// dari SATU hari yang sama — tidak mungkin mencari "yang skornya
+// tinggi" atau "yang besoknya naik >5%" tanpa export CSV dulu.
+//
+// Semua filter di bawah dikirim ke server (PostgREST), bukan disaring
+// di browser, supaya HP tidak perlu menarik ribuan baris.
 
+const PAGE_SIZE = 100;
+let tableOffset = 0;
+let tableRows = [];
+
+function readTableFilters() {
+  const val = (id) => document.getElementById(id)?.value?.trim() || "";
+  return {
+    kode: val("kodeFilter").toUpperCase(),
+    tier: val("tierFilter"),
+    opportunity: val("oppFilter"),
+    minOpportunityScore: val("minOppFilter"),
+    entryDecision: val("entryFilter"),
+    outcome: val("outcomeFilter"),
+    pattern: val("patternFilter"),
+    sort: val("sortFilter") || "date",
+    date: val("dateFilter"),
+    sinceDate: val("sinceFilter"),
+    untilDate: val("untilFilter"),
+    onlyLabeled: val("labeledFilter")
+  };
+}
+
+function buildTableParams(extra = {}) {
+  const f = readTableFilters();
+  const params = new URLSearchParams({ view: "table" });
+
+  if (f.kode) params.set("kode", f.kode);
+  if (f.tier) params.set("tier", f.tier);
+  if (f.opportunity) params.set("opportunity", f.opportunity);
+  if (f.minOpportunityScore) params.set("minOpportunityScore", f.minOpportunityScore);
+  if (f.entryDecision) params.set("entryDecision", f.entryDecision);
+  if (f.outcome) params.set("outcome", f.outcome);
+  if (f.pattern) params.set("pattern", f.pattern);
+  if (f.sort && f.sort !== "date") params.set("sort", f.sort);
+  if (f.date) params.set("date", f.date);
+  if (!f.date && f.sinceDate) params.set("sinceDate", f.sinceDate);
+  if (!f.date && f.untilDate) params.set("untilDate", f.untilDate);
+  if (f.onlyLabeled === "true") params.set("onlyLabeled", "true");
+
+  for (const [k, v] of Object.entries(extra)) params.set(k, String(v));
+  return params;
+}
+
+function updateRowCountNotice({ shown, total, hasMore }) {
+  const el = document.getElementById("rowCountNotice");
+  if (!el) return;
+
+  if (!total) {
+    el.textContent = "Tidak ada baris yang cocok dengan filter ini.";
+    return;
+  }
+
+  el.textContent = shown < total
+    ? `Menampilkan ${shown} dari ${total} baris yang cocok.`
+    : `Menampilkan seluruh ${total} baris yang cocok.`;
+
+  const more = document.getElementById("btnLoadMore");
+  if (more) more.style.display = hasMore ? "" : "none";
+}
+
+async function loadTable({ append = false } = {}) {
   const el = document.getElementById("historyTableWrap");
-  el.innerHTML = `<div class="empty-state">Memuat…</div>`;
+
+  if (!append) {
+    tableOffset = 0;
+    tableRows = [];
+    el.innerHTML = `<div class="empty-state">Memuat…</div>`;
+  }
+
+  const params = buildTableParams({ limit: PAGE_SIZE, offset: tableOffset });
 
   try {
-    const { data } = await fetchJSON(`/api/history?${params.toString()}`);
-    renderHistoryTable(data);
+    const payload = await fetchJSON(`/api/history?${params.toString()}`);
+    const rows = payload.data || [];
+
+    tableRows = append ? tableRows.concat(rows) : rows;
+    tableOffset = tableRows.length;
+
+    renderHistoryTable(tableRows);
+    updateRowCountNotice({
+      shown: tableRows.length,
+      total: payload.total ?? tableRows.length,
+      hasMore: payload.hasMore === true
+    });
   } catch (e) {
     el.innerHTML = `<div class="empty-state">Gagal memuat tabel: ${e.message}</div>`;
   }
 }
 
-function exportCsv() {
-  const kode = document.getElementById("kodeFilter").value.trim();
-  const date = document.getElementById("dateFilter").value;
-
-  const pattern = document.getElementById("patternFilter")?.value || "";
-
-  const params = new URLSearchParams({ view: "table", format: "csv" });
-  if (kode) params.set("kode", kode);
-  if (date) params.set("date", date);
-  if (pattern) params.set("pattern", pattern);
-
-  // Navigasi langsung (bukan fetch) supaya browser yang urus proses
-  // download & Content-Disposition filename, termasuk di HP.
-  window.location.href = `/api/history?${params.toString()}`;
+function resetTableFilters() {
+  ["kodeFilter", "tierFilter", "oppFilter", "minOppFilter", "entryFilter",
+   "outcomeFilter", "patternFilter", "dateFilter", "sinceFilter",
+   "untilFilter", "labeledFilter"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.value = "";
+  });
+  const sortEl = document.getElementById("sortFilter");
+  if (sortEl) sortEl.value = "date";
+  showTableDateNotice("");
+  loadTable();
 }
 
-document.getElementById("patternFilter")?.addEventListener("change", loadTable);
+function exportCsv() {
+  // Export mengikuti PERSIS filter yang sedang aktif di layar. Tanpa
+  // &limit, endpoint menarik semua baris yang cocok lewat loop paginasi.
+  window.location.href = `/api/history?${buildTableParams({ format: "csv" }).toString()}`;
+}
+
+// Setiap select memuat ulang tabel begitu diubah — di HP, menekan
+// "Terapkan Filter" setelah tiap pilihan terasa berulang. Input teks
+// (kode) sengaja di-debounce, bukan per-ketikan, supaya tidak
+// menembak request tiap huruf.
+["tierFilter", "oppFilter", "minOppFilter", "entryFilter",
+ "outcomeFilter", "patternFilter", "sortFilter", "labeledFilter"].forEach((id) => {
+  document.getElementById(id)?.addEventListener("change", () => loadTable());
+});
+
+let kodeDebounce = null;
+document.getElementById("kodeFilter")?.addEventListener("input", () => {
+  clearTimeout(kodeDebounce);
+  kodeDebounce = setTimeout(() => loadTable(), 400);
+});
+
+["sinceFilter", "untilFilter"].forEach((id) => {
+  document.getElementById(id)?.addEventListener("change", () => loadTable());
+});
+
 document.getElementById("dateFilter")?.addEventListener("change", () => {
   showTableDateNotice("");
   loadTable();
 });
+
+document.getElementById("btnLoadMore")?.addEventListener("click", () => {
+  loadTable({ append: true });
+});
+
+document.getElementById("btnResetFilter")?.addEventListener("click", resetTableFilters);
 
 // Tombol di empty-state: kosongkan filter tanggal lalu muat ulang, supaya
 // user tidak perlu menghapus isi input tanggal secara manual di HP.
@@ -646,7 +780,7 @@ document.getElementById("btnSyncModel").addEventListener("click", async () => {
 });
 
 document.getElementById("btnRefresh").addEventListener("click", loadSummary);
-document.getElementById("btnLoadTable").addEventListener("click", loadTable);
+document.getElementById("btnLoadTable").addEventListener("click", () => loadTable());
 document.getElementById("btnExportCsv").addEventListener("click", exportCsv);
 
 // Isi TANGGAL SCAN secara default begitu halaman dibuka, supaya orang
