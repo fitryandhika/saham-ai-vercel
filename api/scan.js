@@ -985,6 +985,17 @@ export default async function handler(req, res) {
               "MODERATE"
           ).length,
 
+        // DITAMBAHKAN 3 Sep 2026. Label yang dihasilkan engine adalah
+        // HIGH / MODERATE / WATCH / LOW — "WATCH" tidak pernah dihitung
+        // di sini, jadi high+moderate+low selalu lebih kecil dari total
+        // dan selisihnya tidak terjelaskan.
+        watch:
+          opportunityResults.filter(
+            (x) =>
+              x.opportunityLabel ===
+              "WATCH"
+          ).length,
+
         low:
           opportunityResults.filter(
             (x) =>
@@ -992,13 +1003,14 @@ export default async function handler(req, res) {
               "LOW"
           ).length,
 
-        avoid:
-          opportunityResults.filter(
-            (x) =>
-              x.opportunityLabel ===
-              "AVOID"
-          ).length,
+        // "AVOID" bukan label opportunity — itu nilai entryQualityLabel /
+        // entryDecision. Field ini selalu 0 sejak awal. Dipertahankan
+        // supaya konsumen lama tidak pecah, tapi jangan dipakai.
+        avoid: 0,
 
+        // eligible sekarang mencakup HIGH DAN MODERATE (lihat
+        // engine/nextDayOpportunity.js). Untuk membedakan bobotnya,
+        // pakai dua field di bawah, bukan eligible saja.
         eligible:
           opportunityResults.filter(
             (x) =>
@@ -1006,10 +1018,31 @@ export default async function handler(req, res) {
               true
           ).length,
 
+        primary:
+          opportunityResults.filter(
+            (x) =>
+              x.convictionTier === "PRIMARY"
+          ).length,
+
+        secondary:
+          opportunityResults.filter(
+            (x) =>
+              x.convictionTier === "SECONDARY"
+          ).length,
+
         entryEligible:
           opportunityResults.filter(
             (x) =>
               x.entryEligible === true
+          ).length,
+
+        // Fade risk tinggi = peluang menyentuh target bagus tapi peluang
+        // bertahan sampai close rendah. Berguna untuk melihat sekilas
+        // apakah hari itu didominasi kandidat yang harus dijual di target.
+        fadeRiskHigh:
+          opportunityResults.filter(
+            (x) =>
+              x.fadeRisk === "HIGH"
           ).length,
 
         waitPullback:
