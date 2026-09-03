@@ -34,6 +34,11 @@ function winRate(rows) {
 // H+1 terjadi di sesi 1 (bukan cuma di pembukaan), jadi gap_up_realized
 // bikin win rate kelihatan jauh lebih rendah dari performa sebenarnya.
 // next_day_high_3pct_realized = harga SEMPAT naik >=3% kapan saja di H+1.
+// TIDAK DIPAKAI LAGI sejak 3 September 2026. Dulu ini basis win rate
+// kartu ringkasan atas (target 3%, atas SELURUH baris). Sekarang seluruh
+// halaman memakai satu definisi: akurasi prediksi pada target +5%.
+// Dibiarkan ada karena murni dan tidak berbahaya; hapus kalau sudah
+// yakin tidak ada konsumen response lama yang membutuhkannya.
 function winRateHigh3pct(rows) {
   const labeled = rows.filter(
     (r) => r.next_day_high_3pct_realized !== null && r.next_day_high_3pct_realized !== undefined
@@ -42,6 +47,12 @@ function winRateHigh3pct(rows) {
   const wins = labeled.filter((r) => r.next_day_high_3pct_realized === true).length;
   return wins / labeled.length;
 }
+
+// Target utama strategi: harga H+1 SEMPAT menyentuh >= +5% dari close
+// sore. Dipakai sebagai definisi "prediksi benar" di tren harian.
+// Angkanya sengaja dipisah jadi konstanta supaya kalau target berubah,
+// tidak ada dua tempat yang bisa tidak sinkron.
+const HIGH_TARGET_PCT = 5;
 
 function round(n, digits = 2) {
   if (n === null || n === undefined) return null;
@@ -110,21 +121,51 @@ export function computeSummary(rows) {
     (r) => r.gap_up_realized !== null && r.gap_up_realized !== undefined
   );
 
-  // Basis KHUSUS untuk kartu ringkasan atas (total_labeled + win_rate) —
-  // lihat catatan di winRateHigh3pct() di atas. bySignal/byScoreBucket/
-  // byBreakout di bawah SENGAJA tetap pakai `labeled` (basis lama,
-  // gap_up_realized) supaya tidak mengubah semantik tabel lain yang
-  // masih dihitung di response API ini walau sudah tidak ditampilkan
-  // di UI (dihapus dari Riwayat AI sebelumnya).
-  const labeledHigh3pct = rows.filter(
-    (r) => r.next_day_high_3pct_realized !== null && r.next_day_high_3pct_realized !== undefined
+  // ============================================================
+  // KARTU RINGKASAN ATAS — disamakan dengan tren harian (3 Sep 2026)
+  // ============================================================
+  // Dulu kartu ini memakai basis ketiga lagi: win = peak >= 3% atas
+  // SELURUH baris, dan rata-rata return dari next_day_return_pct yang
+  // basisnya OPEN H+1, bukan close H. Jadi satu halaman menampilkan
+  // tiga definisi "win" yang tidak bisa dibandingkan satu sama lain.
+  //
+  // Sekarang satu definisi untuk seluruh halaman: dari saham yang
+  // DIPILIH model (tier PRIMARY, atau label HIGH untuk baris lama),
+  // berapa persen yang besoknya menyentuh >= +5% dari close.
+  const labeledClose = rows.filter(
+    (r) => r.next_day_max_gain_from_close_pct !== null &&
+           r.next_day_max_gain_from_close_pct !== undefined
   );
+
+  const isPredicted = (r) =>
+    r.next_day_conviction_tier
+      ? r.next_day_conviction_tier === "PRIMARY"
+      : r.next_day_opportunity_label === "HIGH";
+
+  const hit5 = (r) => Number(r.next_day_max_gain_from_close_pct) >= HIGH_TARGET_PCT;
+
+  const predictedAll = labeledClose.filter(isPredicted);
+
+  const overallHit = predictedAll.length
+    ? (predictedAll.filter(hit5).length / predictedAll.length) * 100
+    : null;
+  const overallBase = labeledClose.length
+    ? (labeledClose.filter(hit5).length / labeledClose.length) * 100
+    : null;
 
   const overall = {
     total_scan: rows.length,
-    total_labeled: labeledHigh3pct.length,
-    win_rate: round((winRateHigh3pct(labeledHigh3pct) ?? 0) * 100),
-    avg_return_pct: round(avg(labeledHigh3pct.map((r) => r.next_day_return_pct)))
+    total_labeled: labeledClose.length,
+    total_prediksi: predictedAll.length,
+    hit_rate_5pct: round(overallHit),
+    base_rate_5pct: round(overallBase),
+    lift_5pct: overallHit === null || overallBase === null ? null : round(overallHit - overallBase),
+    avg_peak_pct: round(avg(predictedAll.map((r) => r.next_day_max_gain_from_close_pct))),
+    avg_close_return_pct: round(avg(predictedAll.map((r) => r.next_day_close_return_from_close_pct))),
+
+    // Dipertahankan supaya konsumen lama response ini tidak pecah.
+    win_rate: round(overallHit),
+    avg_return_pct: round(avg(predictedAll.map((r) => r.next_day_close_return_from_close_pct)))
   };
 
   // Per signal (STRONG BUY / BUY / HOLD / SELL / STRONG SELL)
@@ -166,15 +207,82 @@ export function computeSummary(rows) {
   const byDateMap = groupBy(rows, (r) => r.scan_date);
   const byDate = Array.from(byDateMap.entries())
     .map(([tanggal, group]) => {
+      // ============================================================
+      // TREN HARIAN = AKURASI PREDIKSI, bukan kondisi pasar
+      // ============================================================
+      // Riwayat perubahan basis metrik ini:
+      //
+      //   v1 (lama)  gap_up_realized — (open H+1 - close H)/close H >= 2%.
+      //              Itu mengukur GAP DI LELANG PEMBUKAAN, sama sekali
+      //              bukan strategi aplikasi ini. Pada 33 hari perdagangan
+      //              korelasinya dengan hasil strategi -0,021 (praktis
+      //              nol) dan MENGURUTKAN HARI TERBALIK: 26 Agustus
+      //              tampil 2,27% (terburuk) padahal itu hari terbaik.
+      //
+      //   v2         next_day_success (peak >=3% ATAU close >=2%).
+      //              Sudah sesuai strategi, tapi mengukur PASARNYA —
+      //              berapa persen dari SEMUA saham yang naik. Naik-turun
+      //              angkanya lebih banyak bercerita soal kondisi bursa
+      //              daripada soal kualitas model.
+      //
+      //   v3 (ini)   AKURASI PREDIKSI pada target utama: dari saham yang
+      //              DIPILIH model sore itu, berapa persen yang besoknya
+      //              menyentuh >= +5% dari close. Inilah pertanyaan yang
+      //              sebenarnya ingin dijawab halaman evaluasi.
+      //
+      // Angka ini TIDAK BOLEH dibaca sendirian. 30% terdengar buruk di
+      // pasar yang lagi panas dan sangat bagus di pasar sepi, jadi
+      // base_rate_5pct (persentase SELURUH saham yang discan hari itu
+      // yang menyentuh +5%) ikut dikirim, dan selisihnya = lift_5pct.
+      // Lift itu yang mengukur model; hit rate mentah mengukur hari.
       const labeledInGroup = group.filter(
-        (r) => r.gap_up_realized !== null && r.gap_up_realized !== undefined
+        (r) => r.next_day_max_gain_from_close_pct !== null &&
+               r.next_day_max_gain_from_close_pct !== undefined
       );
       const pending = labeledInGroup.length === 0;
+
+      const hit5 = (r) => Number(r.next_day_max_gain_from_close_pct) >= HIGH_TARGET_PCT;
+
+      // Baris yang dipilih model. conviction_tier baru ada sejak V4;
+      // baris lama hanya punya label, jadi label dipakai sebagai
+      // cadangan supaya riwayat sebelum 3 Sep tetap terhitung.
+      const predicted = labeledInGroup.filter((r) =>
+        r.next_day_conviction_tier
+          ? r.next_day_conviction_tier === "PRIMARY"
+          : r.next_day_opportunity_label === "HIGH"
+      );
+
+      const baseRate = labeledInGroup.length
+        ? (labeledInGroup.filter(hit5).length / labeledInGroup.length) * 100
+        : null;
+
+      const hitRate = predicted.length
+        ? (predicted.filter(hit5).length / predicted.length) * 100
+        : null;
+
+      const gapLabeled = group.filter(
+        (r) => r.gap_up_realized !== null && r.gap_up_realized !== undefined
+      );
+
       return {
         tanggal,
         total_scan: group.length,
+        total_labeled: labeledInGroup.length,
         pending,
-        ...summarizeGroup(labeledInGroup)
+
+        // Metrik utama
+        jumlah_prediksi: predicted.length,
+        hit_rate_5pct: round(hitRate),
+        base_rate_5pct: round(baseRate),
+        lift_5pct: hitRate === null || baseRate === null ? null : round(hitRate - baseRate),
+        avg_peak_pct: round(avg(predicted.map((r) => r.next_day_max_gain_from_close_pct))),
+
+        // Konteks sekunder — dipertahankan supaya tidak hilang, tapi
+        // bukan angka utama lagi.
+        market_success_rate: round((winRateClose(labeledInGroup) ?? 0) * 100),
+        gap_up_rate: gapLabeled.length
+          ? round((gapLabeled.filter((r) => r.gap_up_realized === true).length / gapLabeled.length) * 100)
+          : null
       };
     })
     .filter((row) => row.total_scan >= MIN_DAILY_SCAN_COUNT)
