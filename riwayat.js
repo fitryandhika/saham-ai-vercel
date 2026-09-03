@@ -152,7 +152,7 @@ function renderOverall(overall) {
     <div class="summary-grid">
       <div class="summary-stat">
         <div class="stat-label">Akurasi prediksi (target +5%)</div>
-        <div class="stat-value ${pctClass(overall.hit_rate_5pct)}">${overall.hit_rate_5pct ?? "–"}%</div>
+        <div class="stat-value ${retClass(overall.lift_5pct)}">${overall.hit_rate_5pct ?? "–"}%</div>
         <div class="stat-note">dari ${(overall.total_prediksi ?? 0).toLocaleString("id-ID")} prediksi prioritas</div>
       </div>
       <div class="summary-stat">
@@ -387,11 +387,19 @@ function renderByDate(rows) {
         ? `<span class="in-sample-tag" title="Tanggal ini termasuk data latih model V4 — lift di sini lebih bagus dari performa sebenarnya">data latih</span>`
         : "";
 
+      // PENTING: warna diambil dari LIFT, bukan dari hit rate.
+      // pctClass() memberi hijau hanya di atas 50%, dan itu ambang yang
+      // salah untuk metrik ini — hari terbaik model pun cuma sekitar
+      // 42%, jadi semua hari akan tampil merah seolah selalu gagal.
+      // Yang menentukan bagus/tidaknya adalah apakah prediksi
+      // mengalahkan base rate pasar hari itu.
+      const toneClass = thin ? "trend-pending" : retClass(r.lift_5pct);
+
       return `
         <div class="trend-row${inSample ? " is-in-sample" : ""}">
           <span>${r.tanggal}${sampleTag}</span>
           <div class="trend-bar-wrap"><div class="trend-bar" style="width:${hit}%"></div></div>
-          <span class="${thin ? "trend-pending" : pctClass(r.hit_rate_5pct)}">${r.hit_rate_5pct ?? "–"}%
+          <span class="${toneClass}">${r.hit_rate_5pct ?? "–"}%
             <small class="trend-secondary">${detail}</small>
           </span>
         </div>
