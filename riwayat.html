@@ -80,7 +80,15 @@
       <span class="data-source">Angka kecil "vs pasar" adalah persentase <em>seluruh</em> saham yang discan hari itu
       yang menyentuh +5%. Selisihnya yang mengukur model — hit rate mentah lebih banyak mengukur ramai-sepinya bursa.
       Di bawah 10 prediksi, satu saham bisa menggeser angka belasan poin, jadi hari seperti itu ditandai dan tidak diwarnai.</span>
+      <br>
+      <span class="data-source">Tanggal bertanda <span class="in-sample-tag">data latih</span> dipakai untuk mengkalibrasi model V4
+      (sampai 1 Sep 2026), jadi lift di sana lebih bagus dari performa sebenarnya. Yang menentukan model bagus atau tidak
+      adalah tanggal setelahnya.</span>
     </p>
+    <div class="filter-export-row">
+      <span class="hint-text data-source">Riwayat lama masih memakai skor versi lama sampai dihitung ulang.</span>
+      <button class="btn-ghost" id="btnBackfillV4">↻ Hitung ulang riwayat pakai V4</button>
+    </div>
     <div id="byDate" class="trend-list"></div>
   </section>
 
