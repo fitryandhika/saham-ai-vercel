@@ -240,7 +240,11 @@ async function handleModelSync(req, res) {
       slopePercent: row.volume_accel_slope_pct,
       accelerating: row.volume_accelerating
     };
-    const relativeStrength = { label: row.rs_label };
+    // rs_vs_ihsg WAJIB ikut. Sebelum 3 Sep 2026 hanya rs_label yang
+    // dioper ke sini, jadi setiap baris hasil model-sync dihitung dengan
+    // relative strength = 0 dan skornya beda dari scan live untuk saham
+    // yang sama. Bug lama, baru terlihat saat V4 memakai angkanya.
+    const relativeStrength = { label: row.rs_label, vsIhsg: row.rs_vs_ihsg };
     const exhaustion = { exhaustionScore: row.exhaustion_score };
     const distribution = { distributionScore: row.distribution_score };
 
@@ -272,6 +276,12 @@ async function handleModelSync(req, res) {
 
     const opportunity = calculateNextDayOpportunity({
       score,
+      // Empat input V4 — semuanya sudah tersimpan sebagai kolom di baris
+      // ini, jadi backfill tetap TIDAK perlu fetch Yahoo sama sekali.
+      close: row.close,
+      atr: row.atr,
+      sma20: row.sma20,
+      sma50: row.sma50,
       volume,
       volumeAcceleration,
       breakout,
@@ -295,12 +305,25 @@ async function handleModelSync(req, res) {
       next_day_opportunity_score: opportunity.opportunityScore,
       next_day_opportunity_label: opportunity.opportunityLabel,
       next_day_opportunity_setup: opportunity.coreSetup,
+      next_day_opportunity_setup_detail: opportunity.setupDetail,
       next_day_opportunity_eligible: opportunity.eligible,
       next_day_entry_quality_score: opportunity.entryQualityScore,
       next_day_entry_quality_label: opportunity.entryQualityLabel,
       next_day_chase_risk: opportunity.chaseRisk,
       next_day_entry_decision: opportunity.entryDecision,
-      next_day_entry_eligible: opportunity.entryEligible
+      next_day_entry_eligible: opportunity.entryEligible,
+
+      // Kolom V4 — tanpa ini, baris hasil backfill tidak punya
+      // conviction_tier, dan tren harian di Riwayat akan jatuh ke
+      // cadangan label HIGH untuk tanggal-tanggal itu.
+      next_day_conviction_tier: opportunity.convictionTier,
+      next_day_fade_risk: opportunity.fadeRisk,
+      next_day_exit_plan: opportunity.exitPlan,
+      atr_percent: opportunity.atrPercent,
+      next_day_opportunity_probability_5pct: opportunity.opportunityProbability5Pct,
+      next_day_opportunity_probability_8pct: opportunity.opportunityProbability8Pct,
+      next_day_close_2pct_probability: opportunity.nextDayClose2PctProbability,
+      next_day_opportunity_model_version: opportunity.version
     });
 
     return {
@@ -311,9 +334,11 @@ async function handleModelSync(req, res) {
       score,
       oldSignal: row.signal ?? null,
       signal,
-      oldOpportunityScore: null,
+      oldOpportunityScore: row.next_day_opportunity_score ?? null,
+      oldOpportunityLabel: row.next_day_opportunity_label ?? null,
       opportunityScore: opportunity.opportunityScore,
-      opportunityLabel: opportunity.opportunityLabel
+      opportunityLabel: opportunity.opportunityLabel,
+      convictionTier: opportunity.convictionTier
     };
   }, 20);
 
@@ -321,6 +346,8 @@ async function handleModelSync(req, res) {
   const ok = results.filter(r => r && !r.error);
   const changedScore = ok.filter(r => Number(r.oldScore) !== Number(r.score)).length;
   const changedSignal = ok.filter(r => r.oldSignal !== r.signal).length;
+  const changedOpportunity = ok.filter(r => r.oldOpportunityLabel !== r.opportunityLabel).length;
+  const primaryCount = ok.filter(r => r.convictionTier === "PRIMARY").length;
 
   return res.status(200).json({
     success: true,
@@ -328,6 +355,8 @@ async function handleModelSync(req, res) {
     failedCount: failed.length,
     changedScore,
     changedSignal,
+    changedOpportunity,
+    primaryCount,
     failed: failed.slice(0, 20),
     date: scanDate ?? null,
     kode: kode ?? null,
