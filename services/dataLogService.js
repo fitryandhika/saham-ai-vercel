@@ -272,7 +272,18 @@ export async function getRowsForModelSync({ scanDate, kode, limit = 5000 } = {})
     "closing_strength", "volume_ratio", "volume_signal",
     "volume_accel_slope_pct", "volume_accelerating", "rs_label",
     "illiquid", "market_regime", "market_regime_score",
-    "exhaustion_score", "distribution_score", "daily_change_pct"
+    "exhaustion_score", "distribution_score", "daily_change_pct",
+    // DITAMBAHKAN 3 September 2026 untuk Opportunity V4.
+    //   atr + close   -> atr_pct, fitur terkuat model (Spearman +0,36)
+    //   rs_vs_ihsg    -> sebelumnya HANYA rs_label yang diambil, padahal
+    //                    model butuh angkanya. Tanpa ini, setiap baris
+    //                    hasil model-sync dihitung dengan rs = 0 —
+    //                    hasilnya beda dari scan live untuk saham yang
+    //                    sama. Ini bug lama yang baru kelihatan sekarang.
+    // sma20/sma50 sudah ada di atas, dipakai untuk ext20/ext50.
+    "atr", "rs_vs_ihsg",
+    // Dibaca supaya bisa melaporkan skor lama vs baru dengan jujur.
+    "next_day_opportunity_score", "next_day_opportunity_label"
   ].join(",");
 
   const params = new URLSearchParams();
