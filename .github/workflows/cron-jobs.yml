@@ -1,0 +1,89 @@
+name: Cron Stockgz
+
+# Pengganti blok "crons" di vercel.json. Akun Hobby Vercel dibatasi
+# 2 cron job dan hanya sekali sehari, sementara aplikasi ini butuh 5
+# jadwal — salah satunya tiap 20 menit. GitHub Actions tidak punya
+# batas itu.
+#
+# CATATAN WAKTU: cron GitHub Actions memakai UTC. WIB = UTC+7.
+# Jadwal di bawah sengaja ditulis dalam UTC dengan padanan WIB-nya.
+#
+# GitHub Actions bisa menunda jalannya jadwal sampai belasan menit saat
+# beban tinggi. Untuk /api/scan itu tidak masalah (dijalankan setelah
+# bursa tutup), dan label-outcomes-close memang berulang tiap 20 menit
+# jadi keterlambatan satu putaran otomatis tersusul.
+
+on:
+  schedule:
+    # 09:20 UTC = 16:20 WIB — macro scan, sebelum scan utama
+    - cron: "20 9 * * 1-5"
+    # 09:30 UTC = 16:30 WIB — scan harian utama
+    - cron: "30 9 * * 1-5"
+    # 02:15 UTC = 09:15 WIB — label tahap 1 (gap pembukaan)
+    - cron: "15 2 * * 1-5"
+    # tiap 20 menit, 09:00-13:59 UTC = 16:00-20:59 WIB — label tahap 2
+    - cron: "*/20 9-13 * * 1-5"
+    # 20:00 UTC Minggu = 03:00 WIB Senin — refresh universe
+    - cron: "0 20 * * 0"
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Endpoint yang dipanggil manual"
+        required: true
+        type: choice
+        options:
+          - macro-scan
+          - scan
+          - label-outcomes
+          - label-outcomes-close
+          - universe-refresh
+
+env:
+  BASE_URL: https://saham-ai-vercel-six.vercel.app
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Tentukan endpoint dari jadwal
+        id: pick
+        run: |
+          case "${{ github.event.schedule }}" in
+            "20 9 * * 1-5")      ENDPOINT="/api/macro-scan" ;;
+            "30 9 * * 1-5")      ENDPOINT="/api/scan?highConviction=false" ;;
+            "15 2 * * 1-5")      ENDPOINT="/api/label-outcomes" ;;
+            "*/20 9-13 * * 1-5") ENDPOINT="/api/label-outcomes-close" ;;
+            "0 20 * * 0")        ENDPOINT="/api/universe-refresh" ;;
+            *)                   ENDPOINT="/api/${{ inputs.target }}" ;;
+          esac
+          echo "endpoint=$ENDPOINT" >> "$GITHUB_OUTPUT"
+          echo "Akan memanggil $ENDPOINT"
+
+      - name: Panggil endpoint
+        run: |
+          URL="${BASE_URL}${{ steps.pick.outputs.endpoint }}"
+          echo "GET $URL pada $(date -u) UTC"
+
+          # --max-time 300: fungsi Vercel maksimal 60 detik, tapi cold
+          # start dan antrean bisa menambah. Timeout longgar supaya
+          # bukan curl yang menyerah duluan.
+          response=$(curl -s -w "\n%{http_code}" --max-time 300 "$URL")
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+
+          echo "HTTP status: $http_code"
+          echo "Response: $body"
+
+          if [ -z "$http_code" ] || [ "$http_code" -ge 400 ]; then
+            echo "::error::Gagal dengan HTTP $http_code"
+            exit 1
+          fi
+
+          # Endpoint di repo ini bisa balas 200 OK walau pekerjaannya
+          # gagal (mis. insert Supabase ditolak karena kolom belum ada —
+          # penyebab tabel Riwayat kosong di 20-21 Agustus). Jadi status
+          # HTTP saja tidak cukup; body-nya ikut diperiksa.
+          if echo "$body" | grep -q '"success"[[:space:]]*:[[:space:]]*false'; then
+            echo "::error::HTTP 200 tapi success:false — cek pesan di body di atas"
+            exit 1
+          fi
