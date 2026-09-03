@@ -301,28 +301,82 @@ export async function getRowsForModelSync({ scanDate, kode, limit = 5000 } = {})
 // SUPABASE_SERVICE_KEY tidak pernah terekspos ke frontend.
 
 // Baris terbaru untuk tabel riwayat di dashboard, dengan filter opsional.
-export async function getScanHistoryRows({
+//
+// DIPERLUAS 3 September 2026. Sebelumnya tabel Riwayat cuma bisa
+// difilter kode / tanggal / pola, dan selalu diurutkan tanggal terbaru
+// dengan limit 100. Satu hari scan berisi ±400 emiten, jadi 100 baris
+// teratas itu potongan sembarang dari satu hari yang sama — tidak ada
+// cara menemukan baris yang menarik (skor tinggi, hasil besar, tier
+// PRIMARY) tanpa export CSV dulu. Filter & sort di bawah menyelesaikan
+// itu di sisi server, bukan di browser, supaya yang 400 baris tidak
+// perlu ditarik semua ke HP.
+function buildHistoryParams({
   scanDate,
+  sinceDate,
+  untilDate,
   kode,
   onlyLabeled = false,
-  pattern, // "reversal" | "capitulation" | undefined — lihat api/history.js
-  limit = 200,
-  offset = 0
+  pattern,
+  tier,          // PRIMARY | SECONDARY | NONE
+  opportunity,   // HIGH | MODERATE | WATCH | LOW
+  minOpportunityScore,
+  entryDecision, // BUY_NOW | WAIT_PULLBACK | WATCH | AVOID
+  outcome,       // win5 | win3 | lossClose
+  sort = "date"  // date | opp | gain | ret
 } = {}) {
+  const params = new URLSearchParams();
+  params.set("select", "*");
+
+  const ORDERS = {
+    date: "scan_date.desc,scanned_at.desc",
+    // nullslast supaya baris yang belum punya skor/hasil tidak
+    // menyumbat halaman pertama saat diurutkan menurun.
+    opp: "next_day_opportunity_score.desc.nullslast,scan_date.desc",
+    gain: "next_day_max_gain_from_close_pct.desc.nullslast,scan_date.desc",
+    ret: "next_day_close_return_from_close_pct.desc.nullslast,scan_date.desc"
+  };
+  params.set("order", ORDERS[sort] || ORDERS.date);
+
+  if (scanDate) params.set("scan_date", `eq.${scanDate}`);
+  // Rentang tanggal hanya dipakai kalau tanggal persis tidak diisi —
+  // dua-duanya sekaligus akan saling meniadakan di PostgREST.
+  if (!scanDate && sinceDate) params.append("scan_date", `gte.${sinceDate}`);
+  if (!scanDate && untilDate) params.append("scan_date", `lte.${untilDate}`);
+
+  // Prefix match, bukan eq — supaya mengetik "BB" memunculkan BBCA,
+  // BBRI, BBNI sekaligus. Kode persis tetap cocok.
+  if (kode) params.set("kode", `ilike.${kode.toUpperCase()}%`);
+
+  if (onlyLabeled) params.set("next_day_max_gain_from_close_pct", "not.is.null");
+  if (pattern === "reversal") params.set("reversal_candidate", "eq.true");
+  if (pattern === "capitulation") params.set("capitulation_bounce_candidate", "eq.true");
+
+  if (tier) params.set("next_day_conviction_tier", `eq.${tier}`);
+  if (opportunity) params.set("next_day_opportunity_label", `eq.${opportunity}`);
+  if (entryDecision) params.set("next_day_entry_decision", `eq.${entryDecision}`);
+
+  const minOpp = Number(minOpportunityScore);
+  if (Number.isFinite(minOpp)) {
+    params.set("next_day_opportunity_score", `gte.${minOpp}`);
+  }
+
+  // Filter hasil. Sengaja memakai kolom yang sama dengan yang dipakai
+  // evaluasi model, bukan kolom lama berbasis OPEN H+1.
+  if (outcome === "win5") params.append("next_day_max_gain_from_close_pct", "gte.5");
+  else if (outcome === "win3") params.append("next_day_max_gain_from_close_pct", "gte.3");
+  else if (outcome === "lossClose") params.set("next_day_close_return_from_close_pct", "lt.0");
+
+  return params;
+}
+
+export async function getScanHistoryRows(options = {}) {
+  const { limit = 200, offset = 0 } = options;
   const cfg = getConfig();
   if (!cfg) return [];
 
-  const params = new URLSearchParams();
-  params.set("select", "*");
-  params.set("order", "scan_date.desc,scanned_at.desc");
+  const params = buildHistoryParams(options);
   params.set("limit", String(limit));
   params.set("offset", String(offset));
-
-  if (scanDate) params.set("scan_date", `eq.${scanDate}`);
-  if (kode) params.set("kode", `eq.${kode.toUpperCase()}`);
-  if (onlyLabeled) params.set("gap_up_realized", "not.is.null");
-  if (pattern === "reversal") params.set("reversal_candidate", "eq.true");
-  if (pattern === "capitulation") params.set("capitulation_bounce_candidate", "eq.true");
 
   const res = await fetch(`${cfg.url}/rest/v1/scan_history?${params.toString()}`, {
     headers: {
@@ -338,6 +392,42 @@ export async function getScanHistoryRows({
   return res.json();
 }
 
+// Sama seperti getScanHistoryRows, tapi ikut mengembalikan JUMLAH TOTAL
+// baris yang cocok filter — bukan cuma satu halaman. Dipakai tabel
+// Riwayat untuk menampilkan "menampilkan 100 dari 397" dan menentukan
+// apakah tombol "Muat lebih banyak" perlu muncul.
+//
+// Total didapat dari header Content-Range PostgREST (format
+// "0-99/397") lewat Prefer: count=exact. Ini satu request yang sama,
+// tidak menambah round-trip.
+export async function getScanHistoryPage(options = {}) {
+  const { limit = 100, offset = 0 } = options;
+  const cfg = getConfig();
+  if (!cfg) return { rows: [], total: 0 };
+
+  const params = buildHistoryParams(options);
+  params.set("limit", String(limit));
+  params.set("offset", String(offset));
+
+  const res = await fetch(`${cfg.url}/rest/v1/scan_history?${params.toString()}`, {
+    headers: {
+      apikey: cfg.key,
+      Authorization: `Bearer ${cfg.key}`,
+      Prefer: "count=exact"
+    }
+  });
+
+  if (!res.ok) {
+    throw new Error(`Supabase select gagal (${res.status}): ${await res.text()}`);
+  }
+
+  const rows = await res.json();
+  const range = res.headers.get("content-range") || "";
+  const total = Number(range.split("/")[1]);
+
+  return { rows, total: Number.isFinite(total) ? total : rows.length };
+}
+
 // Sama seperti getScanHistoryRows, tapi meng-ambil SEMUA baris yang cocok
 // dengan filter, bukan cuma satu halaman. Supabase/PostgREST punya batas
 // server-side (max-rows, defaultnya 1000) yang tetap berlaku walaupun kita
@@ -346,11 +436,10 @@ export async function getScanHistoryRows({
 // CSV "semua tanggal"). Fungsi ini loop per 1000 baris pakai offset sampai
 // hasilnya habis (baris yang dibalikin < ukuran halaman), lalu gabungkan.
 export async function getAllScanHistoryRows({
-  scanDate,
-  kode,
-  onlyLabeled = false,
-  pattern, // ikut diteruskan supaya export CSV menghormati filter "Pola"
-  maxRows = 50000 // batas pengaman supaya tidak looping tanpa henti / timeout
+  maxRows = 50000, // batas pengaman supaya tidak looping tanpa henti / timeout
+  ...filters       // semua filter di buildHistoryParams ikut diteruskan,
+                   // supaya export CSV persis mengikuti filter yang aktif
+                   // di layar — bukan cuma kode/tanggal/pola seperti dulu.
 } = {}) {
   const PAGE_SIZE = 1000; // samakan dengan max-rows Supabase supaya tiap halaman penuh
   let offset = 0;
@@ -358,10 +447,7 @@ export async function getAllScanHistoryRows({
 
   while (true) {
     const page = await getScanHistoryRows({
-      scanDate,
-      kode,
-      onlyLabeled,
-      pattern,
+      ...filters,
       limit: PAGE_SIZE,
       offset
     });
