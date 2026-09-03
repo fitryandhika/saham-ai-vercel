@@ -151,20 +151,24 @@ function renderOverall(overall) {
   el.innerHTML = `
     <div class="summary-grid">
       <div class="summary-stat">
-        <div class="stat-label">Total Prediksi Dilabel</div>
+        <div class="stat-label">Akurasi prediksi (target +5%)</div>
+        <div class="stat-value ${pctClass(overall.hit_rate_5pct)}">${overall.hit_rate_5pct ?? "–"}%</div>
+        <div class="stat-note">dari ${(overall.total_prediksi ?? 0).toLocaleString("id-ID")} prediksi prioritas</div>
+      </div>
+      <div class="summary-stat">
+        <div class="stat-label">Lift vs pasar</div>
+        <div class="stat-value ${retClass(overall.lift_5pct)}">${overall.lift_5pct === null || overall.lift_5pct === undefined ? "–" : `${overall.lift_5pct >= 0 ? "+" : ""}${overall.lift_5pct} pp`}</div>
+        <div class="stat-note">pasar ${overall.base_rate_5pct ?? "–"}% menyentuh +5%</div>
+      </div>
+      <div class="summary-stat">
+        <div class="stat-label">Rata-rata puncak H+1</div>
+        <div class="stat-value ${retClass(overall.avg_peak_pct)}">${fmtPct(overall.avg_peak_pct)}</div>
+        <div class="stat-note">kalau ditahan sampai close: ${fmtPct(overall.avg_close_return_pct)}</div>
+      </div>
+      <div class="summary-stat">
+        <div class="stat-label">Baris berlabel / total scan</div>
         <div class="stat-value">${overall.total_labeled.toLocaleString("id-ID")}</div>
-      </div>
-      <div class="summary-stat">
-        <div class="stat-label">Win Rate</div>
-        <div class="stat-value ${pctClass(overall.win_rate)}">${overall.win_rate ?? "–"}%</div>
-      </div>
-      <div class="summary-stat">
-        <div class="stat-label">Rata-rata Return Next-Day</div>
-        <div class="stat-value ${retClass(overall.avg_return_pct)}">${fmtPct(overall.avg_return_pct)}</div>
-      </div>
-      <div class="summary-stat">
-        <div class="stat-label">Total Scan (semua, termasuk belum dilabel)</div>
-        <div class="stat-value">${overall.total_scan.toLocaleString("id-ID")}</div>
+        <div class="stat-note">dari ${overall.total_scan.toLocaleString("id-ID")} scan</div>
       </div>
     </div>
   `;
@@ -331,6 +335,12 @@ function renderByDate(rows) {
   // Urutkan terbaru dulu untuk ditampilkan, maksimal 30 hari terakhir
   const recent = [...rows].reverse().slice(0, 30);
 
+  // Di bawah 10 prediksi, hit rate harian tidak bisa dibaca — satu
+  // saham saja menggeser angkanya belasan poin. Baris seperti itu tetap
+  // ditampilkan (supaya tidak terlihat seperti data hilang) tapi diberi
+  // tanda, bukan diwarnai seolah bermakna.
+  const MIN_PREDIKSI = 10;
+
   el.innerHTML = recent
     .map((r) => {
       if (r.pending) {
@@ -342,12 +352,35 @@ function renderByDate(rows) {
           </div>
         `;
       }
-      const wr = r.win_rate ?? 0;
+
+      if (!r.jumlah_prediksi) {
+        return `
+          <div class="trend-row">
+            <span>${r.tanggal}</span>
+            <div class="trend-bar-wrap"><div class="trend-bar" style="width:0%"></div></div>
+            <span class="trend-pending">Tidak ada prediksi prioritas hari ini</span>
+          </div>
+        `;
+      }
+
+      const hit = r.hit_rate_5pct ?? 0;
+      const thin = r.jumlah_prediksi < MIN_PREDIKSI;
+
+      const liftText = Number.isFinite(Number(r.lift_5pct))
+        ? `${r.lift_5pct >= 0 ? "+" : ""}${r.lift_5pct} vs pasar ${r.base_rate_5pct}%`
+        : "";
+
+      const detail = thin
+        ? `${r.jumlah_prediksi} prediksi — sampel terlalu kecil`
+        : `${r.jumlah_prediksi} prediksi · ${liftText}`;
+
       return `
         <div class="trend-row">
           <span>${r.tanggal}</span>
-          <div class="trend-bar-wrap"><div class="trend-bar" style="width:${wr}%"></div></div>
-          <span class="${pctClass(r.win_rate)}">${r.win_rate ?? "–"}% (${r.jumlah})</span>
+          <div class="trend-bar-wrap"><div class="trend-bar" style="width:${hit}%"></div></div>
+          <span class="${thin ? "trend-pending" : pctClass(r.hit_rate_5pct)}">${r.hit_rate_5pct ?? "–"}%
+            <small class="trend-secondary">${detail}</small>
+          </span>
         </div>
       `;
     })
