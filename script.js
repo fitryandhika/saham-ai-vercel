@@ -607,7 +607,7 @@ function renderNextDaySummary(json) {
       <div class="nextday-summary-grid">
         <div class="summary-high"><strong>${s.high ?? 0}</strong><span>HIGH</span></div>
         <div class="summary-moderate"><strong>${s.moderate ?? 0}</strong><span>MODERATE</span></div>
-        <div class="summary-watch"><strong>${s.low ?? 0}</strong><span>LOW</span></div>
+        <div class="summary-watch"><strong>${(s.watch ?? 0) + (s.low ?? 0)}</strong><span>WATCH + LOW</span></div>
         <div class="summary-eligible"><strong>${s.eligible ?? 0}</strong><span>ADA SETUP</span></div>
         <div class="summary-eligible"><strong>${s.entryEligible ?? 0}</strong><span>HARGA LAYAK</span></div>
       </div>
