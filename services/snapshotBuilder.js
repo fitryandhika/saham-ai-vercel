@@ -106,16 +106,31 @@ export function buildSnapshotRow(d, scanDate) {
     pe_ratio: null,
 
     // Next-Day Opportunity
+    //
+    // DIPERBARUI 3 September 2026 untuk Opportunity V4. File ini adalah
+    // mapping KEDUA di repo (yang pertama inline di api/scan.js), jadi
+    // setiap kolom baru harus ditambahkan di DUA tempat. Kalau salah
+    // satu ketinggalan, barisnya bukan gagal — cuma diam-diam kosong.
+    // Itu yang terjadi di sini: kolom V4 sudah ditambahkan di
+    // api/scan.js tapi belum di sini, sehingga hari yang di-backfill
+    // lewat target=backfill-date tidak punya conviction_tier sama sekali.
     next_day_opportunity_score: safeNumber(opportunity?.opportunityScore),
     next_day_opportunity_probability_3pct: safeNumber(opportunity?.opportunityProbability),
     next_day_opportunity_probability_5pct: safeNumber(opportunity?.opportunityProbability5Pct),
-    next_day_opportunity_probability_10pct: safeNumber(opportunity?.opportunityProbability10Pct),
+    // V4 mengganti target >=10% dengan >=8% (target 10% di IDX hampir
+    // selalu berarti ARA). Kolom 10pct sengaja tidak diisi lagi supaya
+    // data historisnya tidak tercampur dua definisi.
+    next_day_opportunity_probability_8pct: safeNumber(opportunity?.opportunityProbability8Pct),
     next_day_close_2pct_probability: safeNumber(opportunity?.nextDayClose2PctProbability),
     next_day_opportunity_model_version: opportunity?.version ?? null,
     next_day_opportunity_label: opportunity?.opportunityLabel ?? null,
     next_day_opportunity_setup: opportunity?.coreSetup ?? null,
     next_day_opportunity_setup_detail: opportunity?.setupDetail ?? null,
     next_day_opportunity_eligible: opportunity?.eligible ?? false,
+    next_day_conviction_tier: opportunity?.convictionTier ?? null,
+    next_day_fade_risk: opportunity?.fadeRisk ?? null,
+    next_day_exit_plan: opportunity?.exitPlan ?? null,
+    atr_percent: safeNumber(opportunity?.atrPercent),
     next_day_entry_quality_score: safeNumber(opportunity?.entryQualityScore),
     next_day_entry_quality_label: opportunity?.entryQualityLabel ?? null,
     next_day_chase_risk: opportunity?.chaseRisk ?? null,
