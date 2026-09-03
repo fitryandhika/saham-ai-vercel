@@ -77,11 +77,6 @@
     <div class="riwayat-filter-row">
       <span class="filter-label">Filter tabel riwayat</span>
     </div>
-    <p class="hint-text data-source">
-      Data: tabel <code>scan_history</code> di Supabase — satu baris per emiten per hari scan.
-      Kolom prediksi diisi saat scan sore; kolom hasil (<code>actual_next_*</code>,
-      <code>next_day_*_from_close_pct</code>) diisi H+1 oleh cron pelabelan.
-    </p>
     <div class="filter-grid">
       <div class="field">
         <label class="field-label" for="kodeFilter">Kode saham</label>
@@ -183,7 +178,6 @@
       <button class="btn-ghost" id="btnExportCsv">⬇ Export CSV</button>
     </div>
     <p class="hint-text" id="tableDateNotice" style="display:none"></p>
-    <p class="hint-text">Filter dijalankan di server, jadi "Skor ≥75, urut max gain" mencari ke seluruh riwayat — bukan cuma 100 baris yang sedang tampil. Export CSV mengikuti filter yang sama.</p>
   </section>
 
   <section id="historyTableWrap" class="results"></section>
