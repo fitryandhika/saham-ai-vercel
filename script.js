@@ -205,12 +205,24 @@ function nextDayDecisionMeta(d) {
     };
   }
 
-  if (n.entryDecision === "BUY_NOW" && n.entryEligible) {
+  // Fungsi ini dulu memberi lampu hijau tanpa mengecek tier sama
+  // sekali, jadi MODERATE ikut kebagian kata "PRIORITAS". Ambangnya
+  // sekarang sama dengan headline di renderNextDayOpportunity().
+  if (n.entryDecision === "BUY_NOW" && n.entryEligible && n.convictionTier === "PRIMARY" && !n.entryTimingConflict) {
     return {
       className: "buy",
-      label: "Trade Decision · Beli Sore / Jual Pagi",
+      label: "Trade Decision · Beli Sore",
       text: "🟢 PRIORITAS — BUY SORE",
       note: "Opportunity H+1 kuat dan kualitas harga saat ini masih layak untuk entry."
+    };
+  }
+
+  if (n.entryDecision === "BUY_NOW" && n.entryEligible) {
+    return {
+      className: "monitor",
+      label: "Trade Decision · Beli Sore",
+      text: "🟡 LAYAK — POSISI KECIL",
+      note: "Peluang H+1 di tingkat menengah. Historis EV-nya sekitar sepertiga dari kandidat prioritas, jadi perkecil ukuran posisi."
     };
   }
 
@@ -303,7 +315,10 @@ function getNextDayOpportunityMeta(d) {
       eligible: false, entryEligible: false, entryQualityScore: null, entryQualityLabel: "UNAVAILABLE",
       chaseRisk: "UNAVAILABLE", entryDecision: "NO_SETUP", tradeDecision: "NO_SETUP", blockers: [],
       volumeAcceleration: null, volumeRatio: null, breakoutDistance: null, rsLabel: null,
-      opportunityProbability: null
+      opportunityProbability: null,
+      convictionTier: "NONE", fadeRisk: null, exitPlan: null,
+      probability5Pct: null, probabilityClose2Pct: null, atrPercent: null,
+      entryTimingConflict: false
     };
   }
 
@@ -328,8 +343,39 @@ function getNextDayOpportunityMeta(d) {
     // di engine/nextDayOpportunity.js. Estimasi peluang aktual berdasar
     // data historis, BUKAN opportunityScore mentah yang cuma hasil
     // penjumlahan poin.
-    opportunityProbability: Number.isFinite(Number(n.opportunityProbability)) ? Number(n.opportunityProbability) : null
+    opportunityProbability: Number.isFinite(Number(n.opportunityProbability)) ? Number(n.opportunityProbability) : null,
+
+    // ---- Opportunity V4 (3 September 2026) ----
+    // convictionTier menggantikan pengecekan label ad-hoc di headline.
+    // Satu-satunya sumber kebenaran soal "ada setup atau tidak" adalah
+    // n.eligible dari engine; tingkat keyakinannya dari tier ini.
+    convictionTier: String(n.convictionTier || (n.eligible === true ? "SECONDARY" : "NONE")).toUpperCase(),
+
+    // fadeRisk memisahkan dua pertanyaan yang selama ini tercampur di
+    // satu angka: peluang harga MENYENTUH target versus peluang
+    // MEMPERTAHANKANNYA sampai penutupan. Inilah sumber keluhan
+    // "score HIGH tapi close minus".
+    fadeRisk: n.fadeRisk ? String(n.fadeRisk).toUpperCase() : null,
+    exitPlan: n.exitPlan ? String(n.exitPlan).toUpperCase() : null,
+
+    probability5Pct: Number.isFinite(Number(n.opportunityProbability5Pct)) ? Number(n.opportunityProbability5Pct) : null,
+    probabilityClose2Pct: Number.isFinite(Number(n.nextDayClose2PctProbability)) ? Number(n.nextDayClose2PctProbability) : null,
+    atrPercent: Number.isFinite(Number(n.atrPercent)) ? Number(n.atrPercent) : null,
+
+    // Flag ini sudah dihitung di engine/analyzer.js (baris ~466) dan
+    // sudah disimpan ke Supabase, tapi halaman Analisa belum memakainya —
+    // itu sebabnya chip "Timing teknikal · AVOID" bisa berdiri di samping
+    // headline hijau tanpa penjelasan.
+    entryTimingConflict: d?.entryTimingConflict === true
   };
+}
+
+// Label yang dibaca manusia untuk exitPlan dari engine.
+function exitPlanText(plan) {
+  if (plan === "JUAL_DI_TARGET") return "Jual di target (+2–3%), jangan ditahan sampai close";
+  if (plan === "BOLEH_TAHAN_SAMPAI_CLOSE") return "Boleh ditahan sampai penutupan";
+  if (plan === "JUAL_SEPARUH_DI_TARGET") return "Jual separuh di target, sisanya trailing";
+  return "—";
 }
 
 function nextDayOpportunityClass(label) {
@@ -361,34 +407,49 @@ function renderNextDayOpportunity(d) {
     `;
   }
 
-  // FIX (22 Agustus 2026): dulu teks headline ini MURNI dari entryDecision
-  // (Entry Quality/Chase Risk — jawab "harga sekarang layak dibeli?"),
-  // TIDAK mempertimbangkan n.label (Opportunity — jawab "besok berpotensi
-  // naik tinggi?") sama sekali. Akibatnya saham dengan Opportunity RENDAH
-  // (WATCH/LOW) tapi Entry Quality bagus tetap dibilang "PRIORITAS — BUY
-  // SORE" (kelihatan seperti vonis kuat, padahal cuma "harga sekarang
-  // wajar", bukan "besok pasti naik") — user report kasus ASRI (score 39
-  // WATCH tapi headline PRIORITAS BUY SORE) vs VERN (score 92 HIGH tapi
-  // headline cuma PANTAU). Sekarang headline mempertimbangkan DUA-duanya.
-  const opportunityGoodEnough = n.label === "HIGH" || n.label === "MODERATE";
+  // FIX (3 September 2026) — kasus SQMI: headline "🟢 PRIORITAS — BUY
+  // SORE" muncul bersamaan dengan field "Opportunity H+1: TIDAK VALID"
+  // di kartu yang sama. Penyebabnya tiga ambang berbeda untuk satu
+  // pertanyaan: engine memakai eligible = HIGH saja, headline memakai
+  // HIGH-atau-MODERATE, dan getNextDayVerdict() memakai eligible lagi.
+  //
+  // Sekarang ambangnya cuma satu (n.eligible dari engine) dan bobot
+  // rekomendasinya dinyatakan lewat convictionTier. Headline TIDAK
+  // boleh lagi punya aturan sendiri.
+  //
+  // Tambahan: kalau timing teknikal hari itu AVOID sementara entry
+  // dianggap layak, tier diturunkan satu tingkat. Konflik ini dulu cuma
+  // tampil sebagai chip abu-abu di samping headline hijau.
+  const entryOk = n.entryDecision === "BUY_NOW" && n.entryEligible;
+  const tier = n.entryTimingConflict && n.convictionTier === "PRIMARY"
+    ? "SECONDARY"
+    : n.convictionTier;
 
-  const decision = n.entryDecision === "BUY_NOW" && n.entryEligible && opportunityGoodEnough
-    ? "PRIORITAS — BUY SORE"
-    : n.entryDecision === "BUY_NOW" && n.entryEligible && !opportunityGoodEnough
-      ? "ENTRY OK, TAPI OPPORTUNITY RENDAH"
-      : n.entryDecision === "WAIT_PULLBACK"
-        ? "WAIT PULLBACK — JANGAN KEJAR"
-        : n.entryDecision === "WATCH"
-          ? "PANTAU — ENTRY BELUM IDEAL"
-          : n.eligible
-            ? "JANGAN ENTRY — CHASE RISK TINGGI"
-            : "TIDAK ADA SETUP H+1 VALID";
+  const decision =
+    !n.eligible
+      ? "TIDAK ADA SETUP H+1 VALID"
+      : entryOk && tier === "PRIMARY"
+        ? "PRIORITAS — BUY SORE"
+        : entryOk && tier === "SECONDARY"
+          ? "LAYAK — POSISI KECIL"
+          : n.entryDecision === "WAIT_PULLBACK"
+            ? "WAIT PULLBACK — JANGAN KEJAR"
+            : n.entryDecision === "WATCH"
+              ? "PANTAU — ENTRY BELUM IDEAL"
+              : "JANGAN ENTRY — CHASE RISK TINGGI";
 
-  const decisionIcon = n.entryDecision === "BUY_NOW" && n.entryEligible && opportunityGoodEnough
-    ? "🟢"
-    : n.entryDecision === "BUY_NOW" || n.entryDecision === "WAIT_PULLBACK" || n.entryDecision === "WATCH"
-      ? "🟡"
-      : "🔴";
+  const decisionIcon =
+    entryOk && tier === "PRIMARY" ? "🟢"
+      : n.eligible ? "🟡"
+        : "🔴";
+
+  const conflictNote = n.entryTimingConflict
+    ? `<div class="nextday-blockers"><strong>Catatan silang:</strong> timing teknikal hari ini AVOID sementara Next-Day menilai entry layak. Kedua modul menjawab pertanyaan berbeda — turunkan ukuran posisi, jangan abaikan salah satunya.</div>`
+    : "";
+
+  const fadeNote = n.fadeRisk === "HIGH"
+    ? `<div class="nextday-blockers"><strong>Fade risk tinggi:</strong> peluang menyentuh target bagus, tetapi peluang bertahan sampai penutupan rendah. ${exitPlanText(n.exitPlan)}.</div>`
+    : "";
 
   const blockers = n.blockers.length
     ? `<div class="nextday-blockers"><strong>Penghambat:</strong> ${n.blockers.join(", ")}</div>`
@@ -437,9 +498,34 @@ function renderNextDayOpportunity(d) {
           <span>Relative Strength</span>
           <strong>${n.rsLabel || "—"}</strong>
         </div>
+        <!-- Field ini dulu menampilkan boolean eligible dengan judul
+             yang terbaca seperti kualitas peluang, jadi MODERATE tampil
+             "TIDAK VALID" padahal peluangnya menengah, bukan nol.
+             Sekarang label dan status keyakinan ditampilkan terpisah. -->
         <div>
           <span>Opportunity H+1</span>
-          <strong>${n.eligible ? "VALID — " + n.label : "TIDAK VALID"}</strong>
+          <strong>${n.label}${
+            n.convictionTier === "PRIMARY" ? " · prioritas"
+              : n.convictionTier === "SECONDARY" ? " · sekunder"
+                : " · di bawah ambang setup"
+          }</strong>
+        </div>
+        <div>
+          <span>Peluang ≥5% besok</span>
+          <strong>${n.probability5Pct === null ? "—" : `${n.probability5Pct.toFixed(1)}%`}</strong>
+        </div>
+        <div>
+          <span>Peluang tutup ≥2%</span>
+          <strong>${n.probabilityClose2Pct === null ? "—" : `${n.probabilityClose2Pct.toFixed(1)}%`}</strong>
+        </div>
+        <div>
+          <span>ATR (ruang gerak harian)</span>
+          <strong>${n.atrPercent === null ? "—" : `${n.atrPercent.toFixed(2)}%`}</strong>
+        </div>
+        <div>
+          <span>Fade Risk / Rencana Keluar</span>
+          <strong>${n.fadeRisk || "—"}</strong>
+          ${n.exitPlan ? `<small style="display:block;color:var(--muted);font-weight:400;">${exitPlanText(n.exitPlan)}</small>` : ""}
         </div>
         <!-- Entry Quality BUKAN skor prediksi return (22 Agustus 2026,
              atas instruksi user) — ini gauge chase-risk/timing entry
@@ -461,6 +547,8 @@ function renderNextDayOpportunity(d) {
       </div>
 
       ${blockers}
+      ${conflictNote}
+      ${fadeNote}
 
       ${renderSimpleReason(d, n)}
     </div>
@@ -520,11 +608,11 @@ function renderNextDaySummary(json) {
         <div class="summary-high"><strong>${s.high ?? 0}</strong><span>HIGH</span></div>
         <div class="summary-moderate"><strong>${s.moderate ?? 0}</strong><span>MODERATE</span></div>
         <div class="summary-watch"><strong>${s.low ?? 0}</strong><span>LOW</span></div>
-        <div class="summary-eligible"><strong>${s.eligible ?? 0}</strong><span>H+1 VALID</span></div>
-        <div class="summary-eligible"><strong>${s.entryEligible ?? 0}</strong><span>BUY SORE</span></div>
+        <div class="summary-eligible"><strong>${s.eligible ?? 0}</strong><span>ADA SETUP</span></div>
+        <div class="summary-eligible"><strong>${s.entryEligible ?? 0}</strong><span>HARGA LAYAK</span></div>
       </div>
       <div class="nextday-summary-note">
-        H+1 HIGH hanya berarti peluang continuation menarik. Prioritas BUY SORE ditentukan lagi oleh Entry Quality dan Chase Risk, sehingga saham yang sudah terlalu tinggi tidak otomatis dikejar.
+        Skor Opportunity menjawab "seberapa besar peluang naik besok", bukan "beli sekarang". Dua kolom terakhir sengaja dipisah: <strong>ADA SETUP</strong> = peluang H+1 lolos ambang; <strong>HARGA LAYAK</strong> = harga sore ini masih wajar untuk entry. Prioritas hanya diberikan kalau keduanya terpenuhi dan tingkat keyakinannya HIGH.
       </div>
     </div>
   `;
@@ -552,7 +640,7 @@ function renderCard(d) {
       <div class="badge-row">
         <span class="badge ${tClass}">${d.marketTrend}</span>
         <span class="badge sideways">Risiko ${d.riskLevel}</span>
-        <span class="badge ${n.label === "HIGH" && n.eligible ? "bullish" : "sideways"}">H+1 ${n.label}</span>
+        <span class="badge ${n.convictionTier === "PRIMARY" ? "bullish" : "sideways"}">H+1 ${n.label}</span>
         <span class="badge ${n.entryQualityLabel === "GOOD" ? "bullish" : n.entryQualityLabel === "POOR" || n.entryQualityLabel === "AVOID" ? "bearish" : "sideways"}">Entry ${n.entryQualityLabel}</span>
         <span class="badge ${n.chaseRisk === "HIGH" || n.chaseRisk === "EXTREME" ? "bearish" : "sideways"}">Chase ${n.chaseRisk}</span>
         <span class="badge sideways">Timing teknikal · ${d.entry}</span>
