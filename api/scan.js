@@ -609,10 +609,16 @@ export default async function handler(req, res) {
                 ?.opportunityProbability5Pct
             ),
 
-          next_day_opportunity_probability_10pct:
+          // V4 (3 Sep 2026) mengganti target >=10% dengan >=8%. Di IDX,
+          // target >=10% dalam sehari hampir selalu berarti ARA, yang
+          // didominasi saham gorengan dan sering tidak bisa dieksekusi —
+          // jadi bukan target yang layak dipakai model. Kolom lama
+          // sengaja tidak diisi lagi (dibiarkan null) supaya data
+          // historisnya tidak tercampur dengan definisi berbeda.
+          next_day_opportunity_probability_8pct:
             safeNumber(
               opportunity
-                ?.opportunityProbability10Pct
+                ?.opportunityProbability8Pct
             ),
 
           next_day_close_2pct_probability:
@@ -645,6 +651,35 @@ export default async function handler(req, res) {
             opportunity
               ?.eligible ??
             false,
+
+          // BARU (3 Sep 2026). conviction_tier memisahkan "ada setup"
+          // dari "seberapa yakin": PRIMARY = HIGH, SECONDARY = MODERATE,
+          // NONE = di bawah ambang. Sebelumnya UI menebak sendiri dari
+          // label, dan tebakannya berbeda antara headline dan field di
+          // bawahnya — itu sumber kartu SQMI yang bilang "PRIORITAS"
+          // sekaligus "TIDAK VALID".
+          next_day_conviction_tier:
+            opportunity
+              ?.convictionTier ??
+            null,
+
+          // fade_risk & exit_plan memisahkan peluang MENYENTUH target
+          // dari peluang MEMPERTAHANKANNYA sampai penutupan.
+          next_day_fade_risk:
+            opportunity
+              ?.fadeRisk ??
+            null,
+
+          next_day_exit_plan:
+            opportunity
+              ?.exitPlan ??
+            null,
+
+          // ATR sebagai persen harga — fitur terkuat model V4, disimpan
+          // supaya evaluasi berikutnya bisa menormalisasi hasil terhadap
+          // volatilitas, bukan sekadar membandingkan win rate mentah.
+          atr_percent:
+            safeNumber(opportunity?.atrPercent),
 
           next_day_entry_quality_score:
             safeNumber(opportunity?.entryQualityScore),
