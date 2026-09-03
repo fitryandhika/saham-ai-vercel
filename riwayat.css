@@ -445,3 +445,22 @@ select option{
   margin-top:4px;
   line-height:1.4;
 }
+
+/* Penanda tanggal in-sample (data latih model). Dibuat kecil dan netral
+   supaya jadi peringatan, bukan hiasan. */
+.in-sample-tag{
+  display:inline-block;
+  margin-left:6px;
+  padding:1px 6px;
+  border-radius:999px;
+  font-size:9.5px;
+  letter-spacing:.03em;
+  text-transform:uppercase;
+  color:var(--muted);
+  background:rgba(132,148,163,.16);
+  vertical-align:middle;
+}
+
+.trend-row.is-in-sample .trend-bar{
+  opacity:.55;
+}
