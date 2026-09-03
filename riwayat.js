@@ -341,6 +341,14 @@ function renderByDate(rows) {
   // tanda, bukan diwarnai seolah bermakna.
   const MIN_PREDIKSI = 10;
 
+  // Model V4 dilatih dari data sampai 1 September 2026. Tanggal sampai
+  // batas itu IN-SAMPLE: model sudah "melihat" hasilnya saat dikalibrasi,
+  // jadi lift di hari-hari itu pasti terlihat lebih bagus dari performa
+  // sebenarnya. Ini bukan kecurangan, cuma sifat data latih — tapi kalau
+  // tidak ditandai, backfill akan terbaca seperti bukti keberhasilan.
+  // Yang menentukan model bagus atau tidak adalah tanggal SETELAHNYA.
+  const MODEL_FIT_UNTIL = "2026-09-01";
+
   el.innerHTML = recent
     .map((r) => {
       if (r.pending) {
@@ -365,6 +373,7 @@ function renderByDate(rows) {
 
       const hit = r.hit_rate_5pct ?? 0;
       const thin = r.jumlah_prediksi < MIN_PREDIKSI;
+      const inSample = r.tanggal <= MODEL_FIT_UNTIL;
 
       const liftText = Number.isFinite(Number(r.lift_5pct))
         ? `${r.lift_5pct >= 0 ? "+" : ""}${r.lift_5pct} vs pasar ${r.base_rate_5pct}%`
@@ -374,9 +383,13 @@ function renderByDate(rows) {
         ? `${r.jumlah_prediksi} prediksi — sampel terlalu kecil`
         : `${r.jumlah_prediksi} prediksi · ${liftText}`;
 
+      const sampleTag = inSample
+        ? `<span class="in-sample-tag" title="Tanggal ini termasuk data latih model V4 — lift di sini lebih bagus dari performa sebenarnya">data latih</span>`
+        : "";
+
       return `
-        <div class="trend-row">
-          <span>${r.tanggal}</span>
+        <div class="trend-row${inSample ? " is-in-sample" : ""}">
+          <span>${r.tanggal}${sampleTag}</span>
           <div class="trend-bar-wrap"><div class="trend-bar" style="width:${hit}%"></div></div>
           <span class="${thin ? "trend-pending" : pctClass(r.hit_rate_5pct)}">${r.hit_rate_5pct ?? "–"}%
             <small class="trend-secondary">${detail}</small>
@@ -811,6 +824,82 @@ document.getElementById("btnSyncModel").addEventListener("click", async () => {
     btn.textContent = oldText;
   }
 });
+
+// ==========================
+// Backfill V4 ke seluruh riwayat
+// ==========================
+//
+// /api/relabel-high-low?target=model-sync menghitung ulang score dan
+// Next-Day Opportunity dari kolom snapshot yang SUDAH tersimpan di baris
+// itu — tanpa fetch Yahoo sama sekali. Jadi seluruh riwayat bisa
+// dinilai ulang pakai aturan V4, tidak perlu menunggu scan baru.
+//
+// Dijalankan SATU TANGGAL PER REQUEST, bukan sekaligus: fungsi Vercel
+// dibatasi 60 detik (maxDuration di api/relabel-high-low.js) dan satu
+// hari saja sudah ±400 baris. Melempar 13.000 baris dalam satu request
+// akan timeout di tengah jalan dan meninggalkan data setengah jadi.
+async function backfillAllDates() {
+  const btn = document.getElementById("btnBackfillV4");
+  const oldText = btn.textContent;
+
+  if (!confirm(
+    "Hitung ulang seluruh riwayat dengan aturan Opportunity V4?\n\n" +
+    "Ini MENIMPA kolom score, signal dan Next-Day Opportunity di semua " +
+    "baris — kolom hasil aktual (actual_next_*, max gain, return) tidak " +
+    "disentuh. Prosesnya beberapa menit, jangan tutup halaman."
+  )) return;
+
+  btn.disabled = true;
+
+  try {
+    // Daftar tanggal diambil dari ringkasan yang sudah dimuat halaman ini,
+    // bukan endpoint baru.
+    const { data } = await fetchJSON(`/api/history?view=summary`);
+    const dates = (data?.by_date || []).map((r) => r.tanggal).sort().reverse();
+
+    if (!dates.length) {
+      alert("Tidak ada tanggal scan yang bisa diproses.");
+      return;
+    }
+
+    let processed = 0;
+    let changed = 0;
+    const failedDates = [];
+
+    for (let i = 0; i < dates.length; i++) {
+      btn.textContent = `⏳ ${i + 1}/${dates.length} · ${dates[i]}`;
+      try {
+        const res = await fetch(`/api/relabel-high-low?target=model-sync&manual=1&date=${dates[i]}`);
+        const json = await res.json();
+        if (!res.ok || !json.success) throw new Error(json.message || `HTTP ${res.status}`);
+        processed += json.processed || 0;
+        changed += json.changedOpportunity || 0;
+      } catch (e) {
+        // Satu tanggal gagal tidak menghentikan sisanya — dicatat dan
+        // dilaporkan di akhir supaya bisa diulang per tanggal.
+        failedDates.push(dates[i]);
+      }
+    }
+
+    alert(
+      `Selesai. ${processed} baris dihitung ulang, ${changed} label Opportunity berubah.` +
+      (failedDates.length
+        ? `\n\nGagal di ${failedDates.length} tanggal: ${failedDates.slice(0, 8).join(", ")}` +
+          `\nUlangi per tanggal lewat filter "Tanggal scan (persis)" lalu tombol Sinkronkan Score.`
+        : "")
+    );
+
+    await loadSummary();
+    await loadTable();
+  } catch (e) {
+    alert(`Backfill gagal: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = oldText;
+  }
+}
+
+document.getElementById("btnBackfillV4")?.addEventListener("click", backfillAllDates);
 
 document.getElementById("btnRefresh").addEventListener("click", loadSummary);
 document.getElementById("btnLoadTable").addEventListener("click", () => loadTable());
