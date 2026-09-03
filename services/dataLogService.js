@@ -565,7 +565,11 @@ export async function getRowsMissingOpportunity({ limit = 5000 } = {}) {
     "select",
     "id,score,close,rsi,macd,sma20,sma50,ema9,ema20,risk_reward,closing_strength," +
       "volume_ratio,volume_accel_slope_pct,breakout_level,breakout_distance_pct," +
-      "rs_label,exhaustion_score,distribution_score,illiquid,daily_change_pct"
+      "rs_label,exhaustion_score,distribution_score,illiquid,daily_change_pct," +
+      // Opportunity V4 (3 Sep 2026): atr -> atr_pct (fitur terkuat) dan
+      // rs_vs_ihsg -> angka relative strength. Sebelumnya hanya rs_label
+      // yang diambil, jadi backfill menghitung rs = 0.
+      "atr,rs_vs_ihsg"
   );
   params.set("next_day_opportunity_label", "is.null");
   params.set("order", "scan_date.asc");
