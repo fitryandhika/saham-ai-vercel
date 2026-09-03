@@ -38,16 +38,28 @@ import {
 // Instruksi lama (28 Ags 2026): jangan pernah beli saham yang
 // harganya sudah di atas resistance.
 //
-// Data 30 hari perdagangan menolak aturan ini untuk strategi
-// jual-di-puncak: zona di atas resistance punya win rate >=5%
-// tertinggi dari semua zona (33.3%, n=613) versus baseline 16.3%.
-// Yang benar dari kekhawatiran itu: zona ini memang paling sering
-// balik arah sebelum penutupan (hold-to-close -0.23%, hanya 34.9%
-// tutup hijau). Jadi bagus untuk dijual saat puncak, buruk untuk
-// ditahan sampai close.
+// CATATAN DIPERBARUI 3 September 2026 — instruksi ini TERBUKTI BENAR,
+// dan catatan sebelumnya di tempat ini keliru.
 //
-// Default dibiarkan sesuai instruksi (false). Ubah ke true kalau
-// mau mengambil zona ini, dan pasangkan dengan target jual tetap.
+// Benar bahwa zona di atas resistance punya win rate mentah tertinggi.
+// Dari 1.038 kandidat tier PRIMARY, 180 yang tertahan gate ini paling
+// sering menyentuh +5% (48,9% versus 40,7% sisanya), median puncak
+// 4,92% versus 3,88%.
+//
+// Tapi itu mengukur PUNCAK, bukan uang yang bisa dibawa pulang.
+// Dengan aturan keluar yang realistis, kelompok yang tertahan justru
+// merugi:
+//
+//                            jual +2%   jual +3%   tahan sampai close
+//   Tertahan gate (n=180)     -0,19%     +0,18%         -0,22%
+//   Lolos gate    (n=858)     +0,59%     +0,70%         +0,92%
+//
+// Ia lebih sering menyentuh target, tapi saat gagal ia gagal jauh
+// lebih dalam. Win rate tinggi dengan EV negatif — gate ini menahan
+// justru kelompok yang paling merusak.
+//
+// Kalau tetap ingin mengambil zona ini, WAJIB dipasangkan dengan
+// fadeRisk HIGH -> exitPlan JUAL_DI_TARGET, bukan ditahan sampai close.
 const ALLOW_ENTRY_ABOVE_RESISTANCE = false;
 
 function clamp(value, min = 0, max = 100) {
@@ -372,18 +384,46 @@ export function calculateNextDayOpportunity({
       : opportunityLabel === "HIGH" ? "PRIMARY"
         : "SECONDARY";
 
-  // FADE RISK — kolom baru, memisahkan dua hal yang selama ini
-  // tercampur: peluang MENYENTUH target versus peluang MEMPERTAHANKANNYA.
-  // Inilah sumber keluhan "score HIGH tapi close minus": saham
-  // berpeluang puncak tinggi memang sering ditutup merah.
-  // p5 tinggi + close2 rendah = wajib jual di puncak, jangan ditahan.
-  let fadeRisk = "LOW";
-  if (p5 >= 0.25 && close2 < 0.15) fadeRisk = "HIGH";
-  else if (p5 >= 0.20 && close2 < 0.20) fadeRisk = "MODERATE";
+  // ============================================================
+  // FADE RISK — DIPERBAIKI 3 September 2026
+  // ============================================================
+  // Versi pertama memakai `p5 >= 0.25 && close2 < 0.15`. Aturan itu
+  // praktis TIDAK PERNAH menyala: diuji ke 11.236 baris historis,
+  // hanya 3 baris yang kena HIGH dan 2.076 dari 2.160 kandidat masuk
+  // LOW. Penyebabnya p5 dan close2 sangat berkorelasi positif — p5
+  // tinggi hampir selalu disertai close2 tinggi juga, jadi
+  // konjungsinya kosong. Kolomnya ada tapi mati.
+  //
+  // Penggantinya memakai dua ciri struktural yang benar-benar
+  // memisahkan "meledak lalu dijuali" dari "naik dan bertahan".
+  // Diukur pada 2.160 kandidat (tier PRIMARY + SECONDARY):
+  //
+  //   Harga di atas resistance : hold -0,52%, hanya 32,0% tutup hijau
+  //   Sisanya                  : hold +0,75%, 43,8% tutup hijau
+  //
+  //   Closing strength <= 0,25 : hold +1,18%, 51,7% tutup hijau
+  //   Sisanya                  : hold +0,24%, 36,6% tutup hijau
+  //
+  // Tutup di harga tertinggi hari ini (closing strength >= 0,9)
+  // artinya pembeli sudah habis terpakai hari ini — diperlakukan sama
+  // dengan di atas resistance.
+  //
+  // Hasil aturan baru, out-of-sample (18 Ags - 1 Sep):
+  //   HIGH     n=127  hold -0,60%  33,9% tutup hijau
+  //   MODERATE n=340  hold +0,28%  36,8%
+  //   LOW      n=322  hold +2,28%  59,9%
+  const aboveResistance = Number.isFinite(breakoutDistance) && breakoutDistance > 0;
+  const cs = Number(closingStrength);
+  const closedAtHigh = Number.isFinite(cs) && cs >= 0.9;
+  const closedWeak = Number.isFinite(cs) && cs <= 0.25;
+
+  let fadeRisk = "MODERATE";
+  if (aboveResistance || closedAtHigh) fadeRisk = "HIGH";
+  else if (closedWeak) fadeRisk = "LOW";
 
   const exitPlan = fadeRisk === "HIGH"
     ? "JUAL_DI_TARGET"   // pasang target +2-3%, jangan tahan sampai close
-    : close2 >= 0.25
+    : fadeRisk === "LOW"
       ? "BOLEH_TAHAN_SAMPAI_CLOSE"
       : "JUAL_SEPARUH_DI_TARGET";
 
