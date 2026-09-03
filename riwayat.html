@@ -76,7 +76,55 @@
     <div class="filter-grid">
       <div class="field">
         <label class="field-label" for="kodeFilter">Kode saham</label>
-        <input id="kodeFilter" type="text" placeholder="Contoh: BBCA" autocomplete="off">
+        <input id="kodeFilter" type="text" placeholder="BB → BBCA, BBRI, BBNI" autocomplete="off">
+      </div>
+      <div class="field">
+        <label class="field-label" for="tierFilter">Tingkat keyakinan</label>
+        <select id="tierFilter">
+          <option value="">Semua Tier</option>
+          <option value="PRIMARY">🟢 PRIMARY (prioritas)</option>
+          <option value="SECONDARY">🟡 SECONDARY (posisi kecil)</option>
+          <option value="NONE">⚪ Di bawah ambang</option>
+        </select>
+      </div>
+      <div class="field">
+        <label class="field-label" for="oppFilter">Label Opportunity</label>
+        <select id="oppFilter">
+          <option value="">Semua Label</option>
+          <option value="HIGH">HIGH</option>
+          <option value="MODERATE">MODERATE</option>
+          <option value="WATCH">WATCH</option>
+          <option value="LOW">LOW</option>
+        </select>
+      </div>
+      <div class="field">
+        <label class="field-label" for="minOppFilter">Skor Opportunity minimal</label>
+        <select id="minOppFilter">
+          <option value="">Tanpa batas</option>
+          <option value="45">≥ 45</option>
+          <option value="60">≥ 60</option>
+          <option value="75">≥ 75</option>
+          <option value="85">≥ 85</option>
+        </select>
+      </div>
+      <div class="field">
+        <label class="field-label" for="entryFilter">Keputusan entry</label>
+        <select id="entryFilter">
+          <option value="">Semua Keputusan</option>
+          <option value="BUY_NOW">BUY NOW</option>
+          <option value="WAIT_PULLBACK">WAIT PULLBACK</option>
+          <option value="WATCH">WATCH</option>
+          <option value="AVOID">AVOID</option>
+        </select>
+      </div>
+      <div class="field">
+        <label class="field-label" for="outcomeFilter">Hasil H+1</label>
+        <select id="outcomeFilter">
+          <option value="">Semua Hasil</option>
+          <option value="win5">Peak ≥ +5%</option>
+          <option value="win3">Peak ≥ +3%</option>
+          <option value="lossClose">Tutup minus</option>
+        </select>
       </div>
       <div class="field">
         <label class="field-label" for="patternFilter">Pola</label>
@@ -87,23 +135,52 @@
         </select>
       </div>
       <div class="field">
-        <label class="field-label" for="dateFilter">Tanggal scan</label>
+        <label class="field-label" for="sortFilter">Urutkan</label>
+        <select id="sortFilter">
+          <option value="date">Tanggal terbaru</option>
+          <option value="opp">Skor Opportunity tertinggi</option>
+          <option value="gain">Max gain H+1 tertinggi</option>
+          <option value="ret">Return sampai close tertinggi</option>
+        </select>
+      </div>
+      <div class="field">
+        <label class="field-label" for="dateFilter">Tanggal scan (persis)</label>
         <input id="dateFilter" type="date" autocomplete="off">
+      </div>
+      <div class="field">
+        <label class="field-label" for="sinceFilter">Dari tanggal</label>
+        <input id="sinceFilter" type="date" autocomplete="off">
+      </div>
+      <div class="field">
+        <label class="field-label" for="untilFilter">Sampai tanggal</label>
+        <input id="untilFilter" type="date" autocomplete="off">
+      </div>
+      <div class="field">
+        <label class="field-label" for="labeledFilter">Data</label>
+        <select id="labeledFilter">
+          <option value="">Semua baris</option>
+          <option value="true">Hanya yang sudah ada hasilnya</option>
+        </select>
       </div>
       <div class="field field-actions">
         <span class="field-label field-label-ghost">&nbsp;</span>
-        <button class="btn-secondary" id="btnLoadTable">Lihat Tabel Riwayat</button>
+        <button class="btn-secondary" id="btnLoadTable">Terapkan Filter</button>
+        <button class="btn-ghost" id="btnResetFilter">Reset</button>
         <button class="btn-secondary" id="btnSyncModel">↻ Sinkronkan Score</button>
       </div>
     </div>
     <div class="filter-export-row">
+      <span class="hint-text" id="rowCountNotice">&nbsp;</span>
       <button class="btn-ghost" id="btnExportCsv">⬇ Export CSV</button>
     </div>
     <p class="hint-text" id="tableDateNotice" style="display:none"></p>
-    <p class="hint-text">Export mengikuti filter kode/tanggal di atas (kosongkan untuk semua data, maksimal 5000 baris terbaru).</p>
+    <p class="hint-text">Filter dijalankan di server, jadi "Skor ≥75, urut max gain" mencari ke seluruh riwayat — bukan cuma 100 baris yang sedang tampil. Export CSV mengikuti filter yang sama.</p>
   </section>
 
   <section id="historyTableWrap" class="results"></section>
+  <div class="load-more-row">
+    <button class="btn-secondary" id="btnLoadMore" style="display:none">Muat 100 baris berikutnya</button>
+  </div>
 
   <p class="disclaimer">
     SIGNAL → filter kondisi teknikal |
