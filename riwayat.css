@@ -382,12 +382,30 @@ select option{
 .regime-pill.neutral{background:rgba(132,148,163,.15);color:var(--muted);}
 .regime-pill.unknown{background:rgba(132,148,163,.08);color:var(--muted);}
 
+/* Isi kapsul ini dua baris: label + <br> + <small> probabilitas.
+   Tanpa display:inline-block, span inline yang pecah jadi dua baris
+   dirender sebagai dua kotak terpisah — masing-masing dapat background
+   dan radius sendiri — sehingga di layar sempit terlihat bertumpuk dan
+   timpang. inline-block membuatnya satu kotak utuh. Radius juga
+   diturunkan dari 999px karena kapsul dua baris jadi melengkung
+   berlebihan dan memotong teks di ujungnya. */
 .opp-pill{
+  display:inline-block;
+  vertical-align:middle;
+  text-align:left;
   font-size:11px;
   font-weight:600;
-  padding:3px 9px;
-  border-radius:999px;
+  padding:4px 9px;
+  border-radius:10px;
+  line-height:1.3;
   white-space:nowrap;
+}
+
+.opp-pill small{
+  display:block;
+  font-size:10.5px;
+  font-weight:500;
+  opacity:.85;
 }
 
 .opp-pill.high{background:var(--green-dim);color:var(--green);}
