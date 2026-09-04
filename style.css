@@ -1119,6 +1119,26 @@ button{
 .nextday-score-caption{display:block;font-size:9px;color:var(--muted-2);font-weight:400;margin-top:2px;}
 .nextday-box.watch .nextday-score,.nextday-box.low .nextday-score,.nextday-box.unavailable .nextday-score{color:var(--muted);}
 .nextday-label{display:block;margin-top:4px;font-family:var(--font-mono);font-size:9px;font-weight:700;color:var(--muted);}
+
+/* Tanda "Score didorong satu target saja" (4 September 2026) — Score
+   tinggi karena satu target P3/P5/P8 menonjol sendiri, sementara
+   Signal (opportunityScore gabungan) tetap HOLD ke bawah. Merah muda
+   sama seperti badge Distribusi Terdeteksi di Riwayat AI supaya
+   konsisten sebagai warna "perlu diperhatikan". */
+.score-signal-flag{
+  display:block;
+  margin-top:4px;
+  padding:1px 6px;
+  border-radius:999px;
+  font-size:8.5px;
+  line-height:1.4;
+  letter-spacing:.01em;
+  color:#b3261e;
+  background:rgba(179,38,30,.12);
+  max-width:110px;
+  white-space:normal;
+  text-align:right;
+}
 .nextday-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:12px;}
 .nextday-grid > div{padding:7px 8px;border-radius:7px;background:var(--surface);min-width:0;}
 .nextday-grid span{display:block;color:var(--muted);font-size:9.5px;margin-bottom:2px;}
