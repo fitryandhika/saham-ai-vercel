@@ -323,7 +323,7 @@ function getNextDayOpportunityMeta(d) {
   }
 
   return {
-    score: Number.isFinite(Number(n.opportunityScore)) ? Number(n.opportunityScore) : null,
+    score: Number.isFinite(Number(n.opportunityDisplayScore)) ? Number(n.opportunityDisplayScore) : null,
     label: String(n.opportunityLabel || "WATCH").toUpperCase(),
     expectedMoveBand: String(n.expectedMoveBand || n.opportunityLabel || "WATCH").toUpperCase(),
     setup: String(n.coreSetup || "NONE").replaceAll("_", " "),
