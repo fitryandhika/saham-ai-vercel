@@ -58,7 +58,6 @@ import { getStockData, getIntradayPeakTime } from "../services/stockService.js";
 import { calculateSessionGainScore } from "../engine/sessionGainScore.js";
 import { calculateNextDayOpportunity } from "../engine/nextDayOpportunity.js";
 import { getMarketTrend } from "../engine/verdict.js";
-import { calculateScore, recommendation, hasStrongBuyConfirmation } from "../engine/scorer.js";
 import { applyRegimeAdjustment } from "../engine/marketRegime.js";
 import { analyzeStock } from "../engine/analyzer.js";
 import { resolveUniverse } from "../config/universe.js";
@@ -266,16 +265,10 @@ async function handleModelSync(req, res) {
       distribution
     };
 
-    const score = calculateScore(data);
-    const strongBuyConfirmed = hasStrongBuyConfirmation({ breakout, volume, rsi: row.rsi });
-    let signal = recommendation(score);
-    if (signal === "STRONG BUY" && !strongBuyConfirmed) signal = "BUY";
-    if (row.illiquid) signal = "TIDAK LIKUID";
-
-    const scoreAdjusted = applyRegimeAdjustment(score, row.market_regime_score);
-
+    // Score & Signal SEKARANG dari Opportunity (bukan scorer.js lama,
+    // dihapus 4 Sep 2026) — sama seperti analyzer.js, Opportunity harus
+    // dihitung DULU baru Score/Signal diturunkan darinya.
     const opportunity = calculateNextDayOpportunity({
-      score,
       // Empat input V4 — semuanya sudah tersimpan sebagai kolom di baris
       // ini, jadi backfill tetap TIDAK perlu fetch Yahoo sama sekali.
       close: row.close,
@@ -297,10 +290,19 @@ async function handleModelSync(req, res) {
       dailyChangePercent: row.daily_change_pct
     });
 
+    const score = opportunity.opportunityDisplayScore;
+    const signal = row.illiquid ? "TIDAK LIKUID" : opportunity.opportunitySignal;
+    const scoreAdjusted = applyRegimeAdjustment(score, row.market_regime_score);
+
     await updateLabel(row.id, {
       score,
       signal,
-      strong_buy_confirmed: strongBuyConfirmed,
+      // scorer.js (dan gate STRONG BUY konfirmasi volumenya) dihapus 4
+      // Sep 2026 — konsep ini tidak berlaku lagi untuk Signal baru yang
+      // sudah punya gate/blocker sendiri di Opportunity. Diset false,
+      // bukan dibiarkan nilai lama yang sudah tidak relevan.
+      strong_buy_confirmed: false,
+      distribution_flag: opportunity.distributionFlag,
       score_adjusted: scoreAdjusted,
       next_day_opportunity_score: opportunity.opportunityScore,
       next_day_opportunity_label: opportunity.opportunityLabel,
