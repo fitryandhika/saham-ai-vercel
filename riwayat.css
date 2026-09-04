@@ -464,3 +464,21 @@ select option{
 .trend-row.is-in-sample .trend-bar{
   opacity:.55;
 }
+
+/* Tanda "Distribusi Terdeteksi" di kolom Signal — peluang naik rendah
+   DAN ada indikasi jual besar-besaran di baliknya (lihat
+   deriveDistributionFlag() di engine/nextDayOpportunity.js). Warna
+   merah muda supaya beda dari .in-sample-tag (netral) — ini memang
+   peringatan, bukan sekadar catatan. */
+.distribution-flag{
+  display:inline-block;
+  margin-left:6px;
+  padding:1px 6px;
+  border-radius:999px;
+  font-size:9.5px;
+  letter-spacing:.02em;
+  color:#b3261e;
+  background:rgba(179,38,30,.12);
+  vertical-align:middle;
+  white-space:nowrap;
+}
