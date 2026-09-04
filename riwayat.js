@@ -542,7 +542,7 @@ function renderHistoryTable(rows) {
         <td>${r.scan_date}</td>
         <td><strong>${r.kode}</strong></td>
         <td>${opportunityPill(r)}</td>
-        <td>${r.signal ?? "–"}</td>
+        <td>${r.signal ?? "–"}${r.distribution_flag ? ` <span class="distribution-flag" title="Peluang naik rendah dan ada indikasi jual besar-besaran">⚠ Distribusi Terdeteksi</span>` : ""}</td>
         <td>${r.score ?? "–"}</td>
         <td>${r.next_day_entry_quality_score ?? "–"} ${r.next_day_entry_quality_label ? `(${r.next_day_entry_quality_label})` : ""}</td>
         <td>${r.close ?? "–"}</td>
