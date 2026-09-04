@@ -324,6 +324,9 @@ function getNextDayOpportunityMeta(d) {
 
   return {
     score: Number.isFinite(Number(n.opportunityDisplayScore)) ? Number(n.opportunityDisplayScore) : null,
+    signal: n.opportunitySignal || null,
+    scoreSignalDivergence: n.scoreSignalDivergence === true,
+    scoreSignalDivergenceLabel: n.scoreSignalDivergenceLabel || null,
     label: String(n.opportunityLabel || "WATCH").toUpperCase(),
     expectedMoveBand: String(n.expectedMoveBand || n.opportunityLabel || "WATCH").toUpperCase(),
     setup: String(n.coreSetup || "NONE").replaceAll("_", " "),
@@ -470,6 +473,7 @@ function renderNextDayOpportunity(d) {
         <div class="nextday-score-wrap">
           <span class="nextday-score">${n.score}</span>
           <span class="nextday-label">${n.label}</span>
+          ${n.scoreSignalDivergence ? `<span class="score-signal-flag" title="Score didorong satu target (P3/P5/P8) yang menonjol sendiri, sementara Signal menimbang ketiganya sekaligus">⚠ ${n.scoreSignalDivergenceLabel}</span>` : ""}
         </div>
       </div>
 
