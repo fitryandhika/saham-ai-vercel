@@ -15,11 +15,6 @@ import { analyzeVolume } from "./volume.js";
 import { getForecast } from "./forecast.js";
 
 import {
-  getRating,
-  getProbability
-} from "./rating.js";
-
-import {
   generateReasons,
   calculateConfidence
 } from "./reasoning.js";
@@ -33,12 +28,9 @@ import {
 } from "./technical.js";
 
 import {
-  calculateScore,
-  recommendation,
   isReversalCandidate,
-  isCapitulationBounceCandidate,
-  hasStrongBuyConfirmation
-} from "./scorer.js";
+  isCapitulationBounceCandidate
+} from "./patterns.js";
 
 import {
   calculateSupport,
@@ -53,8 +45,7 @@ import {
 import {
   getMarketTrend,
   getRiskLevel,
-  getEntryTiming,
-  getFinalVerdict
+  getEntryTiming
 } from "./verdict.js";
 
 import { analyzeFundamental } from "./fundamental.js";
@@ -231,31 +222,9 @@ export function analyzeStock(data) {
 
   const fundamental = analyzeFundamental(data.fundamental || {});
 
-  // ==========================
-  // AI Score
-  // ==========================
-
-  let score = calculateScore({
-    close,
-    sma20,
-    sma50,
-    ema9,
-    ema20,
-    rsi,
-    macd,
-    volume,
-    riskReward,
-    breakout,
-    closingStrength,
-    volumeAcceleration,
-    relativeStrength,
-    exhaustion,
-    distribution
-  });
-
   // Flag terpisah (bukan cuma andalkan bonus di dalam skor) supaya
   // scan_history bisa mencatat mana yang kena bonus reversal ini —
-  // dipakai untuk validasi pola nanti, lihat catatan di scorer.js.
+  // dipakai untuk validasi pola nanti, lihat catatan di patterns.js.
   const reversalCandidate = isReversalCandidate({
     rsi,
     macd,
@@ -267,7 +236,7 @@ export function analyzeStock(data) {
 
   // Sama seperti reversalCandidate di atas — dicatat terpisah supaya
   // scan_history bisa validasi pola "capitulation bounce" (lihat catatan
-  // lengkap di scorer.js). Mutually exclusive dengan reversalCandidate
+  // lengkap di patterns.js). Mutually exclusive dengan reversalCandidate
   // (yang satu butuh close > sma50, yang ini close < sma50).
   const capitulationBounceCandidate = isCapitulationBounceCandidate({
     rsi,
@@ -278,27 +247,62 @@ export function analyzeStock(data) {
     relativeStrength
   });
 
-  // Skor akhir MURNI teknikal (lihat catatan "Fundamental Analysis" di
-  // atas) — dulu di sini ada blend 80% teknikal + 20% fundamental, sudah
-  // dilepas supaya skor konsisten antara batch scan dan analisa manual.
-  score = Math.max(0, Math.min(score, 100));
+  // ==========================
+  // Next-Day Opportunity Engine (V4) — DIPINDAH KE SINI (4 Sep 2026)
+  // ==========================
+  // Sebelumnya dihitung belakangan, setelah skor/signal teknikal lama
+  // (scorer.js). Sekarang Score & Signal yang tampil ke user JUSTRU
+  // diturunkan DARI Opportunity (disepakati bersama user), jadi
+  // Opportunity harus dihitung LEBIH DULU. Semua bahan yang dibutuhkan
+  // (exhaustion, distribution, closingStrength, breakout,
+  // relativeStrength, rsi, macd, dailyChangePercent, close, atr,
+  // sma20/50, volume, volumeAcceleration) sudah tersedia di scope di
+  // atas titik ini — marketTrend adalah satu-satunya yang perlu
+  // dihitung sedikit lebih awal juga (dipindah bersama getRiskLevel,
+  // lihat di bawah).
+  const marketTrend = getMarketTrend({
+    close,
+    sma20,
+    sma50,
+    ema9,
+    ema20,
+    macd
+  });
 
-  let signal = recommendation(score);
+  const nextDayOpportunity = calculateNextDayOpportunity({
+    close,
+    atr,
+    sma20,
+    sma50,
+    volume,
+    volumeAcceleration,
+    breakout,
+    relativeStrength,
+    exhaustion,
+    distribution,
+    liquidity,
+    riskReward,
+    closingStrength,
+    marketTrend,
+    rsi,
+    macd,
+    dailyChangePercent
+  });
 
-  // Gate STRONG BUY dengan konfirmasi volume+breakout+RSI (7 Agustus 2026)
-  // — lihat catatan lengkap di hasStrongBuyConfirmation() (scorer.js).
-  // Kalau skor tembus ambang STRONG BUY (>=90) tapi konfirmasi pola ini
-  // tidak ada, diturunkan ke BUY biasa DI SINI (sebelum entry/verdict/
-  // warnings/session-gain di bawah dihitung) — supaya semuanya konsisten
-  // dengan signal yang sudah digate, bukan cuma label akhirnya doang yang
-  // beda tapi verdict/entry masih menganggap STRONG BUY. Flag-nya dicatat
-  // terpisah ke scan_history untuk semua signal (bukan cuma STRONG BUY)
-  // supaya bisa dievaluasi lebih lanjut dari data yang terus bertambah.
-  const strongBuyConfirmed = hasStrongBuyConfirmation({ breakout, volume, rsi });
-
-  if (signal === "STRONG BUY" && !strongBuyConfirmed) {
-    signal = "BUY";
-  }
+  // ==========================
+  // Score & Signal — SEKARANG DARI OPPORTUNITY, bukan scorer.js lama
+  // ==========================
+  // scorer.js (RSI/MACD/volume dst., independen dari Opportunity dan
+  // sering berlawanan hasilnya) dihapus 4 September 2026. Score
+  // (100/90/80/... — jangkar P8/P5/P3) dan Signal (STRONG BUY..STRONG
+  // SELL) sekarang berasal dari nextDayOpportunity, lihat
+  // deriveOpportunitySignal()/deriveOpportunityDisplayScore() di
+  // engine/nextDayOpportunity.js untuk definisi persisnya. Ini otomatis
+  // ikut dipakai oleh semua yang butuh score/signal di bawah (gap
+  // probability, ranking, session gain, entry timing teknikal) — tidak
+  // perlu diubah satu-satu.
+  const score = nextDayOpportunity.opportunityDisplayScore;
+  const signal = nextDayOpportunity.opportunitySignal;
 
   // ==========================
   // Confidence & Reasons
@@ -330,17 +334,9 @@ export function analyzeStock(data) {
   });
 
   // ==========================
-  // Final Verdict
+  // Risk / Entry timing teknikal
   // ==========================
-
-  const marketTrend = getMarketTrend({
-    close,
-    sma20,
-    sma50,
-    ema9,
-    ema20,
-    macd
-  });
+  // marketTrend sudah dihitung lebih awal (dibutuhkan Opportunity).
 
   const riskLevel = getRiskLevel({
     rsi,
@@ -356,13 +352,6 @@ export function analyzeStock(data) {
     distribution
   });
 
-  const rating = getRating(score);
-
-  const probability = getProbability({
-    score,
-    confidence
-  });
-
   const momentum = getMomentum({
     close,
     sma20,
@@ -373,22 +362,10 @@ export function analyzeStock(data) {
     volume
   });
 
-  // Final signal is needed by the multi-day verdict calculation.
-  // Define it BEFORE getFinalVerdict() to avoid temporal-dead-zone errors.
+  // Saham beku/tidak likuid: signal internal tidak boleh ditampilkan
+  // apa adanya, karena tidak ada transaksi wajar untuk disimpulkan
+  // arahnya — lihat engine/liquidity.js.
   const finalSignal = liquidity.illiquid ? "TIDAK LIKUID" : signal;
-
-  const verdict = getFinalVerdict({
-    score,
-    signal: finalSignal,
-    confidence,
-    marketTrend,
-    momentum,
-    volume,
-    breakout,
-    relativeStrength,
-    rsi,
-    macd
-  });
 
   const gap = getGapProbability({
     score,
@@ -429,40 +406,9 @@ export function analyzeStock(data) {
     marketRegimeScore: data.marketRegimeScore ?? 50
   });
 
-  // ==========================
-  // Next-Day Opportunity Engine (active, entry-aware)
-  // Fokus: Close H -> High/Close H+1, bukan gap/open.
-  // Tidak mengubah signal/verdict lama.
-  // ==========================
-  const nextDayOpportunity = calculateNextDayOpportunity({
-    score,
-    // Empat input di bawah BARU untuk Opportunity V4 (3 Sep 2026).
-    // V3 tidak punya fitur volatilitas maupun level harga sama sekali,
-    // padahal atr_pct adalah prediktor terkuat untuk "naik >=5% besok"
-    // (Spearman +0,36; semua fitur lain <0,17) dan level harga
-    // menentukan berapa persen satu tick bergerak di IDX.
-    // Variabel-variabelnya sudah ada di scope: close (baris ~80),
-    // sma20/sma50 (~114-115), atr (~154).
-    close,
-    atr,
-    sma20,
-    sma50,
-    volume,
-    volumeAcceleration,
-    breakout,
-    relativeStrength,
-    exhaustion,
-    distribution,
-    liquidity,
-    riskReward,
-    closingStrength,
-    marketTrend,
-    rsi,
-    macd,
-    dailyChangePercent
-  });
-
-  // Cross-check dengan TIMING TEKNIKAL (entry, getEntryTiming di atas) —
+  // nextDayOpportunity sudah dihitung lebih awal (dibutuhkan untuk
+  // Score & Signal). Cross-check dengan TIMING TEKNIKAL (entry,
+  // getEntryTiming di atas) —
   // ditambahkan 14 Agustus 2026, respons ke laporan user: VERN/AHAP
   // muncul PRIORITAS/HIGH di Next-Day Opportunity padahal TIMING TEKNIKAL
   // untuk saham yang sama, di waktu yang sama, sudah AVOID. Kedua modul
@@ -558,7 +504,8 @@ export function analyzeStock(data) {
     signal: finalSignal,
     reversalCandidate,
     capitulationBounceCandidate,
-    strongBuyConfirmed,
+    distributionFlag: nextDayOpportunity.distributionFlag,
+    distributionLabel: nextDayOpportunity.distributionLabel,
     volumeRsSynergy: Boolean(finalSessionGain.breakdown?.synergyPts),
     dailyChangePercent,
     entryTimingConflict,
@@ -569,11 +516,6 @@ export function analyzeStock(data) {
     marketTrend,
     riskLevel,
     entry,
-    verdict,
-    verdictHorizon: "MULTI_DAY",
-
-    rating,
-    probability,
 
     rank,
     category,
