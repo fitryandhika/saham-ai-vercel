@@ -29,8 +29,80 @@
 import {
   OPPORTUNITY_MODEL_VERSION,
   rawModelProbability,
-  calibrateProbability
+  calibrateProbability,
+  CALIBRATION
 } from "./opportunityCalibration.js";
+
+// ============================================================
+// SIGNAL & SCORE BARU — MENGGANTIKAN engine/scorer.js (4 Sep 2026)
+// ============================================================
+// Disepakati bersama user: Signal & Score yang tampil ke pengguna
+// sekarang mencerminkan Opportunity (P3/P5/P8), bukan lagi skor
+// teknikal lama (RSI/MACD/volume dst) yang terbukti kontradiktif
+// dengan Opportunity di banyak kasus nyata (mis. Opportunity LOW
+// tapi skor lama 100/STRONG BUY).
+//
+// SIGNAL (5 tingkat) — dari opportunityScore gabungan. Ambang 60/45
+// sama persis dengan opportunityLabel MODERATE/WATCH yang sudah
+// tervalidasi dari data; 85/20 ditambahkan untuk memecah dua ujung
+// jadi STRONG.
+function deriveOpportunitySignal(opportunityScore) {
+  const s = Number(opportunityScore);
+  if (!Number.isFinite(s)) return "HOLD";
+  if (s >= 85) return "STRONG BUY";
+  if (s >= 60) return "BUY";
+  if (s >= 45) return "HOLD";
+  if (s >= 20) return "SELL";
+  return "STRONG SELL";
+}
+
+// "Zona atas" tiap target = titik tengah antara nilai kalibrasi
+// terendah & tertinggi yang PERNAH dihasilkan model untuk target itu
+// (dihitung dari tabel CALIBRATION sendiri, bukan angka tetap —
+// supaya otomatis menyesuaikan kalau model dikalibrasi ulang nanti).
+function calibrationMidpoint(modelKey) {
+  const table = CALIBRATION[modelKey];
+  if (!Array.isArray(table) || table.length === 0) return null;
+  const min = table[0][1];
+  const max = table[table.length - 1][1];
+  return (min + max) / 2;
+}
+
+const ZONE_ATAS = {
+  p8: calibrationMidpoint("p8"),
+  p5: calibrationMidpoint("p5"),
+  p3: calibrationMidpoint("p3")
+};
+
+// SCORE (100/90/80/... ) — jangkar disepakati user:
+//   100 = P8 (peluang naik >8%) masuk zona atas kalibrasinya sendiri
+//    90 = P8 tidak, tapi P5 (>5%) masuk zona atas
+//    80 = P8 & P5 tidak, tapi P3 (>3%) masuk zona atas
+// Di bawah 80 (belum ada target spesifik yang menonjol): turun
+// mengikuti opportunityScore gabungan, dibulatkan ke puluhan
+// terdekat, plafon 70 supaya tidak tabrakan dengan 3 jangkar di atas.
+// Heuristik bagian ini BELUM diuji balik ke data historis — cek lagi
+// pakai "Sinkronkan Score" setelah ada data baru.
+function deriveOpportunityDisplayScore({ p3, p5, p8, opportunityScore }) {
+  if (Number.isFinite(p8) && ZONE_ATAS.p8 !== null && p8 >= ZONE_ATAS.p8) return 100;
+  if (Number.isFinite(p5) && ZONE_ATAS.p5 !== null && p5 >= ZONE_ATAS.p5) return 90;
+  if (Number.isFinite(p3) && ZONE_ATAS.p3 !== null && p3 >= ZONE_ATAS.p3) return 80;
+
+  const s = Number(opportunityScore);
+  if (!Number.isFinite(s)) return 0;
+  return Math.max(0, Math.min(70, Math.floor(s / 10) * 10));
+}
+
+// TANDA "DISTRIBUSI TERDETEKSI" — terpisah dari P3/P5/P8, tidak
+// mengubah angka probabilitas itu sama sekali. Trigger: peluang naik
+// memang rendah (opportunityScore < 60, setara HOLD ke bawah) DAN
+// ada indikasi jual besar-besaran di baliknya (distributionScore >=
+// 60 — ambang "tinggi" yang sudah dipakai di tempat lain di kode).
+function deriveDistributionFlag(opportunityScore, distributionScore) {
+  const opp = Number(opportunityScore);
+  const dist = Number(distributionScore);
+  return Number.isFinite(opp) && Number.isFinite(dist) && opp < 60 && dist >= 60;
+}
 
 // ============================================================
 // SAKELAR KEBIJAKAN
@@ -459,9 +531,17 @@ export function calculateNextDayOpportunity({
       detail: `Volume ${volumeRatio.toFixed(2)}x — faktor tunggal terkuat (win rate 34.8% vs 16.3%)` });
   }
 
+  const opportunitySignal = deriveOpportunitySignal(opportunityScore);
+  const opportunityDisplayScore = deriveOpportunityDisplayScore({ p3, p5, p8, opportunityScore });
+  const distributionFlag = deriveDistributionFlag(opportunityScore, Number(distribution?.distributionScore));
+
   return {
     version: OPPORTUNITY_MODEL_VERSION,
     opportunityScore,
+    opportunitySignal,
+    opportunityDisplayScore,
+    distributionFlag,
+    distributionLabel: distributionFlag ? "Distribusi Terdeteksi" : null,
     opportunityProbability: p3 * 100,
     opportunityProbability5Pct: p5 * 100,
     opportunityProbability8Pct: p8 * 100,
