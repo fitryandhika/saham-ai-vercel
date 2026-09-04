@@ -40,7 +40,7 @@ import { rowsToCsv } from "../utils/csv.js";
 // supaya urutannya stabil dan enak dibaca di spreadsheet, tidak
 // tergantung urutan kolom yang dikembalikan Supabase.
 const CSV_COLUMNS = [
-  "kode", "sector", "scan_date", "close", "score", "signal", "entry",
+  "kode", "sector", "scan_date", "close", "score", "signal", "entry", "distribution_flag",
   "rsi", "macd", "sma20", "sma50", "ema9", "ema20", "risk_reward", "atr",
   "breakout_level", "breakout_distance_pct", "closing_strength",
   "volume_ratio", "volume_signal", "volume_accel_slope_pct", "volume_accelerating",
