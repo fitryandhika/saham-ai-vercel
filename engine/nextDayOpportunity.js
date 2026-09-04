@@ -104,6 +104,23 @@ function deriveDistributionFlag(opportunityScore, distributionScore) {
   return Number.isFinite(opp) && Number.isFinite(dist) && opp < 60 && dist >= 60;
 }
 
+// TANDA "SCORE DIDORONG SATU TARGET SAJA" — Score (100/90/80) bisa
+// tinggi kalau SATU target (P8/P5/P3) saja yang menonjol, sementara
+// Signal dari opportunityScore GABUNGAN (menimbang P5 paling berat,
+// 50%) bisa tetap HOLD ke bawah kalau target lain biasa saja. Bukan
+// bug — dua metrik memang menjawab pertanyaan berbeda (lihat diskusi
+// 4 September 2026) — tapi kalau dibiarkan tanpa tanda, bisa terlihat
+// kontradiktif lagi seperti masalah Score/Opportunity lama. Trigger:
+// Score masuk salah satu jangkar (>=80) TAPI Signal bukan BUY/STRONG
+// BUY.
+function deriveScoreSignalDivergence(opportunityDisplayScore, opportunitySignal) {
+  return (
+    Number(opportunityDisplayScore) >= 80 &&
+    opportunitySignal !== "STRONG BUY" &&
+    opportunitySignal !== "BUY"
+  );
+}
+
 // ============================================================
 // SAKELAR KEBIJAKAN
 // ============================================================
@@ -534,6 +551,7 @@ export function calculateNextDayOpportunity({
   const opportunitySignal = deriveOpportunitySignal(opportunityScore);
   const opportunityDisplayScore = deriveOpportunityDisplayScore({ p3, p5, p8, opportunityScore });
   const distributionFlag = deriveDistributionFlag(opportunityScore, Number(distribution?.distributionScore));
+  const scoreSignalDivergence = deriveScoreSignalDivergence(opportunityDisplayScore, opportunitySignal);
 
   return {
     version: OPPORTUNITY_MODEL_VERSION,
@@ -542,6 +560,8 @@ export function calculateNextDayOpportunity({
     opportunityDisplayScore,
     distributionFlag,
     distributionLabel: distributionFlag ? "Distribusi Terdeteksi" : null,
+    scoreSignalDivergence,
+    scoreSignalDivergenceLabel: scoreSignalDivergence ? "Score didorong satu target saja" : null,
     opportunityProbability: p3 * 100,
     opportunityProbability5Pct: p5 * 100,
     opportunityProbability8Pct: p8 * 100,
