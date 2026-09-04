@@ -381,6 +381,7 @@ export default async function handler(req, res) {
           score: d.score,
           signal: d.signal,
           entry: d.entry,
+          distribution_flag: d.distributionFlag ?? false,
 
           rsi: d.rsi,
 
