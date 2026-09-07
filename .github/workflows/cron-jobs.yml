@@ -1,22 +1,31 @@
 name: Cron Stockgz
 
-# Pengganti blok "crons" di vercel.json. Akun Hobby Vercel dibatasi
-# 2 cron job dan hanya sekali sehari, sementara aplikasi ini butuh 5
-# jadwal — salah satunya tiap 20 menit. GitHub Actions tidak punya
-# batas itu.
+# LAPIS KE-2 dari 3. Lihat vercel.json untuk lapis ke-1 (scan harian +
+# sapuan labeling sore, scheduler Vercel) dan cron-job.org untuk lapis
+# ke-3 (loop labeling tiap 20 menit + email alert).
+#
+# Kenapa berlapis: cron GitHub Actions itu best-effort. Jadwal masuk
+# antrean dan DIBUANG DIAM-DIAM saat beban runner tinggi — tanpa run
+# gagal, tanpa notifikasi, tanpa jejak. Bukti nyatanya: workflow ini
+# dikonfigurasi ~18 run per hari bursa, tapi total run sepanjang
+# hidupnya cuma 11. Tanggal 2026-09-07 hanya 1 run (±14:30 WIB) dan
+# jadwal scan 16:30 tidak termasuk di dalamnya, sehingga scan_history
+# untuk tanggal itu kosong total (count = 0 di Supabase).
 #
 # CATATAN WAKTU: cron GitHub Actions memakai UTC. WIB = UTC+7.
-# Jadwal di bawah sengaja ditulis dalam UTC dengan padanan WIB-nya.
 #
-# GitHub Actions bisa menunda jalannya jadwal sampai belasan menit saat
-# beban tinggi. Untuk /api/scan itu tidak masalah (dijalankan setelah
-# bursa tutup), dan label-outcomes-close memang berulang tiap 20 menit
-# jadi keterlambatan satu putaran otomatis tersusul.
+# JANGAN pakai menit kelipatan 20 (:00, :20, :40) untuk jadwal baru di
+# file ini — menit-menit itu sudah dipakai jadwal "*/20 9-13". Kalau
+# dua ekspresi cron dalam SATU workflow jatuh tempo di menit yang sama,
+# GitHub cuma memicu satu run dan github.event.schedule cuma melaporkan
+# satu string, jadi endpoint yang satunya tidak pernah dipanggil. Ini
+# yang dulu terjadi pada macro-scan di "20 9 * * 1-5".
 
 on:
   schedule:
-    # 09:20 UTC = 16:20 WIB — macro scan, sebelum scan utama
-    - cron: "20 9 * * 1-5"
+    # 09:25 UTC = 16:25 WIB — macro scan, sebelum scan utama.
+    # Dipindah dari "20 9" yang bentrok dengan jadwal */20 di bawah.
+    - cron: "25 9 * * 1-5"
     # 09:30 UTC = 16:30 WIB — scan harian utama
     - cron: "30 9 * * 1-5"
     # 02:15 UTC = 09:15 WIB — label tahap 1 (gap pembukaan)
@@ -37,6 +46,10 @@ on:
           - label-outcomes
           - label-outcomes-close
           - universe-refresh
+      date:
+        description: "Opsional, YYYY-MM-DD. Hanya dipakai label-outcomes / label-outcomes-close untuk mengejar backlog tanggal tertentu."
+        required: false
+        type: string
 
 env:
   BASE_URL: https://saham-ai-vercel-six.vercel.app
@@ -49,37 +62,53 @@ jobs:
         id: pick
         run: |
           case "${{ github.event.schedule }}" in
-            "20 9 * * 1-5")      ENDPOINT="/api/macro-scan" ;;
+            "25 9 * * 1-5")      ENDPOINT="/api/macro-scan" ;;
             "30 9 * * 1-5")      ENDPOINT="/api/scan?highConviction=false" ;;
             "15 2 * * 1-5")      ENDPOINT="/api/label-outcomes" ;;
             "*/20 9-13 * * 1-5") ENDPOINT="/api/label-outcomes-close" ;;
             "0 20 * * 0")        ENDPOINT="/api/universe-refresh" ;;
-            *)                   ENDPOINT="/api/${{ inputs.target }}" ;;
+            *)
+              ENDPOINT="/api/${{ inputs.target }}"
+              # Tanggal manual hanya berlaku untuk dua endpoint labeling;
+              # /api/scan tidak menerima parameter tanggal sama sekali
+              # (tidak ada backfill scan — datanya harus diambil hari itu).
+              if [ -n "${{ inputs.date }}" ]; then
+                case "${{ inputs.target }}" in
+                  label-outcomes|label-outcomes-close)
+                    ENDPOINT="${ENDPOINT}?date=${{ inputs.date }}" ;;
+                  *)
+                    echo "::warning::Input 'date' diabaikan — ${{ inputs.target }} tidak menerimanya." ;;
+                esac
+              fi
+              ;;
           esac
+
+          # Kalau case di atas meleset (mis. string jadwal berubah), jangan
+          # diam-diam memanggil "/api/" lalu lolos sebagai sukses.
+          if [ "$ENDPOINT" = "/api/" ] || [ -z "$ENDPOINT" ]; then
+            echo "::error::Tidak bisa menentukan endpoint. schedule='${{ github.event.schedule }}' target='${{ inputs.target }}'"
+            exit 1
+          fi
+
           echo "endpoint=$ENDPOINT" >> "$GITHUB_OUTPUT"
           echo "Akan memanggil $ENDPOINT"
 
       - name: Panggil endpoint
         env:
-          # /api/label-outcomes & /api/label-outcomes-close menolak
-          # request tanpa header ini KALAU CRON_SECRET diset di Vercel
-          # (lihat pengecekan "if (process.env.CRON_SECRET)" di kedua
-          # file itu) — sebelum ini ditambahkan, jadwal otomatisnya
-          # bisa selalu 401 tanpa ketahuan kalau secret itu aktif.
-          # Aman dikirim walau CRON_SECRET kosong/tidak diset di kedua
-          # sisi: headernya jadi "Bearer " dan pengecekan di Vercel
-          # otomatis dilewati karena process.env.CRON_SECRET falsy.
-          # Isi lewat Settings → Secrets and variables → Actions →
-          # New repository secret, NAMA dan NILAI harus sama persis
-          # dengan env var CRON_SECRET di Vercel.
+          # /api/label-outcomes, /api/label-outcomes-close dan
+          # /api/relabel-high-low menolak request tanpa header ini KALAU
+          # CRON_SECRET diset di Vercel. Aman dikirim walau kosong:
+          # headernya jadi "Bearer " dan pengecekan di Vercel dilewati
+          # karena process.env.CRON_SECRET falsy.
+          # Isi lewat Settings -> Secrets and variables -> Actions.
+          # Cron bawaan Vercel di vercel.json mengirim header ini sendiri
+          # secara otomatis, jadi tidak perlu diatur di sana.
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          ENDPOINT: ${{ steps.pick.outputs.endpoint }}
         run: |
-          URL="${BASE_URL}${{ steps.pick.outputs.endpoint }}"
+          URL="${BASE_URL}${ENDPOINT}"
           echo "GET $URL pada $(date -u) UTC"
 
-          # --max-time 300: fungsi Vercel maksimal 60 detik, tapi cold
-          # start dan antrean bisa menambah. Timeout longgar supaya
-          # bukan curl yang menyerah duluan.
           response=$(curl -s -w "\n%{http_code}" --max-time 300 \
             -H "Authorization: Bearer ${CRON_SECRET}" \
             "$URL")
@@ -94,11 +123,76 @@ jobs:
             exit 1
           fi
 
-          # Endpoint di repo ini bisa balas 200 OK walau pekerjaannya
-          # gagal (mis. insert Supabase ditolak karena kolom belum ada —
-          # penyebab tabel Riwayat kosong di 20-21 Agustus). Jadi status
-          # HTTP saja tidak cukup; body-nya ikut diperiksa.
-          if echo "$body" | grep -q '"success"[[:space:]]*:[[:space:]]*false'; then
-            echo "::error::HTTP 200 tapi success:false — cek pesan di body di atas"
+          # ============================================================
+          # PEMERIKSAAN ISI RESPONSE
+          # ============================================================
+          # Guard versi lama cuma grep '"success":false'. Itu TIDAK PERNAH
+          # bisa menangkap kegagalan /api/scan, karena api/scan.js selalu
+          # mengembalikan success:true hardcoded (baris ~1068) dan hasil
+          # insert Supabase yang gagal cuma diselipkan di
+          # logging.error / logging.logged. Insiden 20-21 Agustus lolos
+          # persis lewat celah ini: HTTP 200, centang hijau, tabel kosong.
+          #
+          # Selama api/scan.js belum diperbaiki supaya jujur, workflow ini
+          # yang memeriksa payload-nya.
+
+          if ! echo "$body" | jq empty 2>/dev/null; then
+            echo "::error::Response bukan JSON yang valid."
             exit 1
           fi
+
+          if [ "$(echo "$body" | jq -r '.success')" = "false" ]; then
+            echo "::error::success:false — cek pesan di body di atas"
+            exit 1
+          fi
+
+          case "$ENDPOINT" in
+            /api/scan*)
+              scanned=$(echo "$body" | jq -r '.scanned // 0')
+              logged=$(echo "$body" | jq -r '.logging.logged // 0')
+              logErr=$(echo "$body" | jq -r '.logging.error // empty')
+              skipped=$(echo "$body" | jq -r '.skipped // false')
+
+              # Bukan hari bursa — dilewati dengan sengaja, bukan kegagalan.
+              if [ "$skipped" = "true" ]; then
+                echo "Bukan hari bursa, scan dilewati."
+                exit 0
+              fi
+
+              if [ -n "$logErr" ]; then
+                echo "::error::Insert Supabase gagal: $logErr"
+                exit 1
+              fi
+
+              if [ "$logged" -eq 0 ] && [ "$scanned" -gt 0 ]; then
+                echo "::error::$scanned emiten discan tapi 0 baris tersimpan."
+                exit 1
+              fi
+
+              echo "OK — $logged dari $scanned baris tersimpan."
+              ;;
+
+            /api/label-outcomes-close*|/api/label-outcomes*)
+              # labeled:0 itu SAH kalau memang tidak ada yang jatuh tempo,
+              # jadi tidak boleh dianggap gagal. Yang ditandai adalah
+              # kondisi "ada pekerjaan, tapi tidak satu pun berhasil".
+              labeled=$(echo "$body" | jq -r '.labeled // 0')
+              rows=$(echo "$body" | jq -r '.rowsThisRun // 0')
+              retry=$(echo "$body" | jq -r '.retry // 0')
+
+              if [ "$rows" -gt 0 ] && [ "$labeled" -eq 0 ]; then
+                echo "::error::$rows baris diproses, 0 berhasil dilabel ($retry retry). Lihat retryDetail di body."
+                exit 1
+              fi
+
+              if [ "$retry" -gt 0 ]; then
+                echo "::warning::$labeled dilabel, $retry masuk antrean retry."
+              else
+                echo "OK — $labeled dari $rows baris dilabel."
+              fi
+              ;;
+
+            *)
+              echo "OK."
+              ;;
+          esac
