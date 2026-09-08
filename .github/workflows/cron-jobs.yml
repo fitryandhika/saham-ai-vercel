@@ -15,7 +15,7 @@ name: Cron Stockgz
 # CATATAN WAKTU: cron GitHub Actions memakai UTC. WIB = UTC+7.
 #
 # JANGAN pakai menit kelipatan 20 (:00, :20, :40) untuk jadwal baru di
-# file ini — menit-menit itu sudah dipakai jadwal "*/20 9-13". Kalau
+# file ini — menit-menit itu sudah dipakai jadwal "*/20 14-16". Kalau
 # dua ekspresi cron dalam SATU workflow jatuh tempo di menit yang sama,
 # GitHub cuma memicu satu run dan github.event.schedule cuma melaporkan
 # satu string, jadi endpoint yang satunya tidak pernah dipanggil. Ini
@@ -30,8 +30,21 @@ on:
     - cron: "30 9 * * 1-5"
     # 02:15 UTC = 09:15 WIB — label tahap 1 (gap pembukaan)
     - cron: "15 2 * * 1-5"
-    # tiap 20 menit, 09:00-13:59 UTC = 16:00-20:59 WIB — label tahap 2
-    - cron: "*/20 9-13 * * 1-5"
+    # tiap 20 menit, 14:00-16:59 UTC = 21:00-23:59 WIB — label tahap 2.
+    #
+    # DIPINDAH 8 September 2026 dari "*/20 9-13" (16:00-20:59 WIB).
+    # Jendela lama tutup TEPAT SEBELUM datanya tersedia. Candle harian
+    # baru terbit di Yahoo antara jam 19 dan 22 WIB, sementara backoff
+    # di markCloseLabelRetry (10 x 2^(attempts-1), dibatasi 320 menit)
+    # sudah terlanjur membakar percobaan melawan candle yang belum ada:
+    #   16:00 att.1 -> 16:10 | 16:20 att.2 -> 16:40 | 16:40 att.3 -> 17:20
+    #   17:40 att.4 -> 19:00 | 19:00 att.5 -> 21:40
+    # Percobaan ke-6 jatuh 21:40, 40 menit setelah cron berhenti — jadi
+    # baris itu terkunci sampai 16:00 hari berikutnya. Persis yang
+    # terjadi pada scan 2026-09-07. Sekarang percobaan pertama dimulai
+    # saat datanya sudah ada, sehingga backoff nyaris tidak pernah
+    # terpicu.
+    - cron: "*/20 14-16 * * 1-5"
     # 20:00 UTC Minggu = 03:00 WIB Senin — refresh universe
     - cron: "0 20 * * 0"
   workflow_dispatch:
@@ -65,7 +78,7 @@ jobs:
             "25 9 * * 1-5")      ENDPOINT="/api/macro-scan" ;;
             "30 9 * * 1-5")      ENDPOINT="/api/scan?highConviction=false" ;;
             "15 2 * * 1-5")      ENDPOINT="/api/label-outcomes" ;;
-            "*/20 9-13 * * 1-5") ENDPOINT="/api/label-outcomes-close" ;;
+            "*/20 14-16 * * 1-5") ENDPOINT="/api/label-outcomes-close" ;;
             "0 20 * * 0")        ENDPOINT="/api/universe-refresh" ;;
             *)
               ENDPOINT="/api/${{ inputs.target }}"
