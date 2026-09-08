@@ -15,7 +15,7 @@ name: Cron Stockgz
 # CATATAN WAKTU: cron GitHub Actions memakai UTC. WIB = UTC+7.
 #
 # JANGAN pakai menit kelipatan 20 (:00, :20, :40) untuk jadwal baru di
-# file ini — menit-menit itu sudah dipakai jadwal "*/20 14-16". Kalau
+# file ini — menit-menit itu sudah dipakai jadwal "*/20 14-15". Kalau
 # dua ekspresi cron dalam SATU workflow jatuh tempo di menit yang sama,
 # GitHub cuma memicu satu run dan github.event.schedule cuma melaporkan
 # satu string, jadi endpoint yang satunya tidak pernah dipanggil. Ini
@@ -30,7 +30,7 @@ on:
     - cron: "30 9 * * 1-5"
     # 02:15 UTC = 09:15 WIB — label tahap 1 (gap pembukaan)
     - cron: "15 2 * * 1-5"
-    # tiap 20 menit, 14:00-16:59 UTC = 21:00-23:59 WIB — label tahap 2.
+    # tiap 20 menit, 14:00-15:59 UTC = 21:00-22:59 WIB — label tahap 2.
     #
     # DIPINDAH 8 September 2026 dari "*/20 9-13" (16:00-20:59 WIB).
     # Jendela lama tutup TEPAT SEBELUM datanya tersedia. Candle harian
@@ -44,7 +44,15 @@ on:
     # terjadi pada scan 2026-09-07. Sekarang percobaan pertama dimulai
     # saat datanya sudah ada, sehingga backoff nyaris tidak pernah
     # terpicu.
-    - cron: "*/20 14-16 * * 1-5"
+    #
+    # DIPERSEMPIT 9 September 2026 dari "14-16" (berakhir 23:59 WIB).
+    # getPendingCloseSnapshotsAcrossDates memakai beforeDate = todayWIB,
+    # jadi tepat lewat tengah malam himpunan "pending" berpindah ke scan
+    # hari itu juga — yang H+1-nya baru terjadi ~16 jam kemudian. Run
+    # 8 Sep tereksekusi telat sampai lewat tengah malam, mengambil 397
+    # baris 09-08, dan ke-300 baris pertamanya retry semua. Batas 22:59
+    # memberi satu jam bantalan terhadap keterlambatan scheduler GitHub.
+    - cron: "*/20 14-15 * * 1-5"
     # 20:00 UTC Minggu = 03:00 WIB Senin — refresh universe
     - cron: "0 20 * * 0"
   workflow_dispatch:
@@ -78,7 +86,7 @@ jobs:
             "25 9 * * 1-5")      ENDPOINT="/api/macro-scan" ;;
             "30 9 * * 1-5")      ENDPOINT="/api/scan?highConviction=false" ;;
             "15 2 * * 1-5")      ENDPOINT="/api/label-outcomes" ;;
-            "*/20 14-16 * * 1-5") ENDPOINT="/api/label-outcomes-close" ;;
+            "*/20 14-15 * * 1-5") ENDPOINT="/api/label-outcomes-close" ;;
             "0 20 * * 0")        ENDPOINT="/api/universe-refresh" ;;
             *)
               ENDPOINT="/api/${{ inputs.target }}"
@@ -193,8 +201,22 @@ jobs:
               rows=$(echo "$body" | jq -r '.rowsThisRun // 0')
               retry=$(echo "$body" | jq -r '.retry // 0')
 
+              # 0 berhasil TIDAK otomatis berarti rusak. Kalau semua
+              # retry-nya RETRY_NEXT_CANDLE_NOT_FOUND, artinya candle H+1
+              # memang belum terbit — endpoint-nya sengaja menjadwalkan
+              # ulang dan cron berikutnya melanjutkan. Menggagalkan job
+              # untuk kondisi normal ini cuma melatihmu mengabaikan
+              # notifikasi, dan alarm yang diabaikan sama saja dengan
+              # tidak punya alarm.
               if [ "$rows" -gt 0 ] && [ "$labeled" -eq 0 ]; then
-                echo "::error::$rows baris diproses, 0 berhasil dilabel ($retry retry). Lihat retryDetail di body."
+                nTotal=$(echo "$body" | jq -r '[.retryDetail[]?.status] | length')
+                nBelum=$(echo "$body" | jq -r '[.retryDetail[]?.status | select(. == "RETRY_NEXT_CANDLE_NOT_FOUND")] | length')
+                if [ "$nTotal" -gt 0 ] && [ "$nTotal" -eq "$nBelum" ]; then
+                  echo "::warning::$rows baris ditunda — candle H+1 belum terbit. Cron berikutnya melanjutkan."
+                  exit 0
+                fi
+                echo "::error::$rows baris diproses, 0 berhasil dilabel ($retry retry). Sebab non-rutin terdeteksi:"
+                echo "$body" | jq -r '[.retryDetail[]?.status] | group_by(.) | map({status: .[0], n: length})'
                 exit 1
               fi
 
