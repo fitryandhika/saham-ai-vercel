@@ -428,51 +428,6 @@ export function calculateNextDayOpportunity({
 
   const opportunityScore = calculateOpportunityIndex({ p3, p5, p8 });
 
-  const blockers = [];
-  if (liquidity?.illiquid) blockers.push("Saham tidak likuid");
-  if (Number.isFinite(rsVsIhsg) && rsVsIhsg < -20) blockers.push("Relative strength sangat lemah");
-  if (Number(distribution?.distributionScore) >= 60) blockers.push("Distribution tinggi");
-
-  // Ambang label diambil dari kuantil skor pada data nyata, bukan
-  // dari angka bulat. Hasil out-of-sample per label:
-  //   HIGH >=75      win >=5% 42.2%, median peak 4.02%
-  //   MODERATE >=60  29.8%
-  //   WATCH >=45     17.2%
-  //   LOW <45         8.2%
-  let opportunityLabel = "LOW";
-  if (opportunityScore >= 75) opportunityLabel = "HIGH";
-  else if (opportunityScore >= 60) opportunityLabel = "MODERATE";
-  else if (opportunityScore >= 45) opportunityLabel = "WATCH";
-
-  if (blockers.length > 0 && opportunityLabel === "HIGH") opportunityLabel = "MODERATE";
-
-  const expectedMoveBand = opportunityLabel;
-
-  // ============================================================
-  // ELIGIBLE + CONVICTION TIER
-  // ============================================================
-  // Sebelumnya `eligible` hanya bernilai true untuk HIGH, sementara
-  // headline di script.js punya ambangnya sendiri (HIGH ATAU MODERATE).
-  // Akibatnya satu kartu bisa menampilkan "PRIORITAS — BUY SORE" di
-  // atas dan "Opportunity H+1: TIDAK VALID" tepat di bawahnya (kasus
-  // SQMI, 3 Sep 2026). Sekarang ambangnya cuma satu, di sini, dan
-  // perbedaan bobot dinyatakan lewat convictionTier — bukan lewat
-  // dua definisi "valid" yang berbeda.
-  //
-  // Kenapa MODERATE tetap "eligible" tapi bukan PRIMARY (OOS 18 Ags –
-  // 1 Sep): HIGH win >=5% 42,2% / median peak 4,02% / EV target +3%
-  // +0,66%. MODERATE 29,8% / 2,64% / +0,22%. Ada setup, tapi setelah
-  // fee IDX (±0,3%) EV-nya praktis nol — layak posisi kecil, tidak
-  // layak disebut prioritas.
-  const eligible =
-    (opportunityLabel === "HIGH" || opportunityLabel === "MODERATE") &&
-    blockers.length === 0;
-
-  const convictionTier =
-    !eligible ? "NONE"
-      : opportunityLabel === "HIGH" ? "PRIMARY"
-        : "SECONDARY";
-
   // ============================================================
   // FADE RISK — DIPERBAIKI 3 September 2026
   // ============================================================
@@ -516,6 +471,88 @@ export function calculateNextDayOpportunity({
       ? "BOLEH_TAHAN_SAMPAI_CLOSE"
       : "JUAL_SEPARUH_DI_TARGET";
 
+  const blockers = [];
+  if (liquidity?.illiquid) blockers.push("Saham tidak likuid");
+  if (Number.isFinite(rsVsIhsg) && rsVsIhsg < -20) blockers.push("Relative strength sangat lemah");
+  if (Number(distribution?.distributionScore) >= 60) blockers.push("Distribution tinggi");
+
+  // Ambang label diambil dari kuantil skor pada data nyata, bukan
+  // dari angka bulat. Hasil out-of-sample per label:
+  //   HIGH >=75      win >=5% 42.2%, median peak 4.02%
+  //   MODERATE >=60  29.8%
+  //   WATCH >=45     17.2%
+  //   LOW <45         8.2%
+  let opportunityLabel = "LOW";
+  if (opportunityScore >= 75) opportunityLabel = "HIGH";
+  else if (opportunityScore >= 60) opportunityLabel = "MODERATE";
+  else if (opportunityScore >= 45) opportunityLabel = "WATCH";
+
+  if (blockers.length > 0 && opportunityLabel === "HIGH") opportunityLabel = "MODERATE";
+
+  // ============================================================
+  // FADE GATE — 8 September 2026
+  // ============================================================
+  // fadeRisk sudah dihitung sejak 3 September tapi points-nya 0: ia
+  // hanya mengarang teks exitPlan dan tidak pernah mempengaruhi label.
+  // Diuji ke 12.925 baris berlabel (15 Juli - 8 Sep, 38 hari), khusus
+  // di dalam 1.199 baris HIGH. Kandidat filter dicari HANYA di minggu
+  // 29-34 lalu diuji di minggu 35-37 yang belum pernah disentuh.
+  //
+  // Periode uji (10 hari, out-of-time):
+  //   HIGH apa adanya       n=430  win >=5% 41,16%  tutup hijau 44,42%  hold +0,85%
+  //   HIGH & fadeRisk LOW   n=185  win >=5% 46,49%  tutup hijau 57,30%  hold +1,82%
+  // Seluruh riwayat: hold +1,22% vs +0,24% (Mann-Whitney p<0,00001),
+  // win >=5% 44,03% vs 38,78% (Fisher p=0,040).
+  //
+  // Ini BUKAN sekadar efek skor tinggi: rata-rata opportunityScore
+  // untuk fadeRisk LOW adalah 79,8 vs 80,2 untuk sisanya — praktis
+  // sama. Saat 185 baris ber-skor tertinggi dipakai sebagai pembanding
+  // pada n yang sama, hasilnya tutup hijau hanya 41,08% dan hold
+  // +0,70%. Informasi fadeRisk benar-benar ortogonal terhadap skor.
+  //
+  // Kenapa gerbang keras, bukan pembobotan: varian yang menambah poin
+  // ke opportunityScore lalu tetap memakai ambang 75 justru menarik
+  // baris MODERATE naik ke HIGH dan mengencerkannya — win >=5% turun
+  // ke 38% di periode uji. Empat kombinasi poin diuji, semuanya kalah
+  // dari gerbang ini.
+  //
+  // KONSEKUENSI: jumlah HIGH menyusut sekitar 57%. Itu memang harganya.
+  // Kalau butuh kandidat lebih banyak, longgarkan ke
+  // `fadeRisk === "HIGH"` saja (periode uji: n=341, tutup hijau 46,33%,
+  // hold +1,14%) — lebih baik dari sebelumnya, jauh di bawah versi ini.
+  //
+  // PANTAU: dasarnya 38 hari, satu musim pasar. Kalau win rate HIGH di
+  // Riwayat AI anjlok dua minggu setelah ini dipasang, gerbang inilah
+  // tersangka pertama.
+  if (fadeRisk !== "LOW" && opportunityLabel === "HIGH") opportunityLabel = "MODERATE";
+
+  const expectedMoveBand = opportunityLabel;
+
+  // ============================================================
+  // ELIGIBLE + CONVICTION TIER
+  // ============================================================
+  // Sebelumnya `eligible` hanya bernilai true untuk HIGH, sementara
+  // headline di script.js punya ambangnya sendiri (HIGH ATAU MODERATE).
+  // Akibatnya satu kartu bisa menampilkan "PRIORITAS — BUY SORE" di
+  // atas dan "Opportunity H+1: TIDAK VALID" tepat di bawahnya (kasus
+  // SQMI, 3 Sep 2026). Sekarang ambangnya cuma satu, di sini, dan
+  // perbedaan bobot dinyatakan lewat convictionTier — bukan lewat
+  // dua definisi "valid" yang berbeda.
+  //
+  // Kenapa MODERATE tetap "eligible" tapi bukan PRIMARY (OOS 18 Ags –
+  // 1 Sep): HIGH win >=5% 42,2% / median peak 4,02% / EV target +3%
+  // +0,66%. MODERATE 29,8% / 2,64% / +0,22%. Ada setup, tapi setelah
+  // fee IDX (±0,3%) EV-nya praktis nol — layak posisi kecil, tidak
+  // layak disebut prioritas.
+  const eligible =
+    (opportunityLabel === "HIGH" || opportunityLabel === "MODERATE") &&
+    blockers.length === 0;
+
+  const convictionTier =
+    !eligible ? "NONE"
+      : opportunityLabel === "HIGH" ? "PRIMARY"
+        : "SECONDARY";
+
   const entryQuality = calculateEntryQuality({
     dailyChangePercent: dcp,
     breakout,
@@ -537,7 +574,8 @@ export function calculateNextDayOpportunity({
     { factor: "MODEL_CLOSE_2PCT", points: Math.round(close2 * 100), detail: probabilityLabel(close2) },
     { factor: "ATR_PERCENT", points: Math.round(features.atr_pct * 10) / 10,
       detail: `ATR ${features.atr_pct.toFixed(2)}% dari harga — ruang gerak harian` },
-    { factor: "FADE_RISK", points: 0, detail: `${fadeRisk} — rencana keluar: ${exitPlan}` },
+    { factor: "FADE_RISK", points: 0,
+      detail: `${fadeRisk} — rencana keluar: ${exitPlan}${fadeRisk !== "LOW" ? " (menutup jalan ke HIGH)" : ""}` },
     { factor: "SETUP", points: 0, detail: `${setup}: ${setupDetail(setup)}` },
     { factor: "PRICE_STRUCTURE_CONTEXT", points: 0,
       detail: `Distance resistance ${finite(breakoutDistance) ? breakoutDistance.toFixed(1) : "–"}%` }
