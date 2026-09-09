@@ -108,7 +108,8 @@ export default async function handler(req, res) {
       onlyBreakout,
       highConviction,
       macroFilter,
-      force
+      force,
+      persist
     } = req.query;
 
     // ==========================
@@ -733,10 +734,60 @@ export default async function handler(req, res) {
     // Simpan ke Supabase
     // ==========================
 
-    const logResult =
-      await logScanSnapshots(
-        snapshotRows
-      );
+    // ============================================================
+    // PERSIST — 9 September 2026
+    // ============================================================
+    // Sebelum ini setiap panggilan /api/scan menulis ke scan_history,
+    // tanpa membedakan cron dari tombol Screener di menu Analisa.
+    // Upsert-nya on_conflict (kode, scan_date), jadi menekan tombol itu
+    // jam 11 siang MENIMPA seluruh baris hari itu dengan harga intraday:
+    // kolom close bukan lagi penutupan, dan semua indikator ikut
+    // dihitung dari candle setengah jadi. Kalau ditekan sesudah cron
+    // 16:35, kerusakannya permanen dan ikut jadi bahan latih model.
+    // Peringatan "jalankan 15:30-15:45" di script.js baris 51 memang
+    // ada, tapi tidak ada apa pun di server yang menegakkannya.
+    //
+    // Sekarang menulis harus diminta EKSPLISIT lewat ?persist=true.
+    // Default false, jadi seluruh jalur UI otomatis jadi read-only —
+    // tombolnya tidak perlu diubah sama sekali.
+    //
+    // Lapis kedua: walau persist=true dikirim, penulisan tetap ditolak
+    // sebelum 16:00 WIB. Ini menjaga dari cron yang tereksekusi telat
+    // atau terpicu salah — jenis kejadian yang sudah dua kali terjadi
+    // dalam seminggu terakhir (scan 09-07 hilang, labeling lewat tengah
+    // malam). force=true melewati pagar jam ini untuk backfill manual.
+    const wantPersist = persist === "true";
+    const wibHour = Number(
+      new Date().toLocaleString("en-US", {
+        timeZone: "Asia/Jakarta",
+        hour: "2-digit",
+        hour12: false
+      })
+    );
+    const afterClose = wibHour >= 16;
+
+    let logResult;
+    if (!wantPersist) {
+      logResult = {
+        logged: 0,
+        skipped: true,
+        reason: "PERSIST_NOT_REQUESTED",
+        detail:
+          "Mode baca saja. Tambahkan ?persist=true kalau memang mau menulis ke scan_history."
+      };
+    } else if (!afterClose && force !== "true") {
+      logResult = {
+        logged: 0,
+        skipped: true,
+        reason: "BEFORE_MARKET_CLOSE",
+        detail:
+          `persist=true diminta pada ${wibHour}:xx WIB, sebelum pasar tutup. ` +
+          "Ditolak supaya harga intraday tidak tersimpan sebagai penutupan. " +
+          "Tambahkan &force=true kalau memang disengaja."
+      };
+    } else {
+      logResult = await logScanSnapshots(snapshotRows);
+    }
 
     // ==========================
     // Filter display
