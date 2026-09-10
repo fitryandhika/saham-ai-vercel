@@ -1,59 +1,53 @@
 name: Cron Stockgz
 
-# LAPIS KE-2 dari 3. Lihat vercel.json untuk lapis ke-1 (scan harian +
-# sapuan labeling sore, scheduler Vercel) dan cron-job.org untuk lapis
-# ke-3 (loop labeling tiap 20 menit + email alert).
+# LAPIS KE-2 dari 3. Revisi 10 September 2026.
+#   Lapis 1: vercel.json — scan 17:00-17:59 WIB (resume=1) + labeling
+#            21:00-21:59 WIB. Vercel Hobby hanya menjamin "dalam jam itu".
+#   Lapis 2: file ini (GitHub Actions) + scan-backup.yml.
+#   Lapis 3: cron-job.org — di luar GitHub, termasuk alarm email dari
+#            /api/dashboard-data?type=scanhealth&strict=1.
 #
-# Kenapa berlapis: cron GitHub Actions itu best-effort. Jadwal masuk
-# antrean dan DIBUANG DIAM-DIAM saat beban runner tinggi — tanpa run
-# gagal, tanpa notifikasi, tanpa jejak. Bukti nyatanya: workflow ini
-# dikonfigurasi ~18 run per hari bursa, tapi total run sepanjang
-# hidupnya cuma 11. Tanggal 2026-09-07 hanya 1 run (±14:30 WIB) dan
-# jadwal scan 16:30 tidak termasuk di dalamnya, sehingga scan_history
-# untuk tanggal itu kosong total (count = 0 di Supabase).
+# KONTRAK DENGAN api/scan.js (baca bagian "KONTRAK PENYIMPANAN" di sana):
+#   - Scan yang MENULIS wajib membawa mode=scheduled (persist=true juga
+#     diterima sebagai alias lama). Tanpa itu scan cuma baca.
+#   - Penulisan ditolak sebelum 16:20 WIB dengan HTTP 409.
+#   - Kalau penyimpanan gagal/tidak lengkap, scan membalas HTTP 5xx.
+#     Workflow ini tidak lagi menebak dari isi JSON — status HTTP-nya
+#     sudah jujur. Pemeriksaan isi di bawah hanya lapis pengaman kedua.
+#   - resume=1 hanya memproses kode yang belum tersimpan hari ini.
+#     Retry otomatis memakai resume=1 supaya tidak mengulang dari nol.
+#
+# RIWAYAT INSIDEN yang membentuk file ini:
+#   20-21 Agu: batch insert gagal (kolom camelCase), API tetap 200.
+#   07 Sep   : scheduler GitHub membuang jadwal scan (11 run seumur hidup
+#              padahal dijadwalkan ~18 run/hari bursa).
+#   09 Sep   : api/scan.js menuntut ?persist=true, pemanggil mengirim
+#              ?mode=scheduled -> 397 emiten dihitung lalu dibuang,
+#              respons tetap 200 success:true.
 #
 # CATATAN WAKTU: cron GitHub Actions memakai UTC. WIB = UTC+7.
 #
-# JANGAN pakai menit kelipatan 20 (:00, :20, :40) untuk jadwal baru di
-# file ini — menit-menit itu sudah dipakai jadwal "*/20 14-15". Kalau
-# dua ekspresi cron dalam SATU workflow jatuh tempo di menit yang sama,
-# GitHub cuma memicu satu run dan github.event.schedule cuma melaporkan
-# satu string, jadi endpoint yang satunya tidak pernah dipanggil. Ini
-# yang dulu terjadi pada macro-scan di "20 9 * * 1-5".
+# Dua ekspresi cron di SATU workflow tidak boleh jatuh tempo di menit DAN
+# jam yang sama: GitHub cuma memicu satu run dan github.event.schedule
+# cuma melaporkan satu string. Cek tabrakan setiap menambah jadwal.
+# Hindari juga menit :00 untuk jadwal penting — awal jam adalah waktu
+# paling padat di GitHub Actions dan paling sering dibuang.
 
 on:
   schedule:
-    # 09:25 UTC = 16:25 WIB — macro scan, sebelum scan utama.
-    # Dipindah dari "20 9" yang bentrok dengan jadwal */20 di bawah.
+    # 09:25 UTC = 16:25 WIB — macro scan.
     - cron: "25 9 * * 1-5"
-    # 09:30 UTC = 16:30 WIB — scan harian utama
+    # 09:30 UTC = 16:30 WIB — scan harian utama.
     - cron: "30 9 * * 1-5"
-    # 02:15 UTC = 09:15 WIB — label tahap 1 (gap pembukaan)
+    # 02:15 UTC = 09:15 WIB — label tahap 1 (gap pembukaan).
     - cron: "15 2 * * 1-5"
-    # tiap 20 menit, 14:00-15:59 UTC = 21:00-22:59 WIB — label tahap 2.
-    #
-    # DIPINDAH 8 September 2026 dari "*/20 9-13" (16:00-20:59 WIB).
-    # Jendela lama tutup TEPAT SEBELUM datanya tersedia. Candle harian
-    # baru terbit di Yahoo antara jam 19 dan 22 WIB, sementara backoff
-    # di markCloseLabelRetry (10 x 2^(attempts-1), dibatasi 320 menit)
-    # sudah terlanjur membakar percobaan melawan candle yang belum ada:
-    #   16:00 att.1 -> 16:10 | 16:20 att.2 -> 16:40 | 16:40 att.3 -> 17:20
-    #   17:40 att.4 -> 19:00 | 19:00 att.5 -> 21:40
-    # Percobaan ke-6 jatuh 21:40, 40 menit setelah cron berhenti — jadi
-    # baris itu terkunci sampai 16:00 hari berikutnya. Persis yang
-    # terjadi pada scan 2026-09-07. Sekarang percobaan pertama dimulai
-    # saat datanya sudah ada, sehingga backoff nyaris tidak pernah
-    # terpicu.
-    #
-    # DIPERSEMPIT 9 September 2026 dari "14-16" (berakhir 23:59 WIB).
-    # getPendingCloseSnapshotsAcrossDates memakai beforeDate = todayWIB,
-    # jadi tepat lewat tengah malam himpunan "pending" berpindah ke scan
-    # hari itu juga — yang H+1-nya baru terjadi ~16 jam kemudian. Run
-    # 8 Sep tereksekusi telat sampai lewat tengah malam, mengambil 397
-    # baris 09-08, dan ke-300 baris pertamanya retry semua. Batas 22:59
-    # memberi satu jam bantalan terhadap keterlambatan scheduler GitHub.
+    # Tiap 20 menit, 14:00-15:40 UTC = 21:00-22:40 WIB — label tahap 2.
+    # Dimulai jam 21 karena candle harian Yahoo baru terbit 19-22 WIB;
+    # berhenti sebelum 23:00 supaya run yang telat tidak menyeberang
+    # tengah malam (getPendingCloseSnapshotsAcrossDates memakai
+    # beforeDate = todayWIB).
     - cron: "*/20 14-15 * * 1-5"
-    # 20:00 UTC Minggu = 03:00 WIB Senin — refresh universe
+    # 20:00 UTC Minggu = 03:00 WIB Senin — refresh universe.
     - cron: "0 20 * * 0"
   workflow_dispatch:
     inputs:
@@ -62,13 +56,13 @@ on:
         required: true
         type: choice
         options:
-          - macro-scan
           - scan
+          - macro-scan
           - label-outcomes
           - label-outcomes-close
           - universe-refresh
       date:
-        description: "Opsional, YYYY-MM-DD. Hanya dipakai label-outcomes / label-outcomes-close untuk mengejar backlog tanggal tertentu."
+        description: "Opsional, YYYY-MM-DD. Hanya untuk label-outcomes / label-outcomes-close. Scan tanggal lampau: pakai backfill-gap (lihat dashboard)."
         required: false
         type: string
 
@@ -78,156 +72,159 @@ env:
 jobs:
   run:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
-      - name: Tentukan endpoint dari jadwal
+      - name: Tentukan endpoint
         id: pick
+        env:
+          # Input dibaca lewat env, bukan disisipkan langsung ke skrip,
+          # supaya isi kolom "date" tidak bisa dieksekusi sebagai perintah.
+          SCHEDULE: ${{ github.event.schedule }}
+          TARGET: ${{ inputs.target }}
+          DATE_INPUT: ${{ inputs.date }}
         run: |
-          case "${{ github.event.schedule }}" in
-            "25 9 * * 1-5")      ENDPOINT="/api/macro-scan" ;;
-            "30 9 * * 1-5")      ENDPOINT="/api/scan?highConviction=false" ;;
-            "15 2 * * 1-5")      ENDPOINT="/api/label-outcomes" ;;
+          SCAN_ENDPOINT="/api/scan?highConviction=false&mode=scheduled"
+
+          case "$SCHEDULE" in
+            "25 9 * * 1-5")       ENDPOINT="/api/macro-scan" ;;
+            "30 9 * * 1-5")       ENDPOINT="$SCAN_ENDPOINT" ;;
+            "15 2 * * 1-5")       ENDPOINT="/api/label-outcomes" ;;
             "*/20 14-15 * * 1-5") ENDPOINT="/api/label-outcomes-close" ;;
-            "0 20 * * 0")        ENDPOINT="/api/universe-refresh" ;;
-            *)
-              ENDPOINT="/api/${{ inputs.target }}"
-              # Tanggal manual hanya berlaku untuk dua endpoint labeling;
-              # /api/scan tidak menerima parameter tanggal sama sekali
-              # (tidak ada backfill scan — datanya harus diambil hari itu).
-              if [ -n "${{ inputs.date }}" ]; then
-                case "${{ inputs.target }}" in
+            "0 20 * * 0")         ENDPOINT="/api/universe-refresh" ;;
+            "")
+              # Manual (workflow_dispatch).
+              case "$TARGET" in
+                scan) ENDPOINT="$SCAN_ENDPOINT" ;;
+                macro-scan|label-outcomes|label-outcomes-close|universe-refresh)
+                  ENDPOINT="/api/$TARGET" ;;
+                *)
+                  echo "::error::Target manual tidak dikenal: '$TARGET'"
+                  exit 1 ;;
+              esac
+
+              if [ -n "$DATE_INPUT" ]; then
+                if ! [[ "$DATE_INPUT" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+                  echo "::error::Format date harus YYYY-MM-DD, diterima: '$DATE_INPUT'"
+                  exit 1
+                fi
+                case "$TARGET" in
                   label-outcomes|label-outcomes-close)
-                    ENDPOINT="${ENDPOINT}?date=${{ inputs.date }}" ;;
+                    ENDPOINT="${ENDPOINT}?date=${DATE_INPUT}" ;;
                   *)
-                    echo "::warning::Input 'date' diabaikan — ${{ inputs.target }} tidak menerimanya." ;;
+                    echo "::warning::Input 'date' diabaikan — $TARGET tidak menerimanya." ;;
                 esac
               fi
               ;;
+            *)
+              echo "::error::String jadwal tidak dikenal: '$SCHEDULE'. Samakan daftar case dengan blok on.schedule."
+              exit 1 ;;
           esac
-
-          # Kalau case di atas meleset (mis. string jadwal berubah), jangan
-          # diam-diam memanggil "/api/" lalu lolos sebagai sukses.
-          if [ "$ENDPOINT" = "/api/" ] || [ -z "$ENDPOINT" ]; then
-            echo "::error::Tidak bisa menentukan endpoint. schedule='${{ github.event.schedule }}' target='${{ inputs.target }}'"
-            exit 1
-          fi
 
           echo "endpoint=$ENDPOINT" >> "$GITHUB_OUTPUT"
           echo "Akan memanggil $ENDPOINT"
 
       - name: Panggil endpoint
         env:
-          # /api/label-outcomes, /api/label-outcomes-close dan
-          # /api/relabel-high-low menolak request tanpa header ini KALAU
-          # CRON_SECRET diset di Vercel. Aman dikirim walau kosong:
-          # headernya jadi "Bearer " dan pengecekan di Vercel dilewati
-          # karena process.env.CRON_SECRET falsy.
+          # Endpoint labeling menolak request tanpa header ini kalau
+          # CRON_SECRET diset di Vercel. Aman walau kosong: header jadi
+          # "Bearer " dan pengecekan dilewati kalau env Vercel juga kosong.
           # Isi lewat Settings -> Secrets and variables -> Actions.
-          # Cron bawaan Vercel di vercel.json mengirim header ini sendiri
-          # secara otomatis, jadi tidak perlu diatur di sana.
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           ENDPOINT: ${{ steps.pick.outputs.endpoint }}
         run: |
-          URL="${BASE_URL}${ENDPOINT}"
-          echo "GET $URL pada $(date -u) UTC"
+          set -u
+          BODY_FILE="$RUNNER_TEMP/body.json"
 
-          response=$(curl -s -w "\n%{http_code}" --max-time 300 \
-            -H "Authorization: Bearer ${CRON_SECRET}" \
-            "$URL")
-          http_code=$(echo "$response" | tail -n1)
-          body=$(echo "$response" | sed '$d')
+          # request URL -> 0 kalau 2xx, 1 kalau gagal. Isi respons di $BODY_FILE.
+          # Retry hanya untuk kegagalan jaringan, 429, dan 5xx. 4xx (salah
+          # jam, salah secret, salah parameter) tidak akan sembuh dengan
+          # diulang, jadi langsung gagal supaya pesannya terbaca.
+          request() {
+            local url="$1" level="${2:-error}" attempt=1 max=3 rc http
+            while :; do
+              rm -f "$BODY_FILE"
+              echo "Percobaan $attempt/$max: GET $url ($(date -u +%H:%M:%S) UTC)"
+              set +e
+              http=$(curl -sS -o "$BODY_FILE" -w '%{http_code}' \
+                --connect-timeout 20 --max-time 120 \
+                -H "Authorization: Bearer ${CRON_SECRET}" "$url")
+              rc=$?
+              set -e
+              if [ -s "$BODY_FILE" ]; then
+                echo "HTTP $http — $(head -c 3000 "$BODY_FILE")"
+              fi
 
-          echo "HTTP status: $http_code"
-          echo "Response: $body"
+              if [ "$rc" -ne 0 ]; then
+                echo "::warning::curl gagal (exit $rc)"
+              elif [ "$http" -ge 200 ] && [ "$http" -lt 300 ]; then
+                return 0
+              elif [ "$http" -ne 429 ] && [ "$http" -lt 500 ]; then
+                echo "::$level::HTTP $http — tidak di-retry, ini kesalahan pemanggil/konfigurasi."
+                return 1
+              else
+                echo "::warning::HTTP $http"
+              fi
 
-          if [ -z "$http_code" ] || [ "$http_code" -ge 400 ]; then
-            echo "::error::Gagal dengan HTTP $http_code"
+              if [ "$attempt" -ge "$max" ]; then
+                echo "::$level::Gagal setelah $max percobaan."
+                return 1
+              fi
+              sleep $((attempt * 15))
+              attempt=$((attempt + 1))
+
+              # Retry scan cukup melanjutkan kode yang belum tersimpan.
+              case "$url" in
+                */api/scan\?*resume=1*) ;;
+                */api/scan\?*) url="${url}&resume=1" ;;
+              esac
+            done
+          }
+
+          # ------------------------------------------------------------
+          # Preflight makro (khusus scan)
+          # ------------------------------------------------------------
+          # Jalankan macro-scan HANYA kalau snapshot hari ini belum ada.
+          # Kegagalannya cuma warning: scan tanpa makro segar tetap jauh
+          # lebih baik daripada tidak ada scan sama sekali, karena scan
+          # tidak bisa diulang untuk tanggal yang sudah lewat.
+          if [[ "$ENDPOINT" == /api/scan* ]]; then
+            TODAY_WIB=$(TZ=Asia/Jakarta date +%F)
+            macro_date=$(curl -sS --max-time 20 "${BASE_URL}/api/macro-latest" 2>/dev/null \
+              | jq -r '.snapshot_date // empty' 2>/dev/null || true)
+            if [ "$macro_date" = "$TODAY_WIB" ]; then
+              echo "Snapshot makro $TODAY_WIB sudah ada."
+            else
+              echo "Snapshot makro terakhir: ${macro_date:-tidak ada}. Menjalankan macro-scan dulu."
+              if ! request "${BASE_URL}/api/macro-scan" warning; then
+                echo "::warning::macro-scan gagal — scan tetap dijalankan dengan snapshot makro terakhir."
+              fi
+            fi
+          fi
+
+          # ------------------------------------------------------------
+          # Panggilan utama
+          # ------------------------------------------------------------
+          request "${BASE_URL}${ENDPOINT}" || exit 1
+
+          if ! jq empty "$BODY_FILE" 2>/dev/null; then
+            echo "::error::Respons bukan JSON yang valid."
             exit 1
           fi
 
-          # ============================================================
-          # PEMERIKSAAN ISI RESPONSE
-          # ============================================================
-          # Guard versi lama cuma grep '"success":false'. Itu TIDAK PERNAH
-          # bisa menangkap kegagalan /api/scan, karena api/scan.js selalu
-          # mengembalikan success:true hardcoded (baris ~1068) dan hasil
-          # insert Supabase yang gagal cuma diselipkan di
-          # logging.error / logging.logged. Insiden 20-21 Agustus lolos
-          # persis lewat celah ini: HTTP 200, centang hijau, tabel kosong.
-          #
-          # Selama api/scan.js belum diperbaiki supaya jujur, workflow ini
-          # yang memeriksa payload-nya.
-
-          if ! echo "$body" | jq empty 2>/dev/null; then
-            echo "::error::Response bukan JSON yang valid."
-            exit 1
-          fi
-
-          if [ "$(echo "$body" | jq -r '.success')" = "false" ]; then
-            echo "::error::success:false — cek pesan di body di atas"
+          # Catatan: JANGAN pakai '.success // true' — di jq operator //
+          # memperlakukan false sama dengan null, jadi false ikut diganti.
+          if jq -e '.success == false' "$BODY_FILE" >/dev/null; then
+            echo "::error::Respons 2xx tapi success:false."
             exit 1
           fi
 
           case "$ENDPOINT" in
             /api/scan*)
-              scanned=$(echo "$body" | jq -r '.scanned // 0')
-              logged=$(echo "$body" | jq -r '.logging.logged // 0')
-              logErr=$(echo "$body" | jq -r '.logging.error // empty')
-              skipped=$(echo "$body" | jq -r '.skipped // false')
-
-              # Bukan hari bursa — dilewati dengan sengaja, bukan kegagalan.
-              if [ "$skipped" = "true" ]; then
+              if jq -e '.skipped == true' "$BODY_FILE" >/dev/null; then
                 echo "Bukan hari bursa, scan dilewati."
                 exit 0
               fi
-
-              if [ -n "$logErr" ]; then
-                echo "::error::Insert Supabase gagal: $logErr"
-                exit 1
-              fi
-
-              if [ "$logged" -eq 0 ] && [ "$scanned" -gt 0 ]; then
-                echo "::error::$scanned emiten discan tapi 0 baris tersimpan."
-                exit 1
-              fi
-
-              echo "OK — $logged dari $scanned baris tersimpan."
-              ;;
-
-            /api/label-outcomes-close*|/api/label-outcomes*)
-              # labeled:0 itu SAH kalau memang tidak ada yang jatuh tempo,
-              # jadi tidak boleh dianggap gagal. Yang ditandai adalah
-              # kondisi "ada pekerjaan, tapi tidak satu pun berhasil".
-              labeled=$(echo "$body" | jq -r '.labeled // 0')
-              rows=$(echo "$body" | jq -r '.rowsThisRun // 0')
-              retry=$(echo "$body" | jq -r '.retry // 0')
-
-              # 0 berhasil TIDAK otomatis berarti rusak. Kalau semua
-              # retry-nya RETRY_NEXT_CANDLE_NOT_FOUND, artinya candle H+1
-              # memang belum terbit — endpoint-nya sengaja menjadwalkan
-              # ulang dan cron berikutnya melanjutkan. Menggagalkan job
-              # untuk kondisi normal ini cuma melatihmu mengabaikan
-              # notifikasi, dan alarm yang diabaikan sama saja dengan
-              # tidak punya alarm.
-              if [ "$rows" -gt 0 ] && [ "$labeled" -eq 0 ]; then
-                nTotal=$(echo "$body" | jq -r '[.retryDetail[]?.status] | length')
-                nBelum=$(echo "$body" | jq -r '[.retryDetail[]?.status | select(. == "RETRY_NEXT_CANDLE_NOT_FOUND")] | length')
-                if [ "$nTotal" -gt 0 ] && [ "$nTotal" -eq "$nBelum" ]; then
-                  echo "::warning::$rows baris ditunda — candle H+1 belum terbit. Cron berikutnya melanjutkan."
-                  exit 0
-                fi
-                echo "::error::$rows baris diproses, 0 berhasil dilabel ($retry retry). Sebab non-rutin terdeteksi:"
-                echo "$body" | jq -r '[.retryDetail[]?.status] | group_by(.) | map({status: .[0], n: length})'
-                exit 1
-              fi
-
-              if [ "$retry" -gt 0 ]; then
-                echo "::warning::$labeled dilabel, $retry masuk antrean retry."
-              else
-                echo "OK — $labeled dari $rows baris dilabel."
-              fi
-              ;;
-
-            *)
-              echo "OK."
-              ;;
-          esac
+              status=$(jq -r '.persistence.status // "MISSING"' "$BODY_FILE")
+              summary=$(jq -r '.persistence | "\(.savedTotal // 0)/\(.universeTotal // 0) tersimpan (run ini \(.savedThisRun // 0), gagal fetch \(.fetchFailed // 0), terpotong waktu \(.budgetSkipped // 0))"' "$BODY_FILE")
+              if [ "$status" != "SAVED" ]; then
+                # MISSING ber
