@@ -1,8 +1,8 @@
 {
   "crons": [
     {
-      "path": "/api/scan?highConviction=false",
-      "schedule": "35 9 * * 1-5"
+      "path": "/api/scan?highConviction=false&mode=scheduled&resume=1",
+      "schedule": "0 10 * * 1-5"
     },
     {
       "path": "/api/label-outcomes-close",
