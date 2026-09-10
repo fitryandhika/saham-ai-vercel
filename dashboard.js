@@ -118,7 +118,7 @@ loadRegimeBadge();
 // Ditambahkan 21 Agustus 2026 setelah insiden scan 20 Agustus kosong
 // (baru ketahuan sehari kemudian lewat Riwayat AI). Cek /api/dashboard-data
 // ?type=scanhealth setiap buka Dashboard, tampilkan banner merah kalau
-// scan hari bursa terakhir masih 0 baris sesudah jam 17:00 WIB.
+// scan hari bursa terakhir kosong/tidak lengkap sesudah jam 18:00 WIB.
 async function loadScanHealth() {
   const el = document.getElementById("scanHealthBanner");
   if (!el) return;
@@ -128,10 +128,20 @@ async function loadScanHealth() {
     const json = await res.json();
     if (!json.success) return;
 
-    const { checkDate, warning } = json.data;
+    const { checkDate, warning, partial, scannedCount, expected } = json.data;
     if (warning) {
+      // Revisi 10 Sep 2026: saran lama "/api/scan?force=true" sudah tidak
+      // menyimpan apa pun sejak scan dibuat read-only untuk panggilan
+      // manual. Mengikutinya justru menghasilkan 0 baris tanpa pesan.
+      const kondisi = partial
+        ? `baru tersimpan sebagian (${scannedCount}/${expected})`
+        : "belum ada datanya";
       el.style.display = "flex";
-      el.innerHTML = `⚠️ Scan untuk ${checkDate} belum ada datanya — cron kemungkinan gagal/belum jalan. Cek log Vercel atau jalankan <code>/api/scan?force=true</code> manual.`;
+      el.innerHTML =
+        `⚠️ Scan untuk ${checkDate} ${kondisi}. ` +
+        `Pulihkan lewat GitHub → Actions → Cron Stockgz → Run workflow → target <code>scan</code> ` +
+        `(hari ini, sesudah 16:20 WIB), atau <code>/api/relabel-high-low?target=backfill-gap&date=${checkDate}&manual=1</code> ` +
+        `untuk tanggal yang sudah lewat.`;
     } else {
       el.style.display = "none";
     }
