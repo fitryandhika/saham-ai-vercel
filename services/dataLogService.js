@@ -28,45 +28,127 @@ function getConfig() {
 // Insert banyak baris sekaligus. on_conflict=kode,scan_date supaya kalau
 // scan dijalankan 2x di hari yang sama, baris lama di-update (bukan
 // duplikat) — merge=true di header Prefer melakukan upsert parsial.
-export async function logScanSnapshots(rows) {
+export async function logScanSnapshots(rows, { maxAttempts = 3 } = {}) {
   const cfg = getConfig();
 
   if (!cfg) {
-    console.warn(
-      "SUPABASE_URL/SUPABASE_SERVICE_KEY belum diset — snapshot tidak disimpan."
-    );
-    return { logged: 0, skipped: true };
+    const error = "SUPABASE_URL/SUPABASE_SERVICE_KEY belum diset.";
+    console.error(error);
+    return { logged: 0, expected: rows?.length || 0, verified: false, attempts: 0, error };
   }
 
   if (!rows || rows.length === 0) {
-    return { logged: 0, skipped: false };
+    return { logged: 0, expected: 0, verified: true, attempts: 0, skipped: false };
   }
 
-  try {
-    const res = await fetch(
-      `${cfg.url}/rest/v1/scan_history?on_conflict=kode,scan_date`,
-      {
-        method: "POST",
-        headers: {
-          apikey: cfg.key,
-          Authorization: `Bearer ${cfg.key}`,
-          "Content-Type": "application/json",
-          Prefer: "resolution=merge-duplicates,return=minimal"
-        },
-        body: JSON.stringify(rows)
-      }
-    );
+  const scanDate = rows[0]?.scan_date;
+  const expectedCodes = [...new Set(rows.map((r) => r.kode).filter(Boolean))];
+  let lastError = null;
 
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Supabase insert gagal (${res.status}): ${text}`);
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const res = await fetch(
+        `${cfg.url}/rest/v1/scan_history?on_conflict=kode,scan_date`,
+        {
+          method: "POST",
+          headers: {
+            apikey: cfg.key,
+            Authorization: `Bearer ${cfg.key}`,
+            "Content-Type": "application/json",
+            Prefer: "resolution=merge-duplicates,return=minimal"
+          },
+          body: JSON.stringify(rows)
+        }
+      );
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`Supabase insert gagal (${res.status}): ${text}`);
+      }
+
+      // POST 200/201 bukan bukti bahwa semua baris benar-benar ada.
+      // Verifikasi coverage berdasarkan (kode, scan_date) setelah setiap write.
+      const verify = await verifyScanCoverage(scanDate, expectedCodes);
+
+      if (verify.missingCodes.length === 0) {
+        return {
+          logged: verify.count,
+          expected: expectedCodes.length,
+          verified: true,
+          attempts: attempt,
+          skipped: false,
+          dbCount: verify.count,
+          missingCodes: []
+        };
+      }
+
+      lastError = new Error(
+        `Validasi scan_history gagal: ${verify.missingCodes.length} dari ` +
+        `${expectedCodes.length} kode belum ditemukan untuk ${scanDate}.`
+      );
+      console.warn(lastError.message, verify.missingCodes.slice(0, 20));
+    } catch (e) {
+      lastError = e;
+      console.error(`logScanSnapshots attempt ${attempt}/${maxAttempts}:`, e.message);
     }
 
-    return { logged: rows.length, skipped: false };
-  } catch (e) {
-    console.error("logScanSnapshots error:", e.message);
-    return { logged: 0, skipped: false, error: e.message };
+    if (attempt < maxAttempts) {
+      // Backoff pendek agar tetap aman di serverless runtime.
+      await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** (attempt - 1)));
+    }
   }
+
+  return {
+    logged: 0,
+    expected: expectedCodes.length,
+    verified: false,
+    attempts: maxAttempts,
+    skipped: false,
+    dbCount: 0,
+    missingCodes: expectedCodes,
+    error: lastError?.message || "Persist scan gagal setelah retry."
+  };
+}
+
+// Verifikasi coverage untuk satu tanggal. Dipakai sesudah UPSERT dan juga
+// oleh backup scheduler agar scanner tidak melakukan pekerjaan mahal dua kali
+// bila scan utama sudah lengkap.
+export async function verifyScanCoverage(scanDate, expectedCodes = []) {
+  const cfg = getConfig();
+  if (!cfg) throw new Error("Supabase config tidak tersedia.");
+
+  const expected = [...new Set(expectedCodes.filter(Boolean))];
+  const params = new URLSearchParams();
+  params.set("scan_date", `eq.${scanDate}`);
+  params.set("select", "kode");
+  params.set("limit", "5000");
+
+  const res = await fetch(`${cfg.url}/rest/v1/scan_history?${params.toString()}`, {
+    headers: {
+      apikey: cfg.key,
+      Authorization: `Bearer ${cfg.key}`
+    }
+  });
+
+  if (!res.ok) {
+    throw new Error(`Supabase verify gagal (${res.status}): ${await res.text()}`);
+  }
+
+  const dbRows = await res.json();
+  const present = new Set(dbRows.map((r) => r.kode).filter(Boolean));
+  const missingCodes = expected.filter((kode) => !present.has(kode));
+
+  return {
+    date: scanDate,
+    count: dbRows.length,
+    expected: expected.length,
+    complete: missingCodes.length === 0,
+    missingCodes
+  };
+}
+
+export async function getScanCoverage(scanDate, expectedCodes = []) {
+  return verifyScanCoverage(scanDate, expectedCodes);
 }
 
 // Cari scan_date PALING LAMA yang masih punya baris belum dilabel
