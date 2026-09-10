@@ -1,23 +1,65 @@
 name: Backup daily scan trigger
 
+# Cadangan scan harian. Revisi 10 September 2026.
+#
+# Sengaja dijadwalkan JAUH dari jadwal utama (16:30 WIB di cron-jobs.yml):
+# kalau GitHub sedang membuang jadwal karena beban tinggi, dua jadwal yang
+# berdekatan cenderung ikut terbuang bersamaan — seperti 7 September.
+#
+# Memakai resume=1: kalau scan hari ini sudah lengkap, panggilan ini
+# selesai dalam hitungan detik tanpa fetch apa pun. Kalau baru sebagian
+# atau kosong, ia melanjutkan/menjalankan penuh.
+#
+# 11:10 UTC = 18:10 WIB. Hindari menit :00 (awal jam paling padat).
+
 on:
   schedule:
-    - cron: "40 9 * * 1-5"
+    - cron: "10 11 * * 1-5"
   workflow_dispatch: {}
 
 jobs:
   trigger-scan:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - name: Call /api/scan
+      - name: Panggil /api/scan (resume)
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          BASE_URL: https://saham-ai-vercel-six.vercel.app
         run: |
-          echo "Memanggil /api/scan di $(date -u)..."
-          response=$(curl -s -w "\n%{http_code}" "https://saham-ai-vercel-six.vercel.app/api/scan")
-          http_code=$(echo "$response" | tail -n1)
-          body=$(echo "$response" | sed '$d')
-          echo "HTTP status: $http_code"
-          echo "Response: $body"
-          if [ "$http_code" -ge 400 ]; then
-            echo "::error::Scan gagal dengan HTTP $http_code"
-            exit 1
-          fi
+          set -u
+          BODY_FILE="$RUNNER_TEMP/body.json"
+          URL="${BASE_URL}/api/scan?highConviction=false&mode=scheduled&resume=1"
+
+          for attempt in 1 2 3; do
+            rm -f "$BODY_FILE"
+            echo "Percobaan $attempt/3: GET $URL"
+            set +e
+            http=$(curl -sS -o "$BODY_FILE" -w '%{http_code}' \
+              --connect-timeout 20 --max-time 120 \
+              -H "Authorization: Bearer ${CRON_SECRET}" "$URL")
+            rc=$?
+            set -e
+            [ -s "$BODY_FILE" ] && echo "HTTP $http — $(head -c 3000 "$BODY_FILE")"
+
+            if [ "$rc" -eq 0 ] && [ "$http" -ge 200 ] && [ "$http" -lt 300 ] \
+               && jq empty "$BODY_FILE" 2>/dev/null; then
+              if jq -e '.skipped == true' "$BODY_FILE" >/dev/null; then
+                echo "Bukan hari bursa."
+                exit 0
+              fi
+              if [ "$(jq -r '.persistence.status // "MISSING"' "$BODY_FILE")" = "SAVED" ]; then
+                echo "OK — $(jq -r '.persistence | "\(.savedTotal)/\(.universeTotal) tersimpan"' "$BODY_FILE")"
+                exit 0
+              fi
+            fi
+
+            if [ "$rc" -eq 0 ] && [ "$http" -ne 429 ] && [ "$http" -ge 400 ] && [ "$http" -lt 500 ]; then
+              echo "::error::HTTP $http — tidak di-retry."
+              exit 1
+            fi
+            [ "$attempt" -lt 3 ] && sleep $((attempt * 20))
+          done
+
+          echo "::error::Backup scan gagal setelah 3 percobaan."
+          exit 1
