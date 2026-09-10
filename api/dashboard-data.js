@@ -15,6 +15,7 @@ import { getRecentMacroSnapshots } from "../services/macroDataService.js";
 import { fetchMarketNews } from "../services/marketNewsService.js";
 import { getScannedKodeForDate } from "../services/dataLogService.js";
 import { todayWIB, lastTradingDay, isTradingDay } from "../config/tradingCalendar.js";
+import { resolveUniverse } from "../config/universe.js";
 
 // ----------------------------------------------------------
 // type=scanhealth — cek apakah scan harian sudah jalan
@@ -26,6 +27,19 @@ import { todayWIB, lastTradingDay, isTradingDay } from "../config/tradingCalenda
 // dan memberi tahu FE kalau baris scan_history untuk tanggal itu masih
 // kosong, supaya dashboard bisa tampilkan peringatan HARI ITU JUGA,
 // bukan ketauan pas cek Riwayat besoknya.
+//
+// Revisi 10 September 2026:
+//   - Juga menandai hari yang tersimpan SEBAGIAN (coverage < 90% dari
+//     universe), bukan cuma yang nol baris.
+//   - Batas "sudah telat" digeser ke 18:00 WIB, karena lapis Vercel
+//     sekarang dijadwalkan 17:00-17:59 WIB (lihat vercel.json).
+//   - ?strict=1 membuat kondisi bermasalah dibalas HTTP 503. Dipakai
+//     cron-job.org sebagai alarm harian yang TIDAK bergantung pada
+//     GitHub Actions: cron-job.org mengirim email kalau status bukan 2xx.
+//     Tanpa strict=1 (dipakai dashboard.js) statusnya tetap 200.
+const SCAN_HEALTH_LATE_HOUR_WIB = 18;
+const SCAN_HEALTH_MIN_COVERAGE = 0.9;
+
 async function handleScanHealth(req, res) {
   const today = todayWIB();
   const checkDate = isTradingDay(today) ? today : lastTradingDay(today);
@@ -33,25 +47,44 @@ async function handleScanHealth(req, res) {
   const kodeList = await getScannedKodeForDate(checkDate);
   const count = kodeList.length;
 
-  // Jam scan cron dijadwalkan 16:30 WIB (30 9 * * 1-5). Vercel Hobby
-  // cron cuma dijamin jalan dalam JAM yang dijadwalkan (bisa kapan saja
-  // 16:00-16:59 WIB), jadi baru dianggap "telat/gagal" setelah 17:00 WIB.
+  let expected = null;
+  try {
+    const { list } = await resolveUniverse();
+    expected = Array.isArray(list) ? list.length : null;
+  } catch (e) {
+    expected = null;
+  }
+
+  const coverage =
+    expected && expected > 0 ? Number((count / expected).toFixed(4)) : null;
+
   const nowWibHour = Number(
     new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(11, 13)
   );
-  const pastScanWindow = checkDate === today ? nowWibHour >= 17 : true;
+  const pastScanWindow =
+    checkDate === today ? nowWibHour >= SCAN_HEALTH_LATE_HOUR_WIB : true;
 
-  return res.status(200).json({
+  const partial =
+    count > 0 && coverage !== null && coverage < SCAN_HEALTH_MIN_COVERAGE;
+
+  const warning = pastScanWindow && (count === 0 || partial);
+
+  const strict = req.query.strict === "1" || req.query.strict === "true";
+
+  return res.status(strict && warning ? 503 : 200).json({
     success: true,
     view: "scanhealth",
     data: {
       checkDate,
       scannedCount: count,
-      ok: count > 0,
+      expected,
+      coverage,
+      ok: count > 0 && !partial,
+      partial,
       pastScanWindow,
-      // FE sebaiknya cuma tampilkan banner peringatan kalau ok=false DAN
-      // pastScanWindow=true (supaya tidak false-alarm sebelum jam 17:00 WIB).
-      warning: count === 0 && pastScanWindow
+      // FE cuma tampilkan banner kalau warning=true (sudah lewat
+      // 18:00 WIB dan datanya kosong atau tidak lengkap).
+      warning
     }
   });
 }
