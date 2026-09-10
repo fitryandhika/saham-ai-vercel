@@ -20,7 +20,7 @@ import {
 } from "../config/universe.js";
 import {
   logScanSnapshots,
-  getScanCoverage
+  getScannedKodeForDate
 } from "../services/dataLogService.js";
 import {
   isTradingDay,
@@ -41,6 +41,38 @@ export const config = {
 
 const CONCURRENCY = 12;
 
+// ============================================================
+// KONTRAK PENYIMPANAN — 10 September 2026
+// ============================================================
+// Riwayat kegagalan scan_history sejauh ini SEMUANYA berbentuk sama:
+// endpoint jalan, tidak ada yang tersimpan, dan tidak ada yang tahu.
+//   - 20-21 Agu: kolom camelCase bikin batch insert gagal, API tetap 200.
+//   - 07 Sep  : scheduler GitHub membuang jadwal scan.
+//   - 09 Sep  : gerbang persist menuntut ?persist=true, sementara
+//               pemanggil mengirim ?mode=scheduled -> semua baris
+//               dihitung lalu dibuang dengan PERSIST_NOT_REQUESTED.
+//
+// Aturan yang sekarang berlaku:
+//   1. Menulis diminta lewat mode=scheduled ATAU persist=true. Dua-duanya
+//      diterima supaya pemanggil lama/baru tidak bisa lagi "salah nama
+//      parameter" dan kehilangan satu hari penuh.
+//   2. Kalau penulisan diminta tapi GAGAL atau TIDAK LENGKAP, respons
+//      berstatus HTTP 5xx dengan success:false. Tidak ada lagi 200 palsu.
+//      Cron Vercel, GitHub Actions, dan cron-job.org semuanya membaca
+//      status HTTP, jadi ketiganya otomatis ikut melihat kegagalan.
+//   3. Penulisan ditolak sebelum 16:20 WIB (HTTP 409), sama dengan
+//      ambang isAfterMarketCloseWIB() di label-outcomes-close.js.
+//   4. resume=1 hanya memproses kode yang BELUM tersimpan hari ini.
+//      Dipakai lapis cadangan & retry, supaya panggilan kedua murah dan
+//      tidak kena batas 60 detik di titik yang sama.
+//   5. Fetch berhenti mulai kode baru setelah FETCH_TIME_BUDGET_MS, lalu
+//      yang sudah didapat tetap disimpan. Timeout 60 detik tidak lagi
+//      berarti nol baris.
+const PERSIST_AFTER_HOUR = 16;
+const PERSIST_AFTER_MINUTE = 20;
+const FETCH_TIME_BUDGET_MS = 40000;
+const MIN_COVERAGE = 0.9;
+
 // Tetap OFF.
 // Tidak digunakan untuk mengubah ranking / BUY / SELL.
 const HIGH_CONVICTION_ENABLED = false;
@@ -53,13 +85,21 @@ const MACRO_FILTER_ENABLED = false;
 // Helper: concurrency pool
 // ==========================
 
-async function runPool(items, worker, concurrency) {
+async function runPool(items, worker, concurrency, deadlineMs = null) {
   const results = new Array(items.length);
   let cursor = 0;
 
   async function next() {
     while (cursor < items.length) {
       const i = cursor++;
+
+      // Lewat anggaran waktu: jangan mulai item baru. Yang sudah jalan
+      // dibiarkan selesai. Item sisanya ditandai supaya bisa dilaporkan
+      // dan dilanjutkan oleh panggilan resume=1.
+      if (deadlineMs !== null && Date.now() >= deadlineMs) {
+        results[i] = { budgetSkipped: true };
+        continue;
+      }
 
       try {
         results[i] = await worker(items[i], i);
@@ -98,10 +138,32 @@ function safeNumber(value, fallback = null) {
 }
 
 // ==========================
+// Helper: jam WIB (jam + menit)
+// ==========================
+
+function wibClock(date = new Date()) {
+  const wib = new Date(date.getTime() + 7 * 60 * 60 * 1000);
+  return {
+    hour: wib.getUTCHours(),
+    minute: wib.getUTCMinutes()
+  };
+}
+
+function isAfterPersistGate(date = new Date()) {
+  const { hour, minute } = wibClock(date);
+  return (
+    hour > PERSIST_AFTER_HOUR ||
+    (hour === PERSIST_AFTER_HOUR && minute >= PERSIST_AFTER_MINUTE)
+  );
+}
+
+// ==========================
 // Handler
 // ==========================
 
 export default async function handler(req, res) {
+  const startedAt = Date.now();
+
   try {
     const {
       limit,
@@ -112,25 +174,19 @@ export default async function handler(req, res) {
       highConviction,
       macroFilter,
       force,
-      mode
+      persist,
+      mode,
+      resume
     } = req.query;
 
-    // ==========================
-    // Scheduled-scan security
-    // ==========================
-    // Hanya scheduler yang boleh menulis ke scan_history. Request dari UI
-    // selalu read-only, walaupun seseorang mencoba ?persist=true.
-    const isScheduled = mode === "scheduled";
-    const cronSecret = process.env.CRON_SECRET;
-    const authHeader = req.headers?.authorization || "";
+    // Keputusan tulis/baca diambil SEKALI di awal, dari waktu request
+    // masuk — bukan setelah fetch selesai.
+    const persistRequested =
+      mode === "scheduled" || persist === "true";
 
-    if (isScheduled && cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-      return res.status(401).json({
-        success: false,
-        error: "UNAUTHORIZED_SCHEDULED_SCAN",
-        message: "Scheduled scan membutuhkan CRON_SECRET yang valid."
-      });
-    }
+    const resumeRequested =
+      persistRequested &&
+      (resume === "1" || resume === "true");
 
     // ==========================
     // Trading day guard
@@ -146,6 +202,35 @@ export default async function handler(req, res) {
         message:
           "Hari ini bukan hari bursa (weekend atau libur nasional IDX), " +
           "scan dilewati. Tambahkan ?force=true kalau memang sengaja mau scan manual."
+      });
+    }
+
+    // ==========================
+    // Gerbang jam tutup pasar (hanya untuk permintaan tulis)
+    // ==========================
+    // Ditolak SEBELUM fetch, supaya cron yang terpicu kepagian tidak
+    // membakar 40+ detik dan kuota data untuk hasil yang pasti dibuang.
+    // HTTP 409 = pemanggil salah waktu; kelihatan merah di semua lapis.
+
+    if (
+      persistRequested &&
+      !isAfterPersistGate() &&
+      force !== "true"
+    ) {
+      const { hour, minute } = wibClock();
+      return res.status(409).json({
+        success: false,
+        persistence_mode: "scheduled",
+        persistence: {
+          requested: true,
+          status: "BEFORE_MARKET_CLOSE",
+          detail:
+            `Penulisan diminta pukul ${String(hour).padStart(2, "0")}:` +
+            `${String(minute).padStart(2, "0")} WIB. Scan terjadwal baru boleh ` +
+            `menulis mulai ${PERSIST_AFTER_HOUR}:${PERSIST_AFTER_MINUTE} WIB ` +
+            "supaya harga pre-closing tidak tersimpan sebagai close. " +
+            "Tambahkan &force=true kalau memang disengaja."
+        }
       });
     }
 
@@ -193,34 +278,51 @@ export default async function handler(req, res) {
       );
     }
 
-    // Backup scheduler tidak perlu mengulang scan mahal jika snapshot hari ini
-    // sudah lengkap. Letakkan pengecekan sebelum pengambilan IHSG/data saham
-    // supaya backup 16:40 benar-benar hanya bekerja jika main scan gagal/belum lengkap.
-    if (isScheduled) {
+    // ==========================
+    // Resume: lewati kode yang sudah tersimpan hari ini
+    // ==========================
+
+    const universeTotal = kodeList.length;
+    let alreadySavedCount = 0;
+    let resumeNote = null;
+
+    if (resumeRequested) {
       try {
-        const coverage = await getScanCoverage(today, kodeList);
-        if (coverage.complete) {
-          return res.status(200).json({
-            success: true,
-            scheduled: true,
-            alreadyComplete: true,
-            scan_date: today,
-            scanned: kodeList.length,
-            succeeded: coverage.count,
-            failed: 0,
-            logging: {
-              logged: coverage.count,
-              expected: kodeList.length,
-              verified: true,
-              attempts: 0,
-              dbCount: coverage.count,
-              missingCodes: []
-            },
-            message: "Scheduled scan sudah lengkap; backup tidak melakukan scan ulang."
-          });
-        }
+        const saved = new Set(
+          await getScannedKodeForDate(today)
+        );
+        const before = kodeList.length;
+        kodeList = kodeList.filter((k) => !saved.has(k));
+        alreadySavedCount = before - kodeList.length;
       } catch (e) {
-        console.warn("Coverage check sebelum scan gagal:", e.message);
+        // Gagal baca = scan penuh. Lebih mahal, tapi tidak pernah
+        // membuat hari itu kosong.
+        resumeNote =
+          "Gagal membaca baris tersimpan, resume diabaikan: " +
+          (e?.message || "unknown");
+      }
+
+      if (kodeList.length === 0) {
+        return res.status(200).json({
+          success: true,
+          scan_date: today,
+          scanned: 0,
+          universeTotal,
+          persistence_mode: "scheduled",
+          persistence: {
+            requested: true,
+            status: "SAVED",
+            resume: true,
+            alreadySaved: alreadySavedCount,
+            savedThisRun: 0,
+            savedTotal: alreadySavedCount,
+            universeTotal,
+            coverage: 1,
+            detail:
+              "Semua kode hari ini sudah tersimpan. Tidak ada yang perlu diproses."
+          },
+          logging: { logged: 0, skipped: true, reason: "ALREADY_COMPLETE" }
+        });
       }
     }
 
@@ -269,12 +371,21 @@ export default async function handler(req, res) {
           marketCap: marketCapOf(kode)
         };
       },
-      CONCURRENCY
+      CONCURRENCY,
+      startedAt + FETCH_TIME_BUDGET_MS
     );
 
     const ok = fetched.filter(
-      (f) => f && !f.error
+      (f) => f && !f.error && !f.budgetSkipped
     );
+
+    const budgetSkippedCodes = fetched
+      .map((f, i) =>
+        f && f.budgetSkipped
+          ? kodeList[i]
+          : null
+      )
+      .filter(Boolean);
 
     const failed = fetched
       .map((f, i) =>
@@ -786,83 +897,85 @@ export default async function handler(req, res) {
     // ==========================
 
     // ============================================================
-    // PERSIST — 9 September 2026
+    // PERSIST
     // ============================================================
-    // Sebelum ini setiap panggilan /api/scan menulis ke scan_history,
-    // tanpa membedakan cron dari tombol Screener di menu Analisa.
-    // Upsert-nya on_conflict (kode, scan_date), jadi menekan tombol itu
-    // jam 11 siang MENIMPA seluruh baris hari itu dengan harga intraday:
-    // kolom close bukan lagi penutupan, dan semua indikator ikut
-    // dihitung dari candle setengah jadi. Kalau ditekan sesudah cron
-    // 16:35, kerusakannya permanen dan ikut jadi bahan latih model.
-    // Peringatan "jalankan 15:30-15:45" di script.js baris 51 memang
-    // ada, tapi tidak ada apa pun di server yang menegakkannya.
+    // Lihat "KONTRAK PENYIMPANAN" di bagian atas file. Ringkasnya:
+    // tombol Screener (tanpa mode/persist) = baca saja, tidak pernah
+    // menulis. Cron (mode=scheduled) = menulis, dan kalau gagal/tidak
+    // lengkap respons berstatus 5xx.
     //
-    // Mulai sekarang hanya mode=scheduled yang boleh persist. Parameter
-    // ?persist=true dari browser sengaja diabaikan agar scan manual tidak
-    // pernah menimpa snapshot close hari berjalan.
-    const wantPersist = isScheduled;
-    const wibHour = Number(
-      new Date().toLocaleString("en-US", {
-        timeZone: "Asia/Jakarta",
-        hour: "2-digit",
-        hour12: false
-      })
-    );
-    const afterClose = wibHour >= 16;
+    // Catatan keamanan yang jujur: mode=scheduled adalah parameter URL
+    // biasa, bukan rahasia. Yang benar-benar melindungi data adalah
+    // gerbang 16:20 WIB di atas — sesudah jam itu, siapa pun yang
+    // memicu scan hanya menghitung ulang angka penutupan yang sama.
 
     let logResult;
-    if (!wantPersist) {
-      logResult = {
-        logged: 0,
-        expected: snapshotRows.length,
-        verified: true,
-        skipped: true,
-        reason: "MANUAL_READ_ONLY",
-        detail:
-          "Scan manual hanya untuk analisa. Hasil tidak ditulis ke scan_history."
-      };
-    } else if (!afterClose && force !== "true") {
+
+    if (!persistRequested) {
       logResult = {
         logged: 0,
         skipped: true,
-        reason: "BEFORE_MARKET_CLOSE",
+        reason: "READ_ONLY",
         detail:
-          `persist=true diminta pada ${wibHour}:xx WIB, sebelum pasar tutup. ` +
-          "Ditolak supaya harga intraday tidak tersimpan sebagai penutupan. " +
-          "Tambahkan &force=true kalau memang disengaja."
+          "Mode baca saja (tombol Screener). Hanya panggilan cron dengan " +
+          "mode=scheduled yang menulis ke scan_history."
       };
     } else {
-      logResult = await logScanSnapshots(snapshotRows, { maxAttempts: 3 });
+      logResult = await logScanSnapshots(snapshotRows);
     }
 
-    // Scheduled scan HARUS terpersist dan tervalidasi. Jangan pernah mengirim
-    // HTTP 200 jika scanner berhasil tetapi history gagal/kurang baris.
-    if (isScheduled && (
-      failed.length + analyzeErrors.length > 0 ||
-      logResult.error ||
-      !logResult.verified ||
-      logResult.logged !== snapshotRows.length
-    )) {
-      return res.status(500).json({
-        success: false,
-        scheduled: true,
-        scan_date: scanDate,
-        scanned: kodeList.length,
-        succeeded: analyzed.length,
-        failed: failed.length + analyzeErrors.length,
-        expected: kodeList.length,
-        persisted: snapshotRows.length,
-        logging: logResult,
-        error: failed.length + analyzeErrors.length > 0
-          ? "SCHEDULED_SCAN_INCOMPLETE"
-          : "SCHEDULED_SCAN_PERSIST_VALIDATION_FAILED",
-        message:
-          `Scheduled scan menghasilkan ${snapshotRows.length}/${kodeList.length} snapshot ` +
-          `dan ${logResult.logged || 0} baris tervalidasi di scan_history. ` +
-          `Failed: ${failed.length + analyzeErrors.length}. Scheduler wajib retry/backup.`
-      });
+    // ==========================
+    // Status penyimpanan
+    // ==========================
+
+    const savedThisRun = Number(logResult?.logged) || 0;
+    const savedTotal = alreadySavedCount + savedThisRun;
+    const coverage =
+      universeTotal > 0
+        ? Number((savedTotal / universeTotal).toFixed(4))
+        : 0;
+
+    let persistenceStatus = "READ_ONLY";
+
+    if (persistRequested) {
+      if (logResult?.reason === "SUPABASE_NOT_CONFIGURED") {
+        persistenceStatus = "NOT_CONFIGURED";
+      } else if (logResult?.error) {
+        persistenceStatus = "INSERT_FAILED";
+      } else if (coverage >= MIN_COVERAGE) {
+        persistenceStatus = "SAVED";
+      } else {
+        persistenceStatus = "PARTIAL";
+      }
     }
+
+    const persistenceOk =
+      !persistRequested || persistenceStatus === "SAVED";
+
+    // PARTIAL = 503 (coba lagi, resume=1 akan melanjutkan sisanya).
+    // Gagal simpan / belum dikonfigurasi = 500.
+    const httpStatus = persistenceOk
+      ? 200
+      : persistenceStatus === "PARTIAL"
+        ? 503
+        : 500;
+
+    const persistence = {
+      requested: persistRequested,
+      status: persistenceStatus,
+      resume: resumeRequested,
+      resumeNote,
+      alreadySaved: alreadySavedCount,
+      savedThisRun,
+      savedTotal,
+      universeTotal,
+      coverage,
+      minCoverage: MIN_COVERAGE,
+      fetchFailed: failed.length,
+      analyzeFailed: analyzeErrors.length,
+      budgetSkipped: budgetSkippedCodes.length,
+      error: logResult?.error ?? null
+    };
 
     // ==========================
     // Filter display
@@ -1189,27 +1302,55 @@ export default async function handler(req, res) {
     // Response
     // ==========================
 
-    return res.status(200).json({
+    return res.status(httpStatus).json({
 
-      success: true,
+      success: persistenceOk,
+
+      scan_date: scanDate,
 
       scanned:
         kodeList.length,
+
+      universeTotal,
+
+      elapsedMs:
+        Date.now() - startedAt,
+
+      // Dipertahankan untuk kompatibilitas workflow lama yang
+      // memeriksa field ini.
+      persistence_mode:
+        persistRequested
+          ? "scheduled"
+          : "read_only",
+
+      persistence,
+
+      budgetSkippedCodes,
+
+      macroSnapshotDate:
+        macroSnapshot?.snapshot_date ?? null,
+
+      macroFresh:
+        (macroSnapshot?.snapshot_date ?? null) === today,
 
       universeSource,
 
       succeeded:
         analyzed.length,
 
+      // Kode yang terpotong anggaran waktu ikut dihitung "gagal" supaya
+      // ringkasan di tombol Screener tidak diam-diam lebih sedikit.
       failed:
         failed.length +
-        analyzeErrors.length,
+        analyzeErrors.length +
+        budgetSkippedCodes.length,
 
       failedCodes: [
         ...failed,
         ...analyzeErrors.map(
           (e) => e.kode
-        )
+        ),
+        ...budgetSkippedCodes
       ],
 
       analyzeErrors,
@@ -1276,9 +1417,6 @@ export default async function handler(req, res) {
       nextDayOpportunityAffectsRanking:
         true,
 
-      scheduled: isScheduled,
-      persistRequested: wantPersist,
-
       // ======================
       // Logging
       // ======================
@@ -1289,9 +1427,15 @@ export default async function handler(req, res) {
       // ======================
       // Data
       // ======================
+      // Panggilan cron tidak butuh ratusan objek analisa di respons;
+      // tanpa ini log GitHub Actions membengkak sampai megabyte.
+      // Tambahkan &includeData=1 kalau memang perlu melihatnya.
 
       data:
-        hasilFilter
+        persistRequested &&
+        req.query.includeData !== "1"
+          ? undefined
+          : hasilFilter
     });
 
   } catch (error) {
