@@ -18,7 +18,10 @@ import {
   resolveUniverse,
   UNIVERSE as STATIC_UNIVERSE
 } from "../config/universe.js";
-import { logScanSnapshots } from "../services/dataLogService.js";
+import {
+  logScanSnapshots,
+  getScanCoverage
+} from "../services/dataLogService.js";
 import {
   isTradingDay,
   nonTradingDayReason,
@@ -109,8 +112,25 @@ export default async function handler(req, res) {
       highConviction,
       macroFilter,
       force,
-      persist
+      mode
     } = req.query;
+
+    // ==========================
+    // Scheduled-scan security
+    // ==========================
+    // Hanya scheduler yang boleh menulis ke scan_history. Request dari UI
+    // selalu read-only, walaupun seseorang mencoba ?persist=true.
+    const isScheduled = mode === "scheduled";
+    const cronSecret = process.env.CRON_SECRET;
+    const authHeader = req.headers?.authorization || "";
+
+    if (isScheduled && cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+      return res.status(401).json({
+        success: false,
+        error: "UNAUTHORIZED_SCHEDULED_SCAN",
+        message: "Scheduled scan membutuhkan CRON_SECRET yang valid."
+      });
+    }
 
     // ==========================
     // Trading day guard
@@ -171,6 +191,37 @@ export default async function handler(req, res) {
           sectorOf(k).toLowerCase() ===
           String(sector).toLowerCase()
       );
+    }
+
+    // Backup scheduler tidak perlu mengulang scan mahal jika snapshot hari ini
+    // sudah lengkap. Letakkan pengecekan sebelum pengambilan IHSG/data saham
+    // supaya backup 16:40 benar-benar hanya bekerja jika main scan gagal/belum lengkap.
+    if (isScheduled) {
+      try {
+        const coverage = await getScanCoverage(today, kodeList);
+        if (coverage.complete) {
+          return res.status(200).json({
+            success: true,
+            scheduled: true,
+            alreadyComplete: true,
+            scan_date: today,
+            scanned: kodeList.length,
+            succeeded: coverage.count,
+            failed: 0,
+            logging: {
+              logged: coverage.count,
+              expected: kodeList.length,
+              verified: true,
+              attempts: 0,
+              dbCount: coverage.count,
+              missingCodes: []
+            },
+            message: "Scheduled scan sudah lengkap; backup tidak melakukan scan ulang."
+          });
+        }
+      } catch (e) {
+        console.warn("Coverage check sebelum scan gagal:", e.message);
+      }
     }
 
     // ==========================
@@ -747,16 +798,10 @@ export default async function handler(req, res) {
     // Peringatan "jalankan 15:30-15:45" di script.js baris 51 memang
     // ada, tapi tidak ada apa pun di server yang menegakkannya.
     //
-    // Sekarang menulis harus diminta EKSPLISIT lewat ?persist=true.
-    // Default false, jadi seluruh jalur UI otomatis jadi read-only —
-    // tombolnya tidak perlu diubah sama sekali.
-    //
-    // Lapis kedua: walau persist=true dikirim, penulisan tetap ditolak
-    // sebelum 16:00 WIB. Ini menjaga dari cron yang tereksekusi telat
-    // atau terpicu salah — jenis kejadian yang sudah dua kali terjadi
-    // dalam seminggu terakhir (scan 09-07 hilang, labeling lewat tengah
-    // malam). force=true melewati pagar jam ini untuk backfill manual.
-    const wantPersist = persist === "true";
+    // Mulai sekarang hanya mode=scheduled yang boleh persist. Parameter
+    // ?persist=true dari browser sengaja diabaikan agar scan manual tidak
+    // pernah menimpa snapshot close hari berjalan.
+    const wantPersist = isScheduled;
     const wibHour = Number(
       new Date().toLocaleString("en-US", {
         timeZone: "Asia/Jakarta",
@@ -770,10 +815,12 @@ export default async function handler(req, res) {
     if (!wantPersist) {
       logResult = {
         logged: 0,
+        expected: snapshotRows.length,
+        verified: true,
         skipped: true,
-        reason: "PERSIST_NOT_REQUESTED",
+        reason: "MANUAL_READ_ONLY",
         detail:
-          "Mode baca saja. Tambahkan ?persist=true kalau memang mau menulis ke scan_history."
+          "Scan manual hanya untuk analisa. Hasil tidak ditulis ke scan_history."
       };
     } else if (!afterClose && force !== "true") {
       logResult = {
@@ -786,7 +833,35 @@ export default async function handler(req, res) {
           "Tambahkan &force=true kalau memang disengaja."
       };
     } else {
-      logResult = await logScanSnapshots(snapshotRows);
+      logResult = await logScanSnapshots(snapshotRows, { maxAttempts: 3 });
+    }
+
+    // Scheduled scan HARUS terpersist dan tervalidasi. Jangan pernah mengirim
+    // HTTP 200 jika scanner berhasil tetapi history gagal/kurang baris.
+    if (isScheduled && (
+      failed.length + analyzeErrors.length > 0 ||
+      logResult.error ||
+      !logResult.verified ||
+      logResult.logged !== snapshotRows.length
+    )) {
+      return res.status(500).json({
+        success: false,
+        scheduled: true,
+        scan_date: scanDate,
+        scanned: kodeList.length,
+        succeeded: analyzed.length,
+        failed: failed.length + analyzeErrors.length,
+        expected: kodeList.length,
+        persisted: snapshotRows.length,
+        logging: logResult,
+        error: failed.length + analyzeErrors.length > 0
+          ? "SCHEDULED_SCAN_INCOMPLETE"
+          : "SCHEDULED_SCAN_PERSIST_VALIDATION_FAILED",
+        message:
+          `Scheduled scan menghasilkan ${snapshotRows.length}/${kodeList.length} snapshot ` +
+          `dan ${logResult.logged || 0} baris tervalidasi di scan_history. ` +
+          `Failed: ${failed.length + analyzeErrors.length}. Scheduler wajib retry/backup.`
+      });
     }
 
     // ==========================
@@ -1200,6 +1275,9 @@ export default async function handler(req, res) {
 
       nextDayOpportunityAffectsRanking:
         true,
+
+      scheduled: isScheduled,
+      persistRequested: wantPersist,
 
       // ======================
       // Logging
